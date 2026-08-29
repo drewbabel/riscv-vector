@@ -348,6 +348,20 @@ Three layers, each named by its real technique.
    every configuration instruction, and it grows with each round. Spike 1.1.1-dev accepts
    `--isa=rv32im_zve32x_zvl128b`, so VLEN of 128 is selected through the `Zvl128b` ISA string, and
    the bare string without `Zvl128b` silently models VLEN of 32.
+
+   What "state after instruction i" means is decided here, because a decoupled unit breaks the
+   scalar definition from round 3 on: vector register writes land cycles after the scalar pipeline
+   retired the instruction, and sampling at scalar retirement would compare state that does not
+   exist yet. The rule: the vector unit exports its own retirement stream, one event per vector
+   instruction at the cycle its last write lands, carrying the register updates and any `vxsat`
+   effect, and the comparator matches each event against Spike's state after that instruction, in
+   program order. Configuration state and the x-register wait cases stay on the existing scalar
+   stream, since they resolve at EX commit. Every issued vector instruction carries a sequence tag
+   from issue, and the comparator orders events by tag rather than by arrival. Version 1 completes
+   in order and the tag is redundant there, but the fast-forms round runs memory and arithmetic
+   concurrently, which lets completions arrive out of program order, and a harness built on
+   arrival order would need rebuilding the day the round lands. The tag exists from the first
+   event.
 3. A directed testbench for every new module, plus one bounded SymbiYosys proof on the configuration
    unit. That unit is purely combinational over a small input space, so a proof covers every SEW,
    LMUL, AVL and instruction variant exhaustively where a testbench only samples.
