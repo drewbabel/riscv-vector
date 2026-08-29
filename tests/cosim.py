@@ -24,8 +24,21 @@ RTL = [os.path.join(ROOT, "rtl", p) for p in PKGS] + [
 ]
 
 RVGCC = "riscv64-elf-gcc"
-GCC_COMMON = ["-march=rv32im", "-mabi=ilp32", "-nostdlib", "-nostartfiles", "-Os"]
 SIM = os.path.join(BUILD, "cosim_sim")
+
+SCALAR_MARCH = "rv32im"
+VECTOR_MARCH = "rv32im_zve32x_zvl128b"  # Zvl128b or VLEN reads 32
+VECTOR = False
+
+VEC_CSRS = {0x008, 0x009, 0x00A, 0x00F, 0xC20, 0xC21, 0xC22}  # vector CSRs only
+
+
+def march():
+    return VECTOR_MARCH if VECTOR else SCALAR_MARCH
+
+
+def gcc_common():
+    return [f"-march={march()}", "-mabi=ilp32", "-nostdlib", "-nostartfiles", "-Os"]
 
 
 def sh(cmd):
@@ -42,9 +55,9 @@ def compile_monitor():
 # dut hex plus spike elf
 def build_images(src, hexout, spike_elf):
     dut_elf = os.path.join(BUILD, "dut.elf")
-    sh([RVGCC, *GCC_COMMON, "-T", "tests/link.ld", "-o", dut_elf, src])
+    sh([RVGCC, *gcc_common(), "-T", "tests/link.ld", "-o", dut_elf, src])
     sh(["riscv64-elf-objcopy", "-O", "verilog", "--verilog-data-width=4", dut_elf, hexout])
-    sh([RVGCC, *GCC_COMMON, "-T", "tests/link_spike.ld", "-o", spike_elf, src])
+    sh([RVGCC, *gcc_common(), "-T", "tests/link_spike.ld", "-o", spike_elf, src])
 
 
 # dut commit trace
@@ -64,17 +77,37 @@ def run_dut(dut_hex):
             ws, sd = int(wstrb, 16), int(sdata, 16)
             widx = (int(maddr, 16) >> 2) & (DEPTH - 1)
             store = (widx, tuple((i, (sd >> (8 * i)) & 0xFF) for i in range(4) if ws & (1 << i)))
-        trace.append((int(pc, 16), rd_i, val_i, store))
+        trace.append((int(pc, 16), rd_i, val_i, store, None))
     return trace
 
 
 SPIKE_RE = re.compile(r"core\s+\d+:\s+\d+\s+0x([0-9a-f]+)\s+\(0x([0-9a-f]+)\)(.*)")  # commit line
 
+VEC_MARK_RE = re.compile(r"\be(\d+)\s+(mf?\d+)\s+l(\d+)\b")  # vector instruction marker
+VREG_RE = re.compile(r"\bv(\d+)\s+0x([0-9a-f]+)")
+VCSR_RE = re.compile(r"\bc(\d+)_\w+\s+0x([0-9a-f]+)")
+VMEM_RE = re.compile(r"\bmem\s+0x([0-9a-f]+)(?:\s+0x([0-9a-f]+))?")
+
+
+# Vector architectural state
+def parse_vec(tail):
+    vcsrs = tuple((int(a), int(v, 16)) for a, v in VCSR_RE.findall(tail) if int(a) in VEC_CSRS)
+    mark = VEC_MARK_RE.search(tail)
+    if not mark and not vcsrs:  # vsetvli logs no marker
+        return None
+    sew = int(mark.group(1)) if mark else None
+    lmul = mark.group(2) if mark else None
+    vl = int(mark.group(3)) if mark else None
+    vregs = tuple((int(i), int(v, 16)) for i, v in VREG_RE.findall(tail))
+    mem = tuple((int(a, 16), int(v, 16) if v else None) for a, v in VMEM_RE.findall(tail))
+    return (sew, lmul, vl, vregs, vcsrs, mem)
+
 
 # Golden spike trace
 def run_spike(spike_elf, n):
     maxlines = 4 * n + 200  # head ends the park-loop
-    cmd = f"spike --isa=rv32im --pc={hex(BASE)} -l --log-commits {spike_elf} 2>&1 | head -n {maxlines}"
+    cmd = (f"spike --isa={march()} --pc={hex(BASE)} -l --log-commits {spike_elf} "
+           f"2>&1 | head -n {maxlines}")
     out = subprocess.run(cmd, shell=True, cwd=ROOT, capture_output=True, text=True).stdout
     trace = []
     for line in out.splitlines():
@@ -91,8 +124,9 @@ def run_spike(spike_elf, n):
             val = int(rm.group(2), 16) & MASK32
             if opcode in ABS_PC_OPS and rd != 0:
                 val = (val - BASE) & MASK32  # to dut space
+        vec = parse_vec(tail)
         store = None
-        sm = re.search(r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail)  # store logs addr + value
+        sm = None if vec else re.search(r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail)
         if sm:
             saddr, sval = int(sm.group(1), 16), int(sm.group(2), 16)
             width = STORE_WIDTH[(insn >> 12) & 0x7]  # sb=1 sh=2 sw=4
@@ -100,18 +134,29 @@ def run_spike(spike_elf, n):
             widx = (saddr >> 2) & (DEPTH - 1)
             store = (widx, tuple((off + k, (sval >> (8 * k)) & 0xFF) for k in range(width)))
         pc = (int(pc_raw, 16) - BASE) & MASK32  # to dut space
-        trace.append((pc, rd if rd != 0 else 0, val, store))
+        trace.append((pc, rd if rd != 0 else 0, val, store, vec))
         if len(trace) >= n:
             break
     return trace
 
 
+VCSR_NAMES = {0x008: "vstart", 0x009: "vxsat", 0x00A: "vxrm", 0x00F: "vcsr",
+              0xC20: "vl", 0xC21: "vtype", 0xC22: "vlenb"}
+
+
 def fmt(rec):
-    pc, rd, val, store = rec
+    pc, rd, val, store, vec = rec
     parts = [f"pc={pc:08x}", f"x{rd}={val:08x}" if rd else "x0"]
     if store is not None:
         widx, bs = store
         parts.append(f"mem[w{widx}] " + " ".join(f"b{i}={b:02x}" for i, b in bs))
+    if vec is not None:
+        sew, lmul, vl, vregs, vcsrs, mem = vec
+        if sew is not None:
+            parts.append(f"e{sew} {lmul} vl={vl}")
+        parts += [f"v{i}={v:032x}" for i, v in vregs]
+        parts += [f"{VCSR_NAMES.get(a, a)}={v:08x}" for a, v in vcsrs]
+        parts += [f"mem[{a:08x}]" + (f"={v:08x}" if v is not None else " read") for a, v in mem]
     return "  ".join(parts)
 
 
@@ -221,6 +266,11 @@ def run_one(src):
 
 
 def main():
+    global VECTOR
+    if "--vec" in sys.argv[1:]:
+        VECTOR = True
+        sys.argv.remove("--vec")
+
     if len(sys.argv) >= 2 and sys.argv[1] == "--rand":  # random regression
         count = int(sys.argv[2]) if len(sys.argv) >= 3 else 200
         seed0 = int(sys.argv[3]) if len(sys.argv) >= 4 else 0
@@ -243,7 +293,7 @@ def main():
         return
 
     if len(sys.argv) != 2:
-        sys.exit("usage: python3 tests/cosim.py <prog> | --rand [count] [seed0]")
+        sys.exit("usage: python3 tests/cosim.py [--vec] <prog> | --rand [count] [seed0]")
     prog = sys.argv[1]  # single program, assembly or C
     compile_monitor()
     src_c = os.path.join("tests", f"{prog}.c")
