@@ -1,8 +1,8 @@
-# riscv-pipelined
+# riscv-vector
 
-[![CI](https://github.com/drewbabel/riscv-pipelined/actions/workflows/ci.yml/badge.svg)](https://github.com/drewbabel/riscv-pipelined/actions/workflows/ci.yml)
+[![CI](https://github.com/drewbabel/riscv-vector/actions/workflows/ci.yml/badge.svg)](https://github.com/drewbabel/riscv-vector/actions/workflows/ci.yml)
 
-A 5-stage pipelined RV32IM processor in SystemVerilog, running CoreMark on a Digilent Nexys Video, with:
+The RISC-V Vector extension, version 1.0, added to a 5-stage pipelined RV32IM processor in SystemVerilog that runs CoreMark on a Digilent Nexys Video. The scalar core is finished and the vector work is in progress. The core provides:
 
 - Operands forwarded from MEM and WB, with a 1-cycle interlock on the load-use hazard.
 - A gshare predictor and branch target buffer redirecting fetch ahead of resolution in EX.
@@ -13,6 +13,25 @@ A 5-stage pipelined RV32IM processor in SystemVerilog, running CoreMark on a Dig
 - A UART bootloader streaming programs into main memory, and memory-mapped peripherals for the UART, GPIO, and cache counters.
 
 ![Pipelined core block diagram](docs/pipeline_block.svg)
+
+## Vector extension roadmap
+
+The target is a documented subset of the `Zve32x` standard subset, integer only, on 8-, 16- and 32-bit elements. Every design decision, and the list of what the subset leaves out, is in `docs/plan.md`.
+
+- [x] Bits per vector register fixed at 128, matching the 128-bit cache line and memory datapath so that one vector register is one memory transaction.
+- [x] Vector arithmetic datapath fixed at 128 bits, 4 parallel lanes at 32-bit elements.
+- [x] Attached as a decoupled co-processor, with the scalar pipeline waiting only where a vector instruction returns a value to an x register or where scalar and vector memory accesses must stay ordered.
+- [ ] Configuration instructions and the vector control and status registers.
+- [ ] Vector register file and single-width integer arithmetic.
+- [ ] Unit-stride and strided vector loads and stores through the existing data cache.
+- [ ] Multiply, multiply-add, widening operations, and reductions.
+- [ ] Fixed-point saturating add, multiply, scaling shifts, and saturating narrow, which is how a core with no floating-point unit reaches the precision that control algorithms need.
+- [ ] Masks and compares.
+- [ ] A dedicated vector port on the memory arbiter, with the speedup measured against the data cache path.
+- [ ] Spike lockstep co-simulation extended over vector architectural state.
+- [ ] A fixed-point matrix-vector multiply measured against the scalar core on hardware.
+- [ ] A deeper issue queue with concurrent memory and arithmetic execution, then scalar-vector address disambiguation, each landed as a measured change.
+- [ ] `Zve32f`, which adds vector floating point and needs a scalar F extension unit built first. Held for after the integer subset runs.
 
 ## Performance
 
