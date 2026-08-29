@@ -172,9 +172,12 @@ Distributed RAM rather than block RAM because block RAM reads are synchronous an
 register file is combinational, and matching it keeps the sequencer simple. One deliberate
 divergence from `regfile.sv`: that module zeroes its array in a reset loop, and an array with a
 reset cannot infer distributed RAM, which is an acceptable price at 32 by 32 bits and a 4096-flop
-mistake at 32 by 128. The vector register file mirrors the read-write shape and omits the reset,
-which leaves its simulation power-up state X, and the test prologue that initializes every
-register before comparing is what makes lockstep deterministic. This module gets its own row in the README
+mistake at 32 by 128. The vector register file mirrors the read-write shape, omits the reset, and
+zero-fills the array in an `initial` block instead, the `bram_sdp.sv` idiom already in this repo.
+Initialization does not block distributed-RAM inference the way a reset does, and it makes the
+contents zero at simulation start and at configuration, which is exactly Spike's reset state. A
+soft reset does not re-zero it, and the test prologue that initializes every register before
+comparing stays, covering that one gap. This module gets its own row in the README
 area table in the same change that lands it.
 
 ### The element sequencer
@@ -361,7 +364,9 @@ Three layers, each named by its real technique.
    in order and the tag is redundant there, but the fast-forms round runs memory and arithmetic
    concurrently, which lets completions arrive out of program order, and a harness built on
    arrival order would need rebuilding the day the round lands. The tag exists from the first
-   event.
+   event. One monitor obligation rides with this: `tb/cosim.sv` ends on a park sentinel, the same
+   pc retiring twice, and a completion event still in flight at that moment would be dropped
+   without any test failing. The monitor finishes only after the vector unit reports idle.
 3. A directed testbench for every new module, plus one bounded SymbiYosys proof on the configuration
    unit. That unit is purely combinational over a small input space, so a proof covers every SEW,
    LMUL, AVL and instruction variant exhaustively where a testbench only samples.
@@ -369,9 +374,9 @@ Three layers, each named by its real technique.
 Four facts about the reference model shape the tests, each verified by running Spike and reading
 its source. Spike implements both agnostic policies as undisturbed and has no mode that writes
 ones, which means a machine that is undisturbed everywhere, mask-destination tails included,
-matches it bit for bit. Spike zeroes all 32 vector registers at reset where this register file,
-built without a reset so distributed RAM infers, powers up as X in simulation, and every test
-therefore initializes the full register file before comparing. Spike traps
+matches it bit for bit. Spike zeroes all 32 vector registers at reset, and the register file's
+`initial` zero-fill matches that at simulation start; every test still initializes the full
+register file before comparing, because a soft reset does not re-zero the array. Spike traps
 every vector instruction, `vsetvli` included, until `mstatus.VS` is turned on, and the test
 prologue sets the field first. And Spike's `vl` choice is the smaller-of rule already fixed above.
 
