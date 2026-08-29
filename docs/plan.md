@@ -170,15 +170,21 @@ divergence the lockstep comparison could produce.
 reads Off. The trap covers vector CSR accesses as well as vector instructions, and `mstatus.SD` at
 bit 31 reads 1 whenever the field is Dirty. Spike models both, verified by running it, and even a
 `vsetvli` traps under Spike until software turns the field on. Skipping the field is tempting on a
-bare-metal machine with no context switching, and lockstep would diverge on the Dirty and SD bits.
+bare-metal machine with no context switching, but Spike will not run a single vector instruction
+without it, and any test that reads `mstatus` back diverges on the Dirty and SD bits.
+One caution on checking it: the Dirty and SD bits are invisible to the lockstep compare itself,
+which sees only x-register writes and the vector CSR set, and the test prologue's `csrs` writes
+`mstatus` without reading it back. So the field is checked two ways in round 2, a hand-written
+test that reads `mstatus` into a register after a `vsetvli`, and directed testbench cases on the
+write legalizer.
 Implementing the field forces a change `csr.sv` has gotten away without: `mstatus` is currently
 written raw, `mstatus <= csr_wdata` with no mask, and a stored SD bit or an unlegalized VS value
-would diverge from Spike on the first `csrw`. Round 2 adds the write legalizer, VS as a two-bit
-WARL field, SD derived on read rather than stored, and the Dirty transition itself: every vector
-instruction reaching EX commit, configuration instructions included, and every Zicsr write to a
-vector CSR sets the field to Dirty at that commit. That is per-instruction timing, so the
-decoupled unit's later register writes carry no `mstatus` side effect of their own, and the first
-`mstatus` read after a `vsetvli` in round 2's lockstep confirms it matches Spike's marking.
+would diverge from Spike on the first observed `csrw`. Round 2 adds the write legalizer, VS as a
+two-bit WARL field, SD derived on read rather than stored, and the Dirty transition itself: every
+vector instruction reaching EX commit, configuration instructions included, and every Zicsr write
+to a vector CSR sets the field to Dirty at that commit. That is per-instruction timing, so the
+decoupled unit's later register writes carry no `mstatus` side effect of their own, and the
+hand-written `mstatus` read above confirms the timing matches Spike's marking.
 
 Two Zicsr behaviors in `csr.sv` also diverge from Spike and shape round 2. A write to the
 read-only CSR address quadrant, `csr_addr[11:10]` of `2'b11`, which is where `vl`, `vtype` and
@@ -473,7 +479,11 @@ Three layers, each named by its real technique.
    is the primary check on vector behavior, it starts at round 2 by checking `vl` and `vtype` after
    every configuration instruction, and it grows with each round. The scalar stream carries no CSR
    fields today, so round 2 adds the `vl`, `vtype` and `vstart` debug taps beside the existing
-   eight, the same threading pattern. Spike 1.1.1-dev accepts
+   eight, the same threading pattern, plus the comparator's DUT-side vector record, which the
+   `--vec` parser currently hardcodes empty. Spike's commit log prints only the CSRs an
+   instruction changed, a repeated identical `vsetvli` logs `vl` and not `vtype`, so the
+   comparator carries a shadow copy of the last-seen configuration rather than expecting every
+   line to be complete. Spike 1.1.1-dev accepts
    `--isa=rv32im_zve32x_zvl128b`, so VLEN of 128 is selected through the `Zvl128b` ISA string, and
    the bare string without `Zvl128b` silently models VLEN of 32.
 
@@ -519,11 +529,24 @@ prologue sets the field first. And Spike's `vl` choice is the smaller-of rule al
 `-march=rv32im_zve32x_zvl128b -mabi=ilp32 -fno-tree-vectorize -mstringop-strategy=scalar`, because
 gcc otherwise inline-expands `memcpy`, `strlen` and `strcmp` into vector code, fault-only-first
 load included, even at `-O1`. A build step greps the generated assembly for `vsetvl` as the
-guarantee that scalar baselines stayed scalar. chipsalliance/riscv-vector-tests generates
-per-instruction tests at VLEN of 128 and XLEN of 32 and filters to a chosen subset by filename
-pattern. Its rv32 defaults assume a floating-point scalar core, which means the `MARCH`, `MABI`
-and `VARCH` variables get overridden, and it never exercises agnostic policies, nonzero `vstart`,
-or a SEW of 64 that must set `vill`. The last two are hand-written tests.
+guarantee that scalar baselines stayed scalar. Neither the flags nor the grep are wired into
+`cosim.py`'s common flags yet; both land with the first compiled test.
+chipsalliance/riscv-vector-tests generates per-instruction tests at VLEN of 128 and XLEN of 32,
+filtered by an anchored regular expression over instruction names. Every default that assumes a
+64-bit floating-point host moves: `VLEN`, `XLEN`, `INTEGER`, `TEST_MODE`, `MARCH`, `MABI`,
+`VARCH`, `RISCV_PREFIX` and `SPIKE_INSTALL`, and the working invocation is recorded in the
+toolchain cheatsheet. Its configuration tests sweep all four `vta` and `vma` encodings and read
+`vtype` back, which the stored-and-reported fields above answer; what no generated test does is
+observe an agnostic destination, write a nonzero `vstart`, issue a misaligned vector access, or
+reach a SEW of 64 that must set `vill`, and the last two are hand-written tests. Two mechanical
+gaps stand between the generator and this harness, both budgeted in round 2 as the first consumer.
+Generated programs end the riscv-tests way, an `ecall` into a three-instruction `write_tohost`
+loop that never retires the same pc twice in a row, so the monitor's park sentinel never fires;
+the build step rewrites the ending into the park loop the monitor stops on, which is safe because
+under lockstep the self-checking epilogue is redundant, both machines running it identically. And
+the flat top's 64-word memories and zero link base cannot hold a generated test's hundred
+kilobytes based at `0x80000000`; the memories deepen by parameter and the link base aligns with
+the generator's, a parameter change, not a redesign.
 
 ## The subset, accounted against `Zve32x`
 
