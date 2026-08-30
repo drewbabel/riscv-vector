@@ -1,3 +1,5 @@
+`default_nettype none
+
 module gate_check_tb ();
   import cache_pkg::*;
   localparam int DEPTH = 16384, ClkDiv = 32, MaxChars = 2;
@@ -65,3 +67,5 @@ module gate_check_tb ();
     $finish;
   end
 endmodule
+
+`default_nettype wire

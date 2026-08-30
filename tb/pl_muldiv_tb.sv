@@ -1,3 +1,5 @@
+`default_nettype none
+
 module pl_muldiv_tb ();
 
   localparam int Xlen = 32;
@@ -81,3 +83,5 @@ module pl_muldiv_tb ();
   end
 
 endmodule
+
+`default_nettype wire

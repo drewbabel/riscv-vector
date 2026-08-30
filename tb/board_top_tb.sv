@@ -1,3 +1,5 @@
+`default_nettype none
+
 module board_top_tb ();
 
   int          checks = 0;
@@ -102,3 +104,5 @@ module board_top_tb ();
   end
 
 endmodule
+
+`default_nettype wire

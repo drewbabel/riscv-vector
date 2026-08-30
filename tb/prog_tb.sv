@@ -1,3 +1,5 @@
+`default_nettype none
+
 module prog_tb ();
 
   localparam int Xlen = 32;
@@ -70,3 +72,5 @@ module prog_tb ();
   end
 
 endmodule
+
+`default_nettype wire

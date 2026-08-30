@@ -1,3 +1,5 @@
+`default_nettype none
+
 module dcache_tb;
 
   import cache_pkg::*;
@@ -265,3 +267,5 @@ module dcache_tb;
   end
 
 endmodule
+
+`default_nettype wire

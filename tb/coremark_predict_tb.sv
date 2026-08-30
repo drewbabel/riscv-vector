@@ -1,3 +1,5 @@
+`default_nettype none
+
 module coremark_predict_tb ();
 
   import cache_pkg::*;
@@ -80,3 +82,5 @@ module coremark_predict_tb ();
     $fatal(1, "TIMEOUT");
   end
 endmodule
+
+`default_nettype wire
