@@ -1,3 +1,5 @@
+`default_nettype none
+
 module muldiv_formal
   import muldiv_pkg::*;
 ();
@@ -103,3 +105,5 @@ module muldiv_formal
     end
 
 endmodule
+
+`default_nettype wire
