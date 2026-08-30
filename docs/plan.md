@@ -637,19 +637,21 @@ Recorded from reading the core, so no round has to rediscover it.
 
 ## The fast forms, planned
 
-Each block lands basic first and upgrades on a measurement, and the upgrades are planned work with
-their own round. In priority order:
+Each block lands basic first and upgrades on a measurement. These are the three upgrades, in
+priority order, and they do not all belong to one round. The first is round 8 on its own, because
+the measurement it turns on has to precede the kernel that round 9 measures. The second and third
+are round 10, after that kernel exists as the before-and-after baseline.
 
-1. The dedicated memory path, decided between the `mem_arb` port and the widened cache port by the
-   measured profile. The memory path section above carries the constraints; round 8 makes the
-   call with the measurement in hand.
-2. Concurrent execution inside the vector unit. The issue queue deepens to 2 and the memory unit
+1. Round 8. The dedicated memory path, decided between the `mem_arb` port and the widened cache
+   port by the measured profile. The memory path section above carries the constraints; round 8
+   makes the call with the measurement in hand.
+2. Round 10. Concurrent execution inside the vector unit. The issue queue deepens to 2 and the memory unit
    runs a load or store while the arithmetic lanes execute a later instruction, tracked by a
    per-register-group busy scoreboard, with the register file gaining the port headroom
    concurrency needs, a store read port beside the arithmetic three and arbitration or a second
    port on writes. Memory beats dominate vector cycles on this machine, and
    the overlap hides them behind arithmetic the program already pays for.
-3. Scalar-vector address disambiguation. The conservative ordering waits become an address-range
+3. Round 10. Scalar-vector address disambiguation. The conservative ordering waits become an address-range
    compare against the pending vector access. A shallow queue makes the compare one bounds check
    where Saturn needs a CAM, which is what makes the upgrade cheap here.
 
@@ -673,7 +675,6 @@ checked box means the step is done.
 - [x] **Toolchain bring-up.** Spike at `rv32im_zve32x_zvl128b`, the `riscv-vector-tests` generator
       retargeted to a 32-bit host, and the lockstep harness carrying the vector state Spike logs.
 - [ ] **The microarchitecture sketch.** The block diagram of the unit the rounds below build.
-- [ ] **`fence.i` on the scalar core.** Built in the scalar repository and cherry-picked in.
 - [ ] **Round 2. The configuration instructions and the vector control registers.** First RTL: the
       combinational configuration unit and its `vill` table, the CSR entries, `mstatus.VS` with its
       write legalizer, Dirty transition and derived SD, the read-only-quadrant trap, and the `vl`,
@@ -698,14 +699,19 @@ checked box means the step is done.
 - [ ] **Round 8. The dedicated vector memory bandwidth,** decided between a fourth `mem_arb` source
       and a widened cache CPU port by the measured profile, with the speedup measured against round
       4 and the cache-interaction mechanism the memory path section names.
+- [ ] **`fence.i` on the scalar core.** Built in the scalar repository and cherry-picked in. It
+      needs a sweep that writes back every dirty data-cache line and a runtime invalidate on the
+      instruction cache, which is the mechanism round 8 builds, so it lands on top of that sweep
+      rather than ahead of it.
 - [ ] **Round 9. The full-subset sweep and the measured kernel.**
-  - [ ] The full-subset lockstep sweep.
+  - [ ] The full-subset lockstep sweep, in simulation.
+  - [ ] Build on the Nexys Video, since the headline number is a board measurement.
   - [ ] The scalar Q15 reference kernel written for the baseline, and the fixed-point
         matrix-vector kernel measured in cycles against it.
-- [ ] **Build on the Nexys Video, update the README, and route the artifact.**
 - [ ] **Round 10. The fast forms in priority order.** The deeper issue queue with concurrent memory
       and arithmetic execution and the register-file ports it needs, then scalar-vector address
       disambiguation, each with a before-and-after measurement.
+- [ ] **Update the README and route the artifact.**
 
 The headline result is a fixed-point matrix-vector multiply measured on the board against the
 scalar core at the same clock, in cycles from `mcycle`, in the column form: the output vector
