@@ -1,3 +1,5 @@
+`default_nettype none
+
 module pl_loaduse_tb ();
 
   localparam int Xlen = 32;
@@ -62,3 +64,5 @@ module pl_loaduse_tb ();
   end
 
 endmodule
+
+`default_nettype wire

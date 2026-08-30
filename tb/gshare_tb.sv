@@ -1,3 +1,5 @@
+`default_nettype none
+
 module gshare_tb;
 
   import bp_pkg::*;
@@ -124,3 +126,5 @@ module gshare_tb;
   end
 
 endmodule
+
+`default_nettype wire

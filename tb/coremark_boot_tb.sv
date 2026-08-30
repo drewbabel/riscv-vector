@@ -1,3 +1,5 @@
+`default_nettype none
+
 module coremark_boot_tb ();
 
   import cache_pkg::*;
@@ -101,3 +103,5 @@ module coremark_boot_tb ();
     $fatal(1, "TIMEOUT before CoreMark completion");
   end
 endmodule
+
+`default_nettype wire

@@ -1,3 +1,5 @@
+`default_nettype none
+
 module pl_branch_tb ();
 
   localparam int Xlen = 32;
@@ -66,3 +68,5 @@ module pl_branch_tb ();
   end
 
 endmodule
+
+`default_nettype wire

@@ -1,3 +1,5 @@
+`default_nettype none
+
 module dmem_tb ();
 
   localparam int XLEN = 32;
@@ -106,3 +108,5 @@ module dmem_tb ();
   end
 
 endmodule
+
+`default_nettype wire

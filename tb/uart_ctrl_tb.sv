@@ -1,3 +1,5 @@
+`default_nettype none
+
 module uart_ctrl_tb ();
 
   int checks = 0;
@@ -211,3 +213,5 @@ module uart_ctrl_tb ();
   end
 
 endmodule
+
+`default_nettype wire

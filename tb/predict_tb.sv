@@ -1,3 +1,5 @@
+`default_nettype none
+
 module predict_tb ();
 
   localparam int Xlen = 32;
@@ -59,3 +61,5 @@ module predict_tb ();
   end
 
 endmodule
+
+`default_nettype wire
