@@ -1,3 +1,5 @@
+`default_nettype none
+
 module control_decoder
   import csr_pkg::*;
   import opcode_pkg::*;
@@ -152,3 +154,5 @@ module control_decoder
   end
 
 endmodule
+
+`default_nettype wire

@@ -1,3 +1,5 @@
+`default_nettype none
+
 module uart_tx #(
     parameter int CLK_FREQ_HZ = 100_000_000,
     parameter int BAUD_RATE   = 115_200,
@@ -99,3 +101,5 @@ module uart_tx #(
   end
 
 endmodule
+
+`default_nettype wire

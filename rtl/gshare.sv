@@ -1,3 +1,5 @@
+`default_nettype none
+
 module gshare
   import bp_pkg::*;
 #(
@@ -47,3 +49,5 @@ module gshare
   end
 
 endmodule
+
+`default_nettype wire

@@ -1,3 +1,5 @@
+`default_nettype none
+
 module csr
   import csr_pkg::*;
 #(
@@ -226,3 +228,5 @@ module csr
   assign dbg_minstreth = minstreth;
 `endif
 endmodule
+
+`default_nettype wire

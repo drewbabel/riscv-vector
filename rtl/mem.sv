@@ -1,3 +1,5 @@
+`default_nettype none
+
 module mem #(
     parameter int XLEN = 32,
     parameter int DEPTH = 8192,
@@ -34,3 +36,5 @@ module mem #(
   endgenerate
 
 endmodule
+
+`default_nettype wire

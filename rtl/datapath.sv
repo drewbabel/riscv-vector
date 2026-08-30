@@ -1,3 +1,5 @@
+`default_nettype none
+
 module datapath
   import alu_pkg::*;
   import opcode_pkg::*;
@@ -794,3 +796,5 @@ module datapath
 `endif
 
 endmodule
+
+`default_nettype wire
