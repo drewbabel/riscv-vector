@@ -1,3 +1,5 @@
+`default_nettype none
+
 module tick_gen_tb ();
 
   localparam int DIVISOR = 4;
@@ -90,3 +92,5 @@ module tick_gen_tb ();
     if (rst_n) check(tick, (phase == DIVISOR - 1));
   end
 endmodule
+
+`default_nettype wire

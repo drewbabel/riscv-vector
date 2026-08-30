@@ -1,3 +1,5 @@
+`default_nettype none
+
 module mem_arb_tb;
 
   import cache_pkg::*;
@@ -606,3 +608,5 @@ module mem_arb_tb;
   end
 
 endmodule
+
+`default_nettype wire

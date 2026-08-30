@@ -1,3 +1,5 @@
+`default_nettype none
+
 module board_ext_irq_tb ();
 
   int          checks = 0;
@@ -111,3 +113,5 @@ module board_ext_irq_tb ();
   end
 
 endmodule
+
+`default_nettype wire

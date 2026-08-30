@@ -1,3 +1,5 @@
+`default_nettype none
+
 module alu_decoder_tb
   import alu_pkg::*;
 ();
@@ -76,3 +78,5 @@ module alu_decoder_tb
   end
 
 endmodule
+
+`default_nettype wire

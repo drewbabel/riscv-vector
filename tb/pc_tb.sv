@@ -1,3 +1,5 @@
+`default_nettype none
+
 module pc_tb ();
   int checks = 0;
   int errors = 0;
@@ -72,3 +74,5 @@ module pc_tb ();
     do_verdict();
   end
 endmodule
+
+`default_nettype wire

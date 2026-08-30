@@ -1,3 +1,5 @@
+`default_nettype none
+
 module gpio_tb;
 
   int checks = 0;
@@ -132,3 +134,5 @@ module gpio_tb;
   end
 
 endmodule
+
+`default_nettype wire

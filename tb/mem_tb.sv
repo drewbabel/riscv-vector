@@ -1,3 +1,5 @@
+`default_nettype none
+
 module mem_tb ();
 
   int checks = 0;
@@ -149,3 +151,5 @@ module mem_tb ();
   end
 
 endmodule
+
+`default_nettype wire

@@ -1,3 +1,5 @@
+`default_nettype none
+
 module btb_tb;
 
   import bp_pkg::*;
@@ -142,3 +144,5 @@ module btb_tb;
   end
 
 endmodule
+
+`default_nettype wire

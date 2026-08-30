@@ -1,3 +1,5 @@
+`default_nettype none
+
 module embench_boot_tb ();
 
   import cache_pkg::*;
@@ -102,3 +104,5 @@ module embench_boot_tb ();
     $fatal(1, "TIMEOUT before Embench completion");
   end
 endmodule
+
+`default_nettype wire
