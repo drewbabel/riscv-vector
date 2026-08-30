@@ -63,69 +63,6 @@ from the first round.
 
 ## Microarchitecture
 
-### Coupling
-
-A decoupled co-processor, per Jain's stated steer, built as a one-deep instruction queue and a busy
-signal. The scalar core issues vector instructions and continues, except where an instruction
-produces a value only the vector unit can supply. Those cases are `vmv.x.s` moving element 0 into
-an x register, and `vcpop.m` and `vfirst.m` writing mask summaries into an x register. The
-configuration instructions are not wait cases: the configuration section below computes them
-combinationally in EX, and their `rd` value is ready the same cycle. A Zicsr access to `vxsat` or
-`vcsr`, read or write, also waits, because an in-flight fixed-point instruction may still write the
-saturation flag, and a younger write that lands first would be clobbered when it does. The value a
-wait produces returns the way a `muldiv` result does: the vector unit hands it back during the
-hold, it enters the EX result path, and the writeback and forwarding networks never learn anything
-new.
-
-Every queue entry carries a snapshot of the configuration it was issued under: `vl`, the `vtype`
-fields and `vxrm`, captured the cycle the instruction enters the queue. The sequencer, the lane
-enables and the beat counts read only the snapshot. A younger `vsetvli` can therefore retire and
-rewrite the live registers while an older instruction is still queued or mid-execution, which is
-the reconfigure-between-loops pattern every vector program runs, and nothing downstream of issue
-ever reads the live copy. A later `csrw` to `vxrm` needs no wait for the same reason.
-
-The existing `muldiv` unit is the precedent for the stall mechanism, using `start`, `busy` and
-`done` with `muldiv_hold` gating the pipeline. The vector unit is the same shape, decoupled by
-default rather than stalling by default. It instantiates inside `datapath.sv` beside `muldiv`,
-because everything its issue interface needs lives there, `instr_ex`, the forwarded operands and
-`commit_valid`, and its memory traffic leaves through the core's existing data-memory outputs via
-the mux the memory path section places.
-
-The waits, both the x-register-result cases above and the memory-ordering rule below, are
-implemented as EX holds in the `muldiv_hold` shape. That shape is every expression `muldiv_hold`
-appears in, four sites: `commit_valid` at `datapath.sv:371`, `ex_hold` at 403, `stall` at 399 and
-`fwd_hold` at 418. The vector hold term joins each site the same way `muldiv` answers it, and the
-371 site is the one that cannot be missed, because without it a held instruction re-fires its
-architectural writes every cycle of the hold, `minstret` counts the hold's length, and the
-interrupt behavior below inverts. A scalar load or store is identifiable in EX from
-`result_src_ex` and `mem_write_ex`, and holds there while the
-vector unit reports conflicting pending work. Nothing changes in the MEM stage, and the existing
-`exmem_bubble` machinery injects the NOPs for free.
-
-Memory ordering follows the rule every comparable decoupled unit ships, from Vicuna through Ara,
-Spatz and Hwacha. A scalar load waits until no vector store is pending, a scalar store waits until
-no vector load or store is pending, and a `fence` drains the unit entirely. The scalar-store half
-matters as much as the load half. A younger scalar store slipping past a queued older vector store
-inverts a write-after-write order, and slipping past a queued older vector load hands that load
-data it should not see yet. Version 1 implements the rule as a conservative wait with no address
-comparison. Comparing addresses, the way Saturn's disambiguation CAM does, is an optimization that
-needs a measurement behind it before it earns its complexity.
-
-The pending-work flags those holds test are two signals, a vector load pending and a vector store
-pending, and their edges are exact. Each sets the cycle its instruction enters the issue queue,
-never at execution start, because the window between queue entry and first beat is precisely where
-a younger scalar access could otherwise slip past. Each clears when the instruction's final beat
-completes its handshake on the cache port. The port is shared and in order, which makes the
-handshake the visibility point: a store beat the cache has accepted is a store beat any later
-scalar load through the same port will see. With a one-deep queue the flags need no counters, one
-flag per queue slot and one per executing instruction, ORed; up to two vector instructions are
-resident at once, one queued and one executing, and every capacity statement in this plan means
-those two. A load or store at `vl` of 0 issues zero beats and completes the cycle it reaches the
-sequencer, clearing its flag then, and it still emits its retirement event so the comparator's
-tag sequence stays gapless. A masked store issues its full beat count with the masked elements'
-strobes zeroed; suppressing whole beats would make the beat count mask-dependent and buys nothing
-on an in-order port.
-
 ### Configuration state
 
 `vl`, `vtype`, `vlenb` and `vstart` live in `csr.sv` alongside the machine-mode registers, at
@@ -196,6 +133,69 @@ and lockstep tests simply never touch an unimplemented address.
 
 `vta` and `vma` are stored and reported back, and the hardware always uses the undisturbed policy.
 Section 3.4.3 permits exactly this for an in-order implementation.
+
+### Coupling
+
+A decoupled co-processor, per Jain's stated steer, built as a one-deep instruction queue and a busy
+signal. The scalar core issues vector instructions and continues, except where an instruction
+produces a value only the vector unit can supply. Those cases are `vmv.x.s` moving element 0 into
+an x register, and `vcpop.m` and `vfirst.m` writing mask summaries into an x register. The
+configuration instructions are not wait cases: the configuration section above computes them
+combinationally in EX, and their `rd` value is ready the same cycle. A Zicsr access to `vxsat` or
+`vcsr`, read or write, also waits, because an in-flight fixed-point instruction may still write the
+saturation flag, and a younger write that lands first would be clobbered when it does. The value a
+wait produces returns the way a `muldiv` result does: the vector unit hands it back during the
+hold, it enters the EX result path, and the writeback and forwarding networks never learn anything
+new.
+
+Every queue entry carries a snapshot of the configuration it was issued under: `vl`, the `vtype`
+fields and `vxrm`, captured the cycle the instruction enters the queue. The sequencer, the lane
+enables and the beat counts read only the snapshot. A younger `vsetvli` can therefore retire and
+rewrite the live registers while an older instruction is still queued or mid-execution, which is
+the reconfigure-between-loops pattern every vector program runs, and nothing downstream of issue
+ever reads the live copy. A later `csrw` to `vxrm` needs no wait for the same reason.
+
+The existing `muldiv` unit is the precedent for the stall mechanism, using `start`, `busy` and
+`done` with `muldiv_hold` gating the pipeline. The vector unit is the same shape, decoupled by
+default rather than stalling by default. It instantiates inside `datapath.sv` beside `muldiv`,
+because everything its issue interface needs lives there, `instr_ex`, the forwarded operands and
+`commit_valid`, and its memory traffic leaves through the core's existing data-memory outputs via
+the mux the memory path section places.
+
+The waits, both the x-register-result cases above and the memory-ordering rule below, are
+implemented as EX holds in the `muldiv_hold` shape. That shape is every expression `muldiv_hold`
+appears in, four sites: `commit_valid` at `datapath.sv:371`, `ex_hold` at 403, `stall` at 399 and
+`fwd_hold` at 418. The vector hold term joins each site the same way `muldiv` answers it, and the
+371 site is the one that cannot be missed, because without it a held instruction re-fires its
+architectural writes every cycle of the hold, `minstret` counts the hold's length, and the
+interrupt behavior below inverts. A scalar load or store is identifiable in EX from
+`result_src_ex` and `mem_write_ex`, and holds there while the
+vector unit reports conflicting pending work. Nothing changes in the MEM stage, and the existing
+`exmem_bubble` machinery injects the NOPs for free.
+
+Memory ordering follows the rule every comparable decoupled unit ships, from Vicuna through Ara,
+Spatz and Hwacha. A scalar load waits until no vector store is pending, a scalar store waits until
+no vector load or store is pending, and a `fence` drains the unit entirely. The scalar-store half
+matters as much as the load half. A younger scalar store slipping past a queued older vector store
+inverts a write-after-write order, and slipping past a queued older vector load hands that load
+data it should not see yet. Version 1 implements the rule as a conservative wait with no address
+comparison. Comparing addresses, the way Saturn's disambiguation CAM does, is an optimization that
+needs a measurement behind it before it earns its complexity.
+
+The pending-work flags those holds test are two signals, a vector load pending and a vector store
+pending, and their edges are exact. Each sets the cycle its instruction enters the issue queue,
+never at execution start, because the window between queue entry and first beat is precisely where
+a younger scalar access could otherwise slip past. Each clears when the instruction's final beat
+completes its handshake on the cache port. The port is shared and in order, which makes the
+handshake the visibility point: a store beat the cache has accepted is a store beat any later
+scalar load through the same port will see. With a one-deep queue the flags need no counters, one
+flag per queue slot and one per executing instruction, ORed; up to two vector instructions are
+resident at once, one queued and one executing, and every capacity statement in this plan means
+those two. A load or store at `vl` of 0 issues zero beats and completes the cycle it reaches the
+sequencer, clearing its flag then, and it still emits its retirement event so the comparator's
+tag sequence stays gapless. A masked store issues its full beat count with the masked elements'
+strobes zeroed; suppressing whole beats would make the beat count mask-dependent and buys nothing
+on an in-order port.
 
 ### Vector register file
 
@@ -277,64 +277,6 @@ pipelined multiplies is after the array's registers drain, not at the counter's 
 fast-forms round is what splits this block: concurrent memory and arithmetic execution means two
 sequencers, one per unit, with the per-register-group scoreboard arbitrating between them.
 
-### Vector multiply and divide
-
-A dedicated 4-lane 32-bit multiply array inside the vector unit, each lane producing the full
-64-bit product, because `vmulh` and its unsigned and mixed forms return the high half, the
-widening multiplies return both halves, and `vsmul`'s rounding examines it. Throughput is four
-products per phase at every SEW; the multipliers do not subdivide the way the adders do, and
-packing two 16-bit multiplies into one DSP is an optimization with no kernel demanding it. Routing
-vector multiplies through the existing `muldiv` would serialize every element behind a single unit
-whose `muldiv_hold` stalls the entire pipeline, which defeats the decoupling above. The scalar
-core's own DSP usage sits in the README's utilization table, a small fraction of what the XC7A200T
-carries.
-
-Vector divide is not built. `Zve32x` mandates it, and the kernels this core is aimed at use divide
-only in normalization and matrix inversion steps, both off the inner loop. The fallback is priced
-in the subset section, and it is rare enough for the scalar divider to absorb.
-
-### Fixed-point arithmetic
-
-Built, and the reason is precision rather than conformance. The target workloads are matrix and
-matrix-vector multiply inside control dynamics and model predictive control, with the dense
-subproblems of simultaneous localization and mapping behind them; SLAM's sparse core needs the
-indexed gather at the top of the stretch list, so it arrives in full only if that lands. Those
-algorithms fail to converge at 8-bit integer precision. This core has no floating-point unit, so
-fixed-point Q-format arithmetic is the only route to the precision they need.
-
-Four instruction families carry it. `vsadd` and `vssub` are the saturating add and subtract, which
-keep an accumulating update from wrapping. `vsmul` is the fractional multiply, computing
-`clip(roundoff_signed(vs2[i]*vs1[i], SEW-1))`. `vssrl` and `vssra` are the rounding scaling shifts.
-`vnclip` is the saturating narrowing clip. All four reuse the multiply array and the adders built
-for single-width arithmetic, so the added hardware is the rounding increment logic, the saturation
-comparators, and the `vxrm` and `vxsat` control registers at addresses `0x00A` and `0x009`,
-mirrored in `vcsr` at `0x00F`. Both registers live in the vector unit rather than in `csr.sv`,
-because `csr.sv`'s writes gate on `commit_valid` and a decoupled saturation update lands cycles
-after its instruction committed, on a cycle the CSR file may be frozen. `csr.sv` keeps the
-addresses: its read multiplexer returns the vector unit's live values through a read port, a Zicsr
-write forwards across the same interface, and the wait in the coupling section keeps both
-directions ordered against in-flight fixed-point work. The hardware carries no radix point of its
-own, so the software chooses the Q format freely.
-
-One obligation rides with 32-bit accumulation. The production reference for this shape,
-CMSIS-DSP's `arm_mat_mult_q15`, accumulates in 64 bits precisely to absorb row-length growth, and
-`Zve32x`'s 32-bit ceiling forecloses that. A 2.30 product in a 32-bit accumulator leaves one spare
-integer bit, so the kernel owns its overflow headroom, pre-scaling inputs or bounding row length,
-and the round 9 kernel documents that choice beside the measurement.
-
-### Memory access patterns
-
-Unit-stride and strided loads and stores are both built, at every element width `Zve32x` names, 8,
-16 and 32. The headline kernel is the reason. The column form of a Q15 matrix-vector multiply
-accumulates the output vector across matrix columns, and a column of a row-major matrix is a
-strided access, `vlse16.v` at a row-length stride, while the row form is unit-stride but spends a
-reduction per output element; Embench's `matmult-int` source reads its B operand by column the
-same way. Through round 8 a strided element is one 32-bit cache access, the same traffic as the
-scalar load it replaces, so the strided win there is instruction count and decoupling, not
-bandwidth, and the dedicated path's whole-line transfers never apply to a strided access at all,
-which the round 8 fork prices. The delta over unit-stride is address generation, base plus index
-times stride rather than base plus a fixed element size, and the loss of the whole-line fast path.
-
 ### Traps, interrupts and `vstart`
 
 Every check that could reject a vector instruction resolves in EX, before the instruction enters
@@ -377,6 +319,19 @@ model: Spike completes the elements before a misaligned one, traps with `vstart`
 never faults a masked-off element, where this machine rejects the whole instruction with nothing
 done. No generated or planned test issues a misaligned vector access, and the round 4 test filter
 enforces that.
+
+### Memory access patterns
+
+Unit-stride and strided loads and stores are both built, at every element width `Zve32x` names, 8,
+16 and 32. The headline kernel is the reason. The column form of a Q15 matrix-vector multiply
+accumulates the output vector across matrix columns, and a column of a row-major matrix is a
+strided access, `vlse16.v` at a row-length stride, while the row form is unit-stride but spends a
+reduction per output element; Embench's `matmult-int` source reads its B operand by column the
+same way. Through round 8 a strided element is one 32-bit cache access, the same traffic as the
+scalar load it replaces, so the strided win there is instruction count and decoupling, not
+bandwidth, and the dedicated path's whole-line transfers never apply to a strided access at all,
+which the round 8 fork prices. The delta over unit-stride is address generation, base plus index
+times stride rather than base plus a fixed element size, and the loss of the whole-line fast path.
 
 ### Memory path
 
@@ -440,33 +395,50 @@ is the other route to bandwidth. A hit-bound profile favors the wider cache port
 or streaming profile favors the direct path, strided traffic is per-element on either route and
 gains from neither, and round 8 decides with the numbers in hand.
 
-## The fast forms, planned
+### Vector multiply and divide
 
-Each block lands basic first and upgrades on a measurement, and the upgrades are planned work with
-their own round. In priority order:
+A dedicated 4-lane 32-bit multiply array inside the vector unit, each lane producing the full
+64-bit product, because `vmulh` and its unsigned and mixed forms return the high half, the
+widening multiplies return both halves, and `vsmul`'s rounding examines it. Throughput is four
+products per phase at every SEW; the multipliers do not subdivide the way the adders do, and
+packing two 16-bit multiplies into one DSP is an optimization with no kernel demanding it. Routing
+vector multiplies through the existing `muldiv` would serialize every element behind a single unit
+whose `muldiv_hold` stalls the entire pipeline, which defeats the decoupling above. The scalar
+core's own DSP usage sits in the README's utilization table, a small fraction of what the XC7A200T
+carries.
 
-1. The dedicated memory path, decided between the `mem_arb` port and the widened cache port by the
-   measured profile. The memory path section above carries the constraints; round 8 makes the
-   call with the measurement in hand.
-2. Concurrent execution inside the vector unit. The issue queue deepens to 2 and the memory unit
-   runs a load or store while the arithmetic lanes execute a later instruction, tracked by a
-   per-register-group busy scoreboard, with the register file gaining the port headroom
-   concurrency needs, a store read port beside the arithmetic three and arbitration or a second
-   port on writes. Memory beats dominate vector cycles on this machine, and
-   the overlap hides them behind arithmetic the program already pays for.
-3. Scalar-vector address disambiguation. The conservative ordering waits become an address-range
-   compare against the pending vector access. A shallow queue makes the compare one bounds check
-   where Saturn needs a CAM, which is what makes the upgrade cheap here.
+Vector divide is not built. `Zve32x` mandates it, and the kernels this core is aimed at use divide
+only in normalization and matrix inversion steps, both off the inner loop. The fallback is priced
+in the subset section, and it is rare enough for the scalar divider to absorb.
 
-Two upgrades are deliberately off the ladder. Element-level chaining pays when a vector instruction
-runs for many cycles, and at DLEN equal to VLEN an arithmetic instruction takes 1 to 8 cycles,
-which leaves nothing worth forwarding into. A larger VLEN would outrun the 128-bit memory system,
-grow the register file past the distributed-RAM sweet spot, and buy little for workloads that are
-memory-bound before they are compute-bound.
+### Fixed-point arithmetic
 
-The vector unit also must not move the core's critical path. The multiply array keeps its DSP
-pipeline registers, which is where the drain in the sequencer's `done` rule comes from, and the
-frequency gap the scalar core already carries stays its own workstream, unchanged by vector work.
+Built, and the reason is precision rather than conformance. The target workloads are matrix and
+matrix-vector multiply inside control dynamics and model predictive control, with the dense
+subproblems of simultaneous localization and mapping behind them; SLAM's sparse core needs the
+indexed gather at the top of the stretch list, so it arrives in full only if that lands. Those
+algorithms fail to converge at 8-bit integer precision. This core has no floating-point unit, so
+fixed-point Q-format arithmetic is the only route to the precision they need.
+
+Four instruction families carry it. `vsadd` and `vssub` are the saturating add and subtract, which
+keep an accumulating update from wrapping. `vsmul` is the fractional multiply, computing
+`clip(roundoff_signed(vs2[i]*vs1[i], SEW-1))`. `vssrl` and `vssra` are the rounding scaling shifts.
+`vnclip` is the saturating narrowing clip. All four reuse the multiply array and the adders built
+for single-width arithmetic, so the added hardware is the rounding increment logic, the saturation
+comparators, and the `vxrm` and `vxsat` control registers at addresses `0x00A` and `0x009`,
+mirrored in `vcsr` at `0x00F`. Both registers live in the vector unit rather than in `csr.sv`,
+because `csr.sv`'s writes gate on `commit_valid` and a decoupled saturation update lands cycles
+after its instruction committed, on a cycle the CSR file may be frozen. `csr.sv` keeps the
+addresses: its read multiplexer returns the vector unit's live values through a read port, a Zicsr
+write forwards across the same interface, and the wait in the coupling section keeps both
+directions ordered against in-flight fixed-point work. The hardware carries no radix point of its
+own, so the software chooses the Q format freely.
+
+One obligation rides with 32-bit accumulation. The production reference for this shape,
+CMSIS-DSP's `arm_mat_mult_q15`, accumulates in 64 bits precisely to absorb row-length growth, and
+`Zve32x`'s 32-bit ceiling forecloses that. A 2.30 product in a 32-bit accumulator leaves one spare
+integer bit, so the kernel owns its overflow headroom, pre-scaling inputs or bounding row length,
+and the round 9 kernel documents that choice beside the measurement.
 
 ## Verification
 
@@ -663,40 +635,77 @@ Recorded from reading the core, so no round has to rediscover it.
   deliberately not gated by it, because their instruction committed cycles earlier; the queue gate
   is what keeps shadowed work out.
 
+## The fast forms, planned
+
+Each block lands basic first and upgrades on a measurement, and the upgrades are planned work with
+their own round. In priority order:
+
+1. The dedicated memory path, decided between the `mem_arb` port and the widened cache port by the
+   measured profile. The memory path section above carries the constraints; round 8 makes the
+   call with the measurement in hand.
+2. Concurrent execution inside the vector unit. The issue queue deepens to 2 and the memory unit
+   runs a load or store while the arithmetic lanes execute a later instruction, tracked by a
+   per-register-group busy scoreboard, with the register file gaining the port headroom
+   concurrency needs, a store read port beside the arithmetic three and arbitration or a second
+   port on writes. Memory beats dominate vector cycles on this machine, and
+   the overlap hides them behind arithmetic the program already pays for.
+3. Scalar-vector address disambiguation. The conservative ordering waits become an address-range
+   compare against the pending vector access. A shallow queue makes the compare one bounds check
+   where Saturn needs a CAM, which is what makes the upgrade cheap here.
+
+Two upgrades are deliberately off the ladder. Element-level chaining pays when a vector instruction
+runs for many cycles, and at DLEN equal to VLEN an arithmetic instruction takes 1 to 8 cycles,
+which leaves nothing worth forwarding into. A larger VLEN would outrun the 128-bit memory system,
+grow the register file past the distributed-RAM sweet spot, and buy little for workloads that are
+memory-bound before they are compute-bound.
+
+The vector unit also must not move the core's critical path. The multiply array keeps its DSP
+pipeline registers, which is where the drain in the sequencer's `done` rule comes from, and the
+frequency gap the scalar core already carries stays its own workstream, unchanged by vector work.
+
 ## Rounds
 
 Work proceeds one round at a time. Each round designs its own scope, builds it, and stops. No round
-starts before the one before it closes.
+starts before the one before it closes. The list below is in the order the work is done, and a
+checked box means the step is done.
 
-1. What a vector instruction is on this core. **Closed.** Settled VLEN and DLEN.
-2. The configuration instructions and the vector control registers. First RTL: the combinational
-   configuration unit and its `vill` table, the CSR entries, `mstatus.VS` with its write
-   legalizer, Dirty transition and derived SD, the read-only-quadrant trap, and the `vl`, `vtype`
-   and `vstart` debug taps the lockstep's scalar stream reads.
-3. The vector unit's skeleton and single-width integer arithmetic: the issue queue with its
-   configuration snapshot and `commit_valid` gate, the element sequencer, the busy and done
-   handshake and the hold terms, the register file with its `v0` data port, the decode table, the
-   retirement-event export with its sequence tags and idle signal, and the comparator extension
-   over `v0` through `v31` that consumes it.
-4. Unit-stride and strided vector loads and stores through the existing data cache, including the
-   in-core memory mux with its grant latch, the pending-work flags and their ordering holds, the
-   whole-register loads and stores, and the `fence` decode and drain that the memory path and trap
-   sections name.
-5. Multiply, multiply-add, widening and narrowing operations, the high-half multiplies, and the
-   reductions, with the x-register return path `vmv.x.s` rides through its EX hold.
-6. Fixed-point saturating add, multiply, scaling shifts, saturating narrow, and the rounding-mode
-   registers in the vector unit with their `csr.sv` read and write forwarding.
-7. Masks and compares: the mask-format destination writes on the per-bit enables, the mask-logical
-   instructions, the masked-store strobe suppression reaching into round 4's beat generator,
-   `vlm.v` and `vsm.v`, and `vcpop` and `vfirst` on the round 5 return path.
-8. The dedicated vector memory bandwidth, decided between a fourth `mem_arb` source and a widened
-   cache CPU port by the measured profile, with the speedup measured against round 4 and the
-   cache-interaction mechanism the memory path section names.
-9. The full-subset lockstep sweep, the scalar Q15 reference kernel written for the baseline, and
-   the measured kernel against the scalar core.
-10. The fast forms in priority order, the deeper issue queue with concurrent memory and arithmetic
-    execution and the register-file ports it needs, then scalar-vector address disambiguation,
-    each with a before-and-after measurement.
+- [x] **Round 1. What a vector instruction is on this core.** Settled VLEN and DLEN.
+- [x] **Toolchain bring-up.** Spike at `rv32im_zve32x_zvl128b`, the `riscv-vector-tests` generator
+      retargeted to a 32-bit host, and the lockstep harness carrying the vector state Spike logs.
+- [ ] **The microarchitecture sketch.** The block diagram of the unit the rounds below build.
+- [ ] **`fence.i` on the scalar core.** Built in the scalar repository and cherry-picked in.
+- [ ] **Round 2. The configuration instructions and the vector control registers.** First RTL: the
+      combinational configuration unit and its `vill` table, the CSR entries, `mstatus.VS` with its
+      write legalizer, Dirty transition and derived SD, the read-only-quadrant trap, and the `vl`,
+      `vtype` and `vstart` debug taps the lockstep's scalar stream reads.
+- [ ] **Round 3. The vector unit's skeleton and single-width integer arithmetic.** The issue queue
+      with its configuration snapshot and `commit_valid` gate, the element sequencer, the busy and
+      done handshake and the hold terms, the register file with its `v0` data port, the decode
+      table, the retirement-event export with its sequence tags and idle signal, and the comparator
+      extension over `v0` through `v31` that consumes it.
+- [ ] **Round 4. Unit-stride and strided vector loads and stores** through the existing data cache,
+      including the in-core memory mux with its grant latch, the pending-work flags and their
+      ordering holds, the whole-register loads and stores, and the `fence` decode and drain that
+      the memory path and trap sections name.
+- [ ] **Round 5. Multiply, multiply-add, widening and narrowing operations,** the high-half
+      multiplies, and the reductions, with the x-register return path `vmv.x.s` rides through its
+      EX hold.
+- [ ] **Round 6. Fixed-point saturating add, multiply, scaling shifts, saturating narrow,** and the
+      rounding-mode registers in the vector unit with their `csr.sv` read and write forwarding.
+- [ ] **Round 7. Masks and compares.** The mask-format destination writes on the per-bit enables,
+      the mask-logical instructions, the masked-store strobe suppression reaching into round 4's
+      beat generator, `vlm.v` and `vsm.v`, and `vcpop` and `vfirst` on the round 5 return path.
+- [ ] **Round 8. The dedicated vector memory bandwidth,** decided between a fourth `mem_arb` source
+      and a widened cache CPU port by the measured profile, with the speedup measured against round
+      4 and the cache-interaction mechanism the memory path section names.
+- [ ] **Round 9. The full-subset sweep and the measured kernel.**
+  - [ ] The full-subset lockstep sweep.
+  - [ ] The scalar Q15 reference kernel written for the baseline, and the fixed-point
+        matrix-vector kernel measured in cycles against it.
+- [ ] **Build on the Nexys Video, update the README, and route the artifact.**
+- [ ] **Round 10. The fast forms in priority order.** The deeper issue queue with concurrent memory
+      and arithmetic execution and the register-file ports it needs, then scalar-vector address
+      disambiguation, each with a before-and-after measurement.
 
 The headline result is a fixed-point matrix-vector multiply measured on the board against the
 scalar core at the same clock, in cycles from `mcycle`, in the column form: the output vector
