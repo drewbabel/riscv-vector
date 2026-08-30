@@ -1,3 +1,5 @@
+`default_nettype none
+
 module clint
   import csr_pkg::*;
 #(
@@ -65,3 +67,5 @@ module clint
   end
 
 endmodule
+
+`default_nettype wire

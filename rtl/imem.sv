@@ -1,3 +1,5 @@
+`default_nettype none
+
 module imem #(
     parameter int XLEN = 32,
     parameter int DEPTH = 64,
@@ -25,3 +27,5 @@ module imem #(
   end
 
 endmodule
+
+`default_nettype wire

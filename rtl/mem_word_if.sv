@@ -1,3 +1,5 @@
+`default_nettype none
+
 module mem_word_if
   import cache_pkg::*;
 #(
@@ -97,3 +99,5 @@ module mem_word_if
   end
 
 endmodule
+
+`default_nettype wire

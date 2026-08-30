@@ -1,3 +1,5 @@
+`default_nettype none
+
 module hazard_unit #(
     parameter int XLEN = 32
 ) (
@@ -54,3 +56,5 @@ module hazard_unit #(
   end
 
 endmodule
+
+`default_nettype wire

@@ -1,3 +1,5 @@
+`default_nettype none
+
 module control_unit
   import alu_pkg::*;
   import csr_pkg::*;
@@ -58,3 +60,5 @@ module control_unit
   );
 
 endmodule
+
+`default_nettype wire

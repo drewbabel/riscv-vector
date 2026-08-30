@@ -1,3 +1,5 @@
+`default_nettype none
+
 module mem_delay
   import cache_pkg::*;
 #(
@@ -104,3 +106,5 @@ module mem_delay
   );
 
 endmodule
+
+`default_nettype wire
