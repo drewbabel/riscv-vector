@@ -1,3 +1,5 @@
+`default_nettype none
+
 module regfile #(
     parameter int AWIDTH = 5,
     parameter int XLEN   = 32
@@ -52,3 +54,5 @@ module regfile #(
   end
 
 endmodule
+
+`default_nettype wire

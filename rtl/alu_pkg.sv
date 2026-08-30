@@ -1,3 +1,5 @@
+`default_nettype none
+
 package alu_pkg;
 
   typedef enum logic [3:0] {
@@ -14,3 +16,5 @@ package alu_pkg;
   } alu_op_e;
 
 endpackage
+
+`default_nettype wire

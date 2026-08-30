@@ -1,3 +1,5 @@
+`default_nettype none
+
 module boot_loader #(
     parameter int XLEN  = 32,
     parameter int DEPTH = 16384
@@ -67,3 +69,5 @@ module boot_loader #(
   assign loading = state != DONE;
 
 endmodule
+
+`default_nettype wire

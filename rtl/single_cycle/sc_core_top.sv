@@ -1,3 +1,5 @@
+`default_nettype none
+
 module sc_core_top
   import opcode_pkg::*;
 #(
@@ -100,3 +102,5 @@ module sc_core_top
   );
 
 endmodule
+
+`default_nettype wire

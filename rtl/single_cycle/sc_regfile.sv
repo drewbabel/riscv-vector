@@ -1,3 +1,5 @@
+`default_nettype none
+
 module sc_regfile #(
     parameter int AWIDTH = 5,
     parameter int XLEN   = 32
@@ -34,3 +36,5 @@ module sc_regfile #(
   end
 
 endmodule
+
+`default_nettype wire

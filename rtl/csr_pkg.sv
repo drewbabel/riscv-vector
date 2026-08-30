@@ -1,3 +1,5 @@
+`default_nettype none
+
 package csr_pkg;
 
   // CSR addresses
@@ -63,3 +65,5 @@ package csr_pkg;
   localparam logic [15:0] ClintMtimeOffset = 16'hBFF8;
 
 endpackage
+
+`default_nettype wire

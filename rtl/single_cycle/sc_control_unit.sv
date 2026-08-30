@@ -1,3 +1,5 @@
+`default_nettype none
+
 module sc_control_unit
   import alu_pkg::*;
   import csr_pkg::*;
@@ -73,3 +75,5 @@ module sc_control_unit
   assign pc_src = (branch & branch_taken) | jump;
 
 endmodule
+
+`default_nettype wire

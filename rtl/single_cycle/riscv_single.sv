@@ -1,3 +1,5 @@
+`default_nettype none
+
 module riscv_single
   import alu_pkg::*;
   import csr_pkg::*;
@@ -223,3 +225,5 @@ module riscv_single
 
 
 endmodule
+
+`default_nettype wire

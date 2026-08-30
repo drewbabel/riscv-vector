@@ -1,3 +1,5 @@
+`default_nettype none
+
 module sc_datapath
   import alu_pkg::*;
 #(
@@ -126,3 +128,5 @@ module sc_datapath
 
 
 endmodule
+
+`default_nettype wire

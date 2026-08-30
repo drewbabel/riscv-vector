@@ -1,3 +1,5 @@
+`default_nettype none
+
 module gpio #(
     parameter int XLEN  = 32,
     parameter int WIDTH = 16
@@ -27,3 +29,5 @@ module gpio #(
   assign led   = led_reg;
 
 endmodule
+
+`default_nettype wire

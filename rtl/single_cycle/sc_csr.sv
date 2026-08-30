@@ -1,3 +1,5 @@
+`default_nettype none
+
 module sc_csr
   import csr_pkg::*;
 #(
@@ -188,3 +190,5 @@ module sc_csr
   end
 
 endmodule
+
+`default_nettype wire
