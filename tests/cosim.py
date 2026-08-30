@@ -5,6 +5,7 @@
 import os
 import random
 import re
+import signal
 import subprocess
 import sys
 
@@ -105,10 +106,26 @@ def parse_vec(tail):
 
 # Golden spike trace
 def run_spike(spike_elf, n):
-    maxlines = 4 * n + 200  # head ends the park-loop
-    cmd = (f"spike --isa={march()} --pc={hex(BASE)} -l --log-commits {spike_elf} "
-           f"2>&1 | head -n {maxlines}")
-    out = subprocess.run(cmd, shell=True, cwd=ROOT, capture_output=True, text=True).stdout
+    maxlines = 4 * n + 200  # Spike ignores SIGPIPE
+    cmd = ["spike", f"--isa={march()}", f"--pc={hex(BASE)}", "-l",
+           "--log-commits", spike_elf]
+    proc = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True,
+                            start_new_session=True)
+    lines = []
+    try:
+        for line in proc.stdout:
+            lines.append(line)
+            if len(lines) >= maxlines:
+                break
+    finally:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        proc.stdout.close()
+        proc.wait(timeout=10)
+    out = "".join(lines)
     trace = []
     for line in out.splitlines():
         m = SPIKE_RE.match(line)
