@@ -1,3 +1,5 @@
+`default_nettype none
+
 module freertos_boot_tb ();
 
   import cache_pkg::*;
@@ -97,3 +99,5 @@ module freertos_boot_tb ();
     verdict();
   end
 endmodule
+
+`default_nettype wire

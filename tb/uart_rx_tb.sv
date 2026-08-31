@@ -1,3 +1,5 @@
+`default_nettype none
+
 module uart_rx_tb ();
 
   int checks = 0;
@@ -186,3 +188,5 @@ module uart_rx_tb ();
     end
 
 endmodule
+
+`default_nettype wire

@@ -1,3 +1,5 @@
+`default_nettype none
+
 module alu
   import alu_pkg::*;
 #(
@@ -43,3 +45,5 @@ module alu
   assign ltu = unsigned_lt;
 
 endmodule
+
+`default_nettype wire

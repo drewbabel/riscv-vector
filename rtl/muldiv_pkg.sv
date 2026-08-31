@@ -1,3 +1,5 @@
+`default_nettype none
+
 package muldiv_pkg;
 
   // value equals funct3
@@ -16,3 +18,5 @@ package muldiv_pkg;
   localparam logic [6:0] Funct7MulDiv = 7'b0000001;
 
 endpackage
+
+`default_nettype wire

@@ -1,3 +1,5 @@
+`default_nettype none
+
 module irq_formal
   import csr_pkg::*;
 ();
@@ -140,3 +142,5 @@ module irq_formal
   end
 
 endmodule
+
+`default_nettype wire

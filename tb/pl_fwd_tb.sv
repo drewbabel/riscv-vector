@@ -1,3 +1,5 @@
+`default_nettype none
+
 module pl_fwd_tb ();
 
   localparam int Xlen = 32;
@@ -69,3 +71,5 @@ module pl_fwd_tb ();
   end
 
 endmodule
+
+`default_nettype wire

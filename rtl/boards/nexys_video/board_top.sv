@@ -1,3 +1,5 @@
+`default_nettype none
+
 module board_top
   import cache_pkg::*;
 #(
@@ -529,3 +531,5 @@ module board_top
   );
 
 endmodule
+
+`default_nettype wire

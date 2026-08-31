@@ -1,3 +1,5 @@
+`default_nettype none
+
 module top #(
     parameter int XLEN  = 32,
     parameter int DEPTH = 64
@@ -62,3 +64,5 @@ module top #(
   );
 
 endmodule
+
+`default_nettype wire

@@ -1,3 +1,5 @@
+`default_nettype none
+
 module alu_tb
   import alu_pkg::*;
 ();
@@ -134,3 +136,5 @@ module alu_tb
   end
 
 endmodule
+
+`default_nettype wire

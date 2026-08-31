@@ -1,3 +1,5 @@
+`default_nettype none
+
 package bp_pkg;
 
   // History length
@@ -9,3 +11,5 @@ package bp_pkg;
   parameter int BtbDepth = 1 << BtbIdxLen;
 
 endpackage
+
+`default_nettype wire
