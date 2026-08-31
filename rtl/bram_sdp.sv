@@ -1,3 +1,5 @@
+`default_nettype none
+
 module bram_sdp #(
     parameter int Width = 8,
     parameter int Depth = 256,
@@ -52,3 +54,5 @@ module bram_sdp #(
   end
 
 endmodule
+
+`default_nettype wire

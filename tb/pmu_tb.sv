@@ -1,3 +1,5 @@
+`default_nettype none
+
 module pmu_tb;
 
   int checks = 0;
@@ -73,3 +75,5 @@ module pmu_tb;
   end
 
 endmodule
+
+`default_nettype wire

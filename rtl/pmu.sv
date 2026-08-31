@@ -1,3 +1,5 @@
+`default_nettype none
+
 module pmu #(
     parameter int XLEN = 32,
     parameter int CLK_FREQ_HZ = 50_000_000
@@ -25,3 +27,5 @@ module pmu #(
   end
 
 endmodule
+
+`default_nettype wire

@@ -1,3 +1,5 @@
+`default_nettype none
+
 module extend_tb;
 
   int checks = 0;
@@ -56,3 +58,5 @@ module extend_tb;
   end
 
 endmodule
+
+`default_nettype wire

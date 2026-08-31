@@ -1,3 +1,5 @@
+`default_nettype none
+
 module synchronizer (
     input  logic clk,
     input  logic core_en,
@@ -14,3 +16,5 @@ module synchronizer (
     end
 
 endmodule
+
+`default_nettype wire

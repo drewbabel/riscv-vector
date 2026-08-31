@@ -1,3 +1,5 @@
+`default_nettype none
+
 module clint_tb;
 
   int checks = 0;
@@ -108,3 +110,5 @@ module clint_tb;
   end
 
 endmodule
+
+`default_nettype wire

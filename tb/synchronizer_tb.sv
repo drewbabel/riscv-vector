@@ -1,3 +1,5 @@
+`default_nettype none
+
 module synchronizer_tb ();
 
   int   errors = 0;
@@ -67,3 +69,5 @@ module synchronizer_tb ();
   end
 
 endmodule
+
+`default_nettype wire

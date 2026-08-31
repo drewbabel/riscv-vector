@@ -1,3 +1,5 @@
+`default_nettype none
+
 module pc #(
     parameter int XLEN = 32,
     parameter logic [XLEN-1:0] RESET_ADDR = '0
@@ -15,3 +17,5 @@ module pc #(
   end
 
 endmodule
+
+`default_nettype wire

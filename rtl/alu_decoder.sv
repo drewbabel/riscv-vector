@@ -1,3 +1,5 @@
+`default_nettype none
+
 module alu_decoder
   import alu_pkg::*;
 (
@@ -39,3 +41,5 @@ module alu_decoder
   end
 
 endmodule
+
+`default_nettype wire

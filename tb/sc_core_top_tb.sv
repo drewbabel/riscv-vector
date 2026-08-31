@@ -1,3 +1,5 @@
+`default_nettype none
+
 module sc_core_top_tb;
 
   import cache_pkg::*;
@@ -347,3 +349,5 @@ module sc_core_top_tb;
   end
 
 endmodule
+
+`default_nettype wire

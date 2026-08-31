@@ -1,3 +1,5 @@
+`default_nettype none
+
 module boot_loader_tb ();
 
   int checks = 0;
@@ -138,3 +140,5 @@ module boot_loader_tb ();
   );
 
 endmodule
+
+`default_nettype wire

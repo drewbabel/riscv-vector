@@ -1,3 +1,5 @@
+`default_nettype none
+
 module riscv_pipelined
   import alu_pkg::*;
 #(
@@ -105,3 +107,5 @@ module riscv_pipelined
   );
 
 endmodule
+
+`default_nettype wire

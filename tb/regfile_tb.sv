@@ -1,3 +1,5 @@
+`default_nettype none
+
 module regfile_tb ();
 
   localparam int AWIDTH = 5;
@@ -121,3 +123,5 @@ module regfile_tb ();
   end
 
 endmodule
+
+`default_nettype wire

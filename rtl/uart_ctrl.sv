@@ -1,3 +1,5 @@
+`default_nettype none
+
 module uart_ctrl #(
     parameter int XLEN = 32
 ) (
@@ -81,3 +83,5 @@ module uart_ctrl #(
   assign irq = rx_full && rx_ie;
 
 endmodule
+
+`default_nettype wire
