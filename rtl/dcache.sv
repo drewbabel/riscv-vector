@@ -1,3 +1,5 @@
+`default_nettype none
+
 module dcache
   import cache_pkg::*;
 #(
@@ -308,3 +310,5 @@ module dcache
   end
 
 endmodule
+
+`default_nettype wire

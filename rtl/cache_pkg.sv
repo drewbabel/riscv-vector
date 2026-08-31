@@ -1,3 +1,5 @@
+`default_nettype none
+
 package cache_pkg;
 
   // Line geometry
@@ -19,3 +21,5 @@ package cache_pkg;
   parameter int DcTagLen = 32 - IdxLsb - DcIdxLen;
 
 endpackage
+
+`default_nettype wire

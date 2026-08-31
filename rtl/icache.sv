@@ -1,3 +1,5 @@
+`default_nettype none
+
 module icache
   import cache_pkg::*;
 #(
@@ -171,3 +173,5 @@ module icache
   end
 
 endmodule
+
+`default_nettype wire

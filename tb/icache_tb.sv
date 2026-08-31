@@ -1,3 +1,5 @@
+`default_nettype none
+
 module icache_tb;
 
   import cache_pkg::*;
@@ -190,3 +192,5 @@ module icache_tb;
   end
 
 endmodule
+
+`default_nettype wire

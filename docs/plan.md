@@ -59,7 +59,9 @@ each supported fractional LMUL, SEW settings from `SEW_MIN` up to `LMUL * ELEN` 
 conditions come out of it and the `vill` table carries both: SEW never exceeds 32, and SEW divided
 by LMUL never exceeds 32. The first is not implied by the second. LMUL of 2 at SEW of 64 passes the
 ratio test and names an element width this machine cannot represent, so the SEW cap is its own term
-from the first round.
+from the first round. An LMUL of 1/8 falls out of the ratio term rather than the reserved-encoding
+term, and that is the correct outcome: the section mandates only 1/2 and 1/4 at an ELEN of 32, and
+the lowest legal SEW of 8 already puts the ratio at 64, so no SEW at that setting survives.
 
 ## Microarchitecture
 
@@ -70,7 +72,11 @@ addresses `0xC20`, `0xC21`, `0xC22` and `0x008`. The read multiplexer, the write
 gating already exist. `vl`, `vtype` and `vlenb` are read-only through the Zicsr instructions and
 need read entries plus one write port from the configuration unit. `vstart` is a read-write
 register that unprivileged code may write, per section 3.7, and takes the ordinary Zicsr write
-path with the value masked to its 7 writable bits, the same masking Spike applies.
+path with the value masked to its 7 writable bits, the same masking Spike applies. Section 3.7
+also requires every vector instruction to reset `vstart` to zero, `vset{i}vl{i}` included, so the
+configuration unit clears it at the same EX commit that writes `vl` and `vtype`. Spike logs the
+clear on every configuration instruction, including ones where `vstart` was already zero, so the
+lockstep sees the field on every such line from the first test.
 
 The configuration logic itself is a separate purely combinational module rather than logic inside
 `csr.sv`, instantiated in EX beside the CSR file, so that the `vill` table and the VLMAX
@@ -78,21 +84,26 @@ computation get a directed testbench and a bounded SymbiYosys proof of their own
 `csr.sv` they could only be tested through the whole pipeline. Configuration instructions never
 enter the vector issue queue: the new `vl` and `vtype` are computed combinationally from the
 instruction and the forwarded operand in EX, written at EX commit under `commit_valid`, and the
-`rd` value rides the existing `csr_rdata` result path with no hold. All encodings behave the same
-way, the `rd = x0` forms included: `rd = x0` with `rs1` nonzero takes AVL from `rs1` and updates
-`vl` without writing a register, and the `rd = x0, rs1 = x0` form keeps the current `vl` while
-changing `vtype`. The specification reserves that last form when the new `vtype` changes VLMAX;
-the configuration unit sets `vill` there, and round 2's first lockstep sweep confirms Spike
-resolves it the same way before any test relies on it.
+`rd` value rides the existing `csr_rdata` result path with no hold. AVL comes from two different
+places and the split is exact. Section 6.2's `rd` and `rs1` table governs `vsetvli` and `vsetvl`
+only: `rs1` nonzero takes AVL from `rs1`, `rs1 = x0` with `rd` nonzero takes AVL as all ones and so
+sets `vl` to VLMAX, and `rd = x0, rs1 = x0` takes AVL from the current `vl`, updating `vtype`
+without writing a register. `vsetivli` is outside that table entirely and always takes AVL as its
+5-bit zero-extended immediate, so an immediate of zero means an AVL of zero and a `vl` of zero,
+never VLMAX. The specification reserves the `rd = x0, rs1 = x0` form when the new `vtype` changes
+VLMAX and permits `vill` there; the configuration unit sets it, which Spike also does.
 
 `vtype` is stored as its nine architectural bits and the full word is rebuilt on a read, except
 under `vill`, where section 3.4.4 requires the other bits to read zero and the rebuild honors
 that. The specification's alternative is an eight-bit encoding that hides `vill` inside an illegal
 `vsew` combination, which saves one flip-flop in exchange for logic that has to be reasoned about
 twice. The `vill` table judges four things: the SEW cap of 32, the SEW-to-LMUL ratio from the
-parameters section, the reserved `vsew` and `vlmul` encodings, and the reserved field, because
-`vsetvl` carries a full 32-bit `vtype` in a register and section 3.4.4 requires every bit
-considered, so a nonzero value in bits 30:8 sets `vill` rather than being silently dropped. `vl`
+parameters section, the reserved `vsew` and `vlmul` encodings, and the reserved field, since
+section 3.4.4 requires every bit of the `vtype` argument considered and a nonzero value in bits
+30:8 sets `vill` rather than being silently dropped. That last term binds all three instructions,
+not only the register form: `vsetvli` carries `zimm[10:0]` into `vtype[10:0]` and `vsetivli`
+carries `zimm[9:0]` into `vtype[9:0]`, so both immediate forms can name reserved bits above bit 7
+and both are checked. `vl`
 is 8 bits, holding 0 through 128, since the largest VLMAX on this machine is LMUL of 8 at SEW of
 8. `vstart` is 7 bits, holding indices 0 through 127. At reset `vtype.vill` is set, the remaining
 bits are zero and `vl` is zero, per section 3.11, so a single `vsetvl` can restore the reset
@@ -295,6 +306,13 @@ the scalar pipeline has retired younger instructions by the time a vector memory
 and a resumable trap would have no instruction left to return to. Saturn and Ara keep resumable
 `vstart` only by resolving every possible fault before the scalar core commits, which is the same
 structure at larger scale.
+
+Resolving every check in EX is also what satisfies section 18.2, which requires precise traps of
+every `Zve` extension. The decoupled unit retires younger scalar instructions while an older vector
+instruction is still executing, which would violate section 17.1 outright if an accepted vector
+instruction could trap. None can. Every rejection happens before the queue accepts the instruction,
+at a point where nothing younger has committed, so 17.1's first two requirements hold there and its
+element-level third and fourth are vacuous rather than broken.
 
 Interrupts are taken at scalar instruction boundaries without waiting for the vector unit. Work
 already issued is committed and finishes in the background while the handler runs, the

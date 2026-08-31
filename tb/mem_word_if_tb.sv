@@ -1,3 +1,5 @@
+`default_nettype none
+
 module mem_word_if_tb;
 
   import cache_pkg::*;
@@ -442,3 +444,5 @@ module mem_word_if_tb;
   end
 
 endmodule
+
+`default_nettype wire

@@ -1,3 +1,5 @@
+`default_nettype none
+
 module csr_tb;
   import csr_pkg::*;
 
@@ -181,3 +183,5 @@ module csr_tb;
   end
 
 endmodule
+
+`default_nettype wire

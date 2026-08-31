@@ -1,3 +1,5 @@
+`default_nettype none
+
 module hazard_unit_formal ();
 
   localparam int XLEN = 32;
@@ -81,3 +83,5 @@ module hazard_unit_formal ();
   end
 
 endmodule
+
+`default_nettype wire

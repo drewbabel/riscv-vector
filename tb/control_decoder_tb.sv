@@ -1,3 +1,5 @@
+`default_nettype none
+
 module control_decoder_tb ();
 
   int         checks = 0;
@@ -222,3 +224,5 @@ module control_decoder_tb ();
   end
 
 endmodule
+
+`default_nettype wire

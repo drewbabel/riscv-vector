@@ -1,3 +1,5 @@
+`default_nettype none
+
 module extend #(
     parameter int XLEN = 32
 ) (
@@ -18,3 +20,5 @@ module extend #(
   end
 
 endmodule
+
+`default_nettype wire

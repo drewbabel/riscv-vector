@@ -1,3 +1,5 @@
+`default_nettype none
+
 module cosim ();
 
   int checks = 0;
@@ -97,3 +99,5 @@ module cosim ();
   end
 
 endmodule
+
+`default_nettype wire
