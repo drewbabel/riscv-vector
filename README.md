@@ -1,6 +1,6 @@
-# riscv-pipelined
+# riscv-vector
 
-[![CI](https://github.com/drewbabel/riscv-pipelined/actions/workflows/ci.yml/badge.svg)](https://github.com/drewbabel/riscv-pipelined/actions/workflows/ci.yml)
+[![CI](https://github.com/drewbabel/riscv-vector/actions/workflows/ci.yml/badge.svg)](https://github.com/drewbabel/riscv-vector/actions/workflows/ci.yml)
 
 A 5-stage pipelined RV32IM processor in SystemVerilog, running CoreMark on a Digilent Nexys Video, with:
 
