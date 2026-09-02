@@ -5,25 +5,25 @@ module control_decoder
   import opcode_pkg::*;
   import muldiv_pkg::*;
 (
-    input  logic [ 6:0] op,
-    input  logic [ 2:0] funct3,
-    input  logic [11:0] funct12,
-    output logic        reg_write,
-    output logic [ 2:0] imm_src,
-    output logic [ 1:0] alu_a_src,
-    output logic        pc_target_src,
-    output logic        alu_src,
-    output logic        mem_write,
-    output logic [ 1:0] result_src,
-    output logic        branch,
-    output logic        jump,
-    output logic [ 1:0] alu_op,
-    output logic        csr_access,
-    output logic        is_ecall,
-    output logic        is_ebreak,
-    output logic        is_mret,
-    output logic        is_muldiv,
-    output muldiv_pkg::muldiv_op_e muldiv_op
+    input  logic                   [ 6:0] op,
+    input  logic                   [ 2:0] funct3,
+    input  logic                   [11:0] funct12,
+    output logic                          reg_write,
+    output logic                   [ 2:0] imm_src,
+    output logic                   [ 1:0] alu_a_src,
+    output logic                          pc_target_src,
+    output logic                          alu_src,
+    output logic                          mem_write,
+    output logic                   [ 1:0] result_src,
+    output logic                          branch,
+    output logic                          jump,
+    output logic                   [ 1:0] alu_op,
+    output logic                          csr_access,
+    output logic                          is_ecall,
+    output logic                          is_ebreak,
+    output logic                          is_mret,
+    output logic                          is_muldiv,
+    output muldiv_pkg::muldiv_op_e        muldiv_op
 );
 
   // imm_src 0=I 1=S 2=B 3=U 4=J
@@ -146,6 +146,12 @@ module control_decoder
         end else begin
           reg_write  = 1'b1;
           csr_access = 1'b1;
+        end
+      end
+
+      OpcodeOpV: begin
+        if (funct3 == Funct3Opcfg) begin
+          reg_write = 1'b1;
         end
       end
 
