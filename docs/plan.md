@@ -173,6 +173,21 @@ because everything its issue interface needs lives there, `instr_ex`, the forwar
 `commit_valid`, and its memory traffic leaves through the core's existing data-memory outputs via
 the mux the memory path section places.
 
+The vector unit decodes its own instructions from `instr_ex` in EX. `control_decoder` recognizes
+only the opcode family, admitting `OP-V`, `LOAD-FP` and `STORE-FP` on the illegal-instruction
+whitelist and raising `reg_write` for the configuration instructions, and every `funct6`, `funct3`,
+`vm` and width decision lives in one table inside the unit. Three of the checks that can reject a
+vector instruction read state a `vset{i}vl{i}` writes at EX commit, the illegal flag in `vtype`,
+the vector context field in `mstatus` and the element width behind a load's EMUL. A decode-stage
+table would therefore need either a `vtype` bypass into ID or a bubble after every configuration
+instruction, which is the 2-cycle bubble Rocket pays and the bypass network Shuttle builds for
+Saturn. Decoding in EX reads the flop the cycle after the write, with no bypass and no interlock.
+The cost is a table in series with `trap_taken`, which feeds `flush` and the next-address
+multiplexer. The table is a function of 11 instruction bits, and if timing analysis ever places it
+on the critical path, the static encoding-legal bit alone moves to ID and registers across ID/EX
+while the state-dependent checks stay in EX, the split Ara uses between its first-pass decoder in
+CVA6 and its dispatcher.
+
 The waits, both the x-register-result cases above and the memory-ordering rule below, are
 implemented as EX holds in the `muldiv_hold` shape. That shape is every expression `muldiv_hold`
 appears in, four sites: `commit_valid` at `datapath.sv:371`, `ex_hold` at 403, `stall` at 399 and
@@ -631,7 +646,13 @@ Recorded from reading the core, so no round has to rediscover it.
   network needs no change. The x-register wait cases, `vmv.x.s`, `vcpop.m` and `vfirst.m`, return
   through the same EX path during their hold, the `muldiv` route, so the separate writeback
   multiplexer, the `result_src_wb` case statement at `datapath.sv:723`, keeps its `2'd3` encoding
-  spare and no new writeback source exists.
+  spare and no new writeback source exists. The register write enable for those three
+  instructions comes from the vector unit in EX, the same signal that raises the hold, and joins
+  `reg_write_ex` at the EX/MEM register. `control_decoder` raises `reg_write` only for the
+  configuration instructions and learns no other vector encoding. Nothing in ID consumes the
+  enable of the instruction in EX on a single-issue in-order core, since forwarding keys on
+  `reg_write_mem` and `reg_write_wb` and the load-use stall on `result_src_ex`, so an ID-stage
+  copy of the decode would buy nothing.
 - Every sequential block in the core gates on `core_en`, the divided tick from `tick_gen`
   (`ClkDiv` is 2 on both board tops, half the board clock; the flat simulation `top` ties it
   high), the riscv-formal shadow pipeline under its `ifdef` excepted, which the formal and cosim
