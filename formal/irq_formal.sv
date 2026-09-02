@@ -36,6 +36,14 @@ module irq_formal
   logic            mret_taken;
   logic [XLEN-1:0] mepc_out;
 
+  logic            cycle_en;
+  logic            is_vset;
+  logic [     7:0] vl_d;
+  logic [XLEN-1:0] vtype_d;
+  logic            is_vec_instr;
+  logic [     7:0] vl_q;
+  logic [XLEN-1:0] vtype_q;
+
   logic [XLEN-1:0] dbg_csr_wdata;
   logic [XLEN-1:0] dbg_mscratch;
   logic [XLEN-1:0] dbg_mstatus;
@@ -55,6 +63,7 @@ module irq_formal
   ) dut (
       .clk(clk),
       .core_en(core_en),
+      .cycle_en(cycle_en),
       .rst_n(rst_n),
       .csr_access(csr_access),
       .csr_addr(csr_addr),
@@ -77,6 +86,12 @@ module irq_formal
       .trap_vector(trap_vector),
       .mret_taken(mret_taken),
       .mepc_out(mepc_out),
+      .is_vset(is_vset),
+      .vl_d(vl_d),
+      .vtype_d(vtype_d),
+      .is_vec_instr(is_vec_instr),
+      .vl_q(vl_q),
+      .vtype_q(vtype_q),
       .dbg_csr_wdata(dbg_csr_wdata),
       .dbg_mscratch(dbg_mscratch),
       .dbg_mstatus(dbg_mstatus),
@@ -95,9 +110,26 @@ module irq_formal
   logic f_past_valid = 1'b0;
   always @(posedge clk) f_past_valid <= 1'b1;
 
+  logic vec_addr;
+  assign vec_addr = (csr_addr == VstartAddr) || (csr_addr == VlAddr) || (csr_addr == VtypeAddr)
+                 || (csr_addr == VlenbAddr) || (csr_addr == VxsatAddr) || (csr_addr == VxrmAddr)
+                 || (csr_addr == VcsrAddr);
+
+  logic wsrc_zero;
+  assign wsrc_zero = funct3[2] ? (zimm == '0) : (rs1_data == '0);
+
+  logic exc_ro_write;
+  assign exc_ro_write = csr_access && (csr_addr[11:10] == 2'b11)
+      && !((funct3[1:0] == 2'b10 || funct3[1:0] == 2'b11) && wsrc_zero);
+
+  logic exc_vs_off;
+  assign exc_vs_off = (is_vec_instr || (csr_access && vec_addr))
+      && (dbg_mstatus[MstatusVsLo+1:MstatusVsLo] == VsOff);
+
   logic exc_any;
   assign exc_any = exc_illegal | exc_ecall | exc_ebreak | exc_instr_misaligned
-                 | exc_load_misaligned | exc_store_misaligned;
+                 | exc_load_misaligned | exc_store_misaligned
+                 | exc_ro_write | exc_vs_off;
 
   logic timer_ready;
   logic ext_ready;
