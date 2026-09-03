@@ -9,6 +9,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: Commits still to run, newest first, space separated
+        required: false
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
@@ -255,3 +261,42 @@ jobs:
         run: |
           echo "One or more required CI jobs did not succeed."
           exit 1
+
+  backfill:
+    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: ci-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Run the next commit this push brought in
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BEFORE: ${{ github.event.before }}
+          CHAIN: ${{ inputs.chain }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            git merge-base --is-ancestor "$BEFORE" "$GITHUB_SHA" 2>/dev/null || exit 0
+            CHAIN=$(git rev-list "$BEFORE..$GITHUB_SHA" | grep -v "^$GITHUB_SHA$" | tr '\n' ' ')
+          else
+            git push origin --delete "$GITHUB_REF_NAME" || true
+          fi
+          while [ -n "$CHAIN" ]; do
+            next=${CHAIN%% *}
+            rest=${CHAIN#* }
+            [ "$rest" = "$CHAIN" ] && rest=''
+            CHAIN=$rest
+            [ -z "$next" ] && continue
+            if ! git show "$next:.github/workflows/ci.yml" 2>/dev/null | grep -q '^  workflow_dispatch:'; then
+              echo "skip $next: its workflow file cannot be dispatched"
+              continue
+            fi
+            branch="ci-backfill/${next:0:12}"
+            git push origin "$next:refs/heads/$branch"
+            gh workflow run ci.yml --ref "$branch" -f chain="$rest"
+            exit 0
+          done
