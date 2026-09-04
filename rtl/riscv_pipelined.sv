@@ -33,6 +33,10 @@ module riscv_pipelined
     output logic [XLEN-1:0] dbg_minstret,
     output logic [XLEN-1:0] dbg_mcycleh,
     output logic [XLEN-1:0] dbg_minstreth,
+    output logic [     7:0] dbg_vl,
+    output logic [     7:0] dbg_vtype_bits,
+    output logic            dbg_vtype_ill,
+    output logic [     6:0] dbg_vstart,
 `endif
     input  logic            clk,
     input  logic            core_en,
@@ -84,6 +88,10 @@ module riscv_pipelined
       .dbg_minstret (dbg_minstret),
       .dbg_mcycleh  (dbg_mcycleh),
       .dbg_minstreth(dbg_minstreth),
+      .dbg_vl(dbg_vl),
+      .dbg_vtype_bits(dbg_vtype_bits),
+      .dbg_vtype_ill(dbg_vtype_ill),
+      .dbg_vstart(dbg_vstart),
 `endif
       .clk        (clk),
       .core_en    (core_en),

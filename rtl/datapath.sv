@@ -37,6 +37,10 @@ module datapath
     output logic [XLEN-1:0] dbg_minstret,
     output logic [XLEN-1:0] dbg_mcycleh,
     output logic [XLEN-1:0] dbg_minstreth,
+    output logic [     7:0] dbg_vl,
+    output logic [     7:0] dbg_vtype_bits,
+    output logic            dbg_vtype_ill,
+    output logic [     6:0] dbg_vstart,
 `endif
     input  logic            clk,
     input  logic            core_en,
@@ -57,158 +61,158 @@ module datapath
     output logic [XLEN-1:0] mem_addr
 );
 
-  logic                   [XLEN-1:0] pc_next;
-  logic                   [XLEN-1:0] pc_plus4;
-  logic                   [XLEN-1:0] rs1_data;
-  logic                   [XLEN-1:0] rs2_data;
-  logic                   [XLEN-1:0] imm_ext;
-  logic                   [XLEN-1:0] src_a;
-  logic                   [XLEN-1:0] src_b;
-  logic                   [XLEN-1:0] forwarded_rs1;
-  logic                   [XLEN-1:0] forwarded_rs2;
-  logic                   [XLEN-1:0] result;
-  logic                   [XLEN-1:0] result_ex;
-  logic                   [XLEN-1:0] load_data;
-  logic                   [     7:0] ld_byte;
-  logic                   [    15:0] ld_half;
+  logic                   [    XLEN-1:0] pc_next;
+  logic                   [    XLEN-1:0] pc_plus4;
+  logic                   [    XLEN-1:0] rs1_data;
+  logic                   [    XLEN-1:0] rs2_data;
+  logic                   [    XLEN-1:0] imm_ext;
+  logic                   [    XLEN-1:0] src_a;
+  logic                   [    XLEN-1:0] src_b;
+  logic                   [    XLEN-1:0] forwarded_rs1;
+  logic                   [    XLEN-1:0] forwarded_rs2;
+  logic                   [    XLEN-1:0] result;
+  logic                   [    XLEN-1:0] result_ex;
+  logic                   [    XLEN-1:0] load_data;
+  logic                   [         7:0] ld_byte;
+  logic                   [        15:0] ld_half;
 
-  logic                              reg_write;
-  logic                              mem_write_dec;
-  logic                   [     2:0] imm_src;
-  logic                   [     1:0] alu_a_src;
-  logic                              alu_src;
-  logic                   [     1:0] result_src;
-  logic                              pc_target_src;
-  alu_pkg::alu_op_e                  alu_ctrl;
-  logic                              zero;
-  logic                              lt;
-  logic                              ltu;
-  logic                              branch;
-  logic                              jump;
-  logic                              is_muldiv;
-  muldiv_pkg::muldiv_op_e            muldiv_op;
+  logic                                  reg_write;
+  logic                                  mem_write_dec;
+  logic                   [         2:0] imm_src;
+  logic                   [         1:0] alu_a_src;
+  logic                                  alu_src;
+  logic                   [         1:0] result_src;
+  logic                                  pc_target_src;
+  alu_pkg::alu_op_e                      alu_ctrl;
+  logic                                  zero;
+  logic                                  lt;
+  logic                                  ltu;
+  logic                                  branch;
+  logic                                  jump;
+  logic                                  is_muldiv;
+  muldiv_pkg::muldiv_op_e                muldiv_op;
 
   // Pipeline registers
 
-  logic                   [XLEN-1:0] instr_id;
-  logic                   [XLEN-1:0] pc_id;
-  logic                   [XLEN-1:0] pc_plus4_id;
+  logic                   [    XLEN-1:0] instr_id;
+  logic                   [    XLEN-1:0] pc_id;
+  logic                   [    XLEN-1:0] pc_plus4_id;
 
-  logic                   [XLEN-1:0] pc_ex;
-  logic                   [XLEN-1:0] pc_plus4_ex;
-  logic                   [     2:0] funct3_ex;
-  logic                   [XLEN-1:0] imm_ext_ex;
-  logic                   [     1:0] alu_a_src_ex;
-  logic                              pc_target_src_ex;
-  logic                              alu_src_ex;
-  logic                              mem_write_ex;
-  logic                   [     1:0] result_src_ex;
-  alu_pkg::alu_op_e                  alu_ctrl_ex;
-  logic                   [XLEN-1:0] rs1_data_ex;
-  logic                   [XLEN-1:0] rs2_data_ex;
-  logic                   [     4:0] rs1_ex;
-  logic                   [     4:0] rs2_ex;
-  logic                   [     4:0] rd_ex;
-  logic                              reg_write_ex;
-  logic                              branch_ex;
-  logic                              jump_ex;
-  logic                              is_muldiv_ex;
-  muldiv_pkg::muldiv_op_e            muldiv_op_ex;
+  logic                   [    XLEN-1:0] pc_ex;
+  logic                   [    XLEN-1:0] pc_plus4_ex;
+  logic                   [         2:0] funct3_ex;
+  logic                   [    XLEN-1:0] imm_ext_ex;
+  logic                   [         1:0] alu_a_src_ex;
+  logic                                  pc_target_src_ex;
+  logic                                  alu_src_ex;
+  logic                                  mem_write_ex;
+  logic                   [         1:0] result_src_ex;
+  alu_pkg::alu_op_e                      alu_ctrl_ex;
+  logic                   [    XLEN-1:0] rs1_data_ex;
+  logic                   [    XLEN-1:0] rs2_data_ex;
+  logic                   [         4:0] rs1_ex;
+  logic                   [         4:0] rs2_ex;
+  logic                   [         4:0] rd_ex;
+  logic                                  reg_write_ex;
+  logic                                  branch_ex;
+  logic                                  jump_ex;
+  logic                                  is_muldiv_ex;
+  muldiv_pkg::muldiv_op_e                muldiv_op_ex;
 
-  logic                   [XLEN-1:0] alu_result_mem;
-  logic                   [XLEN-1:0] pc_plus4_mem;
-  logic                   [     1:0] result_src_mem;
-  logic                   [XLEN-1:0] write_data_mem;
-  logic                              mem_write_mem;
-  logic                   [     2:0] funct3_mem;
-  logic                   [     4:0] rd_mem;
-  logic                              reg_write_mem;
+  logic                   [    XLEN-1:0] alu_result_mem;
+  logic                   [    XLEN-1:0] pc_plus4_mem;
+  logic                   [         1:0] result_src_mem;
+  logic                   [    XLEN-1:0] write_data_mem;
+  logic                                  mem_write_mem;
+  logic                   [         2:0] funct3_mem;
+  logic                   [         4:0] rd_mem;
+  logic                                  reg_write_mem;
 
-  logic                   [     1:0] result_src_wb;
-  logic                   [XLEN-1:0] pc_plus4_wb;
-  logic                   [XLEN-1:0] alu_result_wb;
-  logic                   [     4:0] rd_wb;
-  logic                   [XLEN-1:0] load_data_wb;
-  logic                              reg_write_wb;
+  logic                   [         1:0] result_src_wb;
+  logic                   [    XLEN-1:0] pc_plus4_wb;
+  logic                   [    XLEN-1:0] alu_result_wb;
+  logic                   [         4:0] rd_wb;
+  logic                   [    XLEN-1:0] load_data_wb;
+  logic                                  reg_write_wb;
 
   // Hazard detection
-  logic                              stall;
-  logic                              hazard_stall;
-  logic                              flush;
-  logic                              ifid_en;
-  logic                              idex_en;
-  logic                              exmem_en;
-  logic                              memwb_en;
-  logic                              ifid_bubble;
-  logic                              idex_bubble;
-  logic                              exmem_bubble;
-  logic                              memwb_bubble;
-  logic                              if_hold;
-  logic                              redirect_pending;
-  logic                   [XLEN-1:0] redirect_target;
-  logic                   [XLEN-1:0] flush_target;
-  logic                              id_hold;
-  logic                              ex_hold;
-  logic                              mem_hold;
-  logic                              pc_en;
-  logic                   [     1:0] forward_a;
-  logic                   [     1:0] forward_b;
-  logic                   [     1:0] fwd_a;
-  logic                   [     1:0] fwd_b;
-  logic                              fwd_hold;
-  logic                              mem_pc4;
+  logic                                  stall;
+  logic                                  hazard_stall;
+  logic                                  flush;
+  logic                                  ifid_en;
+  logic                                  idex_en;
+  logic                                  exmem_en;
+  logic                                  memwb_en;
+  logic                                  ifid_bubble;
+  logic                                  idex_bubble;
+  logic                                  exmem_bubble;
+  logic                                  memwb_bubble;
+  logic                                  if_hold;
+  logic                                  redirect_pending;
+  logic                   [    XLEN-1:0] redirect_target;
+  logic                   [    XLEN-1:0] flush_target;
+  logic                                  id_hold;
+  logic                                  ex_hold;
+  logic                                  mem_hold;
+  logic                                  pc_en;
+  logic                   [         1:0] forward_a;
+  logic                   [         1:0] forward_b;
+  logic                   [         1:0] fwd_a;
+  logic                   [         1:0] fwd_b;
+  logic                                  fwd_hold;
+  logic                                  mem_pc4;
 
   // Branch resolution
-  logic                              branch_taken_ex;
-  logic                              pc_src_ex;
-  logic                   [XLEN-1:0] pc_target_ex;
+  logic                                  branch_taken_ex;
+  logic                                  pc_src_ex;
+  logic                   [    XLEN-1:0] pc_target_ex;
 
   // CSR trap
-  logic                              csr_access;
-  logic                              is_ecall;
-  logic                              is_ebreak;
-  logic                              is_mret;
-  logic                              exc_illegal;
-  logic                   [XLEN-1:0] instr_ex;
-  logic                              csr_access_ex;
-  logic                              is_ecall_ex;
-  logic                              is_ebreak_ex;
-  logic                              is_mret_ex;
-  logic                              exc_illegal_ex;
-  logic                              valid_id;
-  logic                              valid_ex;
-  logic                              valid_mem;
-  logic                              valid_wb;
-  logic                              commit_valid;
-  logic                              exc_instr_misaligned;
-  logic                              exc_load_misaligned;
-  logic                              exc_store_misaligned;
-  logic                              mem_misaligned;
-  logic                   [XLEN-1:0] csr_rdata;
-  logic                              trap_taken;
-  logic                   [XLEN-1:0] trap_vector;
-  logic                              mret_taken;
-  logic                   [XLEN-1:0] mepc_out;
-  logic                   [XLEN-1:0] bad_addr;
+  logic                                  csr_access;
+  logic                                  is_ecall;
+  logic                                  is_ebreak;
+  logic                                  is_mret;
+  logic                                  exc_illegal;
+  logic                   [    XLEN-1:0] instr_ex;
+  logic                                  csr_access_ex;
+  logic                                  is_ecall_ex;
+  logic                                  is_ebreak_ex;
+  logic                                  is_mret_ex;
+  logic                                  exc_illegal_ex;
+  logic                                  valid_id;
+  logic                                  valid_ex;
+  logic                                  valid_mem;
+  logic                                  valid_wb;
+  logic                                  commit_valid;
+  logic                                  exc_instr_misaligned;
+  logic                                  exc_load_misaligned;
+  logic                                  exc_store_misaligned;
+  logic                                  mem_misaligned;
+  logic                   [    XLEN-1:0] csr_rdata;
+  logic                                  trap_taken;
+  logic                   [    XLEN-1:0] trap_vector;
+  logic                                  mret_taken;
+  logic                   [    XLEN-1:0] mepc_out;
+  logic                   [    XLEN-1:0] bad_addr;
 
-  logic                   [XLEN-1:0] muldiv_result;
-  logic                              muldiv_busy;
-  logic                              muldiv_done;
-  logic                              muldiv_start;
-  logic                              muldiv_hold;
+  logic                   [    XLEN-1:0] muldiv_result;
+  logic                                  muldiv_busy;
+  logic                                  muldiv_done;
+  logic                                  muldiv_start;
+  logic                                  muldiv_hold;
 
-  logic                              bp_taken;
-  logic                [GhistLen-1:0] bp_index;
-  logic                              btb_hit;
-  logic                   [XLEN-1:0] btb_target;
-  logic                              btb_is_cond;
-  logic                              predict_taken;
-  logic                   [XLEN-1:0] predict_target;
-  logic                              predict_taken_id, predict_taken_ex;
-  logic                   [XLEN-1:0] predict_target_id, predict_target_ex;
-  logic                [GhistLen-1:0] bp_index_id, bp_index_ex;
-  logic                              mispredict;
-  logic                   [XLEN-1:0] correct_pc;
+  logic                                  bp_taken;
+  logic                   [GhistLen-1:0] bp_index;
+  logic                                  btb_hit;
+  logic                   [    XLEN-1:0] btb_target;
+  logic                                  btb_is_cond;
+  logic                                  predict_taken;
+  logic                   [    XLEN-1:0] predict_target;
+  logic predict_taken_id, predict_taken_ex;
+  logic [XLEN-1:0] predict_target_id, predict_target_ex;
+  logic [GhistLen-1:0] bp_index_id, bp_index_ex;
+  logic            mispredict;
+  logic [XLEN-1:0] correct_pc;
 
   pc #(
       .XLEN(XLEN),
@@ -315,32 +319,32 @@ module datapath
         predict_taken_ex  <= (predict_taken_id && !idex_bubble);
         predict_target_ex <= predict_target_id;
         bp_index_ex       <= bp_index_id;
-        pc_ex            <= pc_id;
-        pc_plus4_ex      <= pc_plus4_id;
-        funct3_ex        <= instr_id[14:12];
-        imm_ext_ex       <= imm_ext;
-        alu_a_src_ex     <= alu_a_src;
-        pc_target_src_ex <= pc_target_src;
-        alu_src_ex       <= alu_src;
-        result_src_ex    <= idex_bubble ? 2'd0 : result_src;
-        alu_ctrl_ex      <= alu_ctrl;
-        rs1_data_ex      <= rs1_data;
-        rs2_data_ex      <= rs2_data;
-        reg_write_ex     <= (reg_write && !idex_bubble);
-        mem_write_ex     <= (mem_write_dec && !idex_bubble);
-        rd_ex            <= idex_bubble ? 5'd0 : instr_id[11:7];
-        rs1_ex           <= instr_id[19:15];
-        rs2_ex           <= instr_id[24:20];
-        branch_ex        <= (branch && !idex_bubble);
-        jump_ex          <= (jump && !idex_bubble);
-        instr_ex         <= instr_id;
-        csr_access_ex    <= (csr_access && !idex_bubble);
-        is_ecall_ex      <= (is_ecall && !idex_bubble);
-        is_ebreak_ex     <= (is_ebreak && !idex_bubble);
-        is_mret_ex       <= (is_mret && !idex_bubble);
-        exc_illegal_ex   <= (exc_illegal && !idex_bubble);
-        is_muldiv_ex     <= (is_muldiv && !idex_bubble);
-        muldiv_op_ex     <= muldiv_op;
+        pc_ex             <= pc_id;
+        pc_plus4_ex       <= pc_plus4_id;
+        funct3_ex         <= instr_id[14:12];
+        imm_ext_ex        <= imm_ext;
+        alu_a_src_ex      <= alu_a_src;
+        pc_target_src_ex  <= pc_target_src;
+        alu_src_ex        <= alu_src;
+        result_src_ex     <= idex_bubble ? 2'd0 : result_src;
+        alu_ctrl_ex       <= alu_ctrl;
+        rs1_data_ex       <= rs1_data;
+        rs2_data_ex       <= rs2_data;
+        reg_write_ex      <= (reg_write && !idex_bubble);
+        mem_write_ex      <= (mem_write_dec && !idex_bubble);
+        rd_ex             <= idex_bubble ? 5'd0 : instr_id[11:7];
+        rs1_ex            <= instr_id[19:15];
+        rs2_ex            <= instr_id[24:20];
+        branch_ex         <= (branch && !idex_bubble);
+        jump_ex           <= (jump && !idex_bubble);
+        instr_ex          <= instr_id;
+        csr_access_ex     <= (csr_access && !idex_bubble);
+        is_ecall_ex       <= (is_ecall && !idex_bubble);
+        is_ebreak_ex      <= (is_ebreak && !idex_bubble);
+        is_mret_ex        <= (is_mret && !idex_bubble);
+        exc_illegal_ex    <= (exc_illegal && !idex_bubble);
+        is_muldiv_ex      <= (is_muldiv && !idex_bubble);
+        muldiv_op_ex      <= muldiv_op;
       end
     end
   end
@@ -495,7 +499,7 @@ module datapath
         .predict_pc   (pc),
         .predict_taken(bp_taken),
         .predict_index(bp_index),
-        .update_valid (branch_ex && valid_ex && !mem_hold), // Resolved branches
+        .update_valid (branch_ex && valid_ex && !mem_hold),  // Resolved branches
         .update_taken (branch_taken_ex),
         .update_index (bp_index_ex)
     );
@@ -510,7 +514,7 @@ module datapath
         .hit           (btb_hit),
         .target        (btb_target),
         .is_cond       (btb_is_cond),
-        .update_valid  (pc_src_ex && !mem_hold), // Taken transfers
+        .update_valid  (pc_src_ex && !mem_hold),  // Taken transfers
         .update_pc     (pc_ex),
         .update_target (pc_target_ex),
         .update_is_cond(branch_ex)
@@ -571,12 +575,12 @@ module datapath
   assign exc_store_misaligned = commit_valid && mem_write_ex && mem_misaligned;
   assign bad_addr = exc_instr_misaligned ? pc_target_ex : alu_result;
 
-  logic                              is_vset;
-  logic                   [     7:0] vl_d;
-  logic                   [XLEN-1:0] vtype_d;
-  logic                   [     7:0] vl_q;
-  logic                   [XLEN-1:0] vtype_q;
-  logic                              exc_vec_encoding;
+  logic            is_vset;
+  logic [     7:0] vl_d;
+  logic [XLEN-1:0] vtype_d;
+  logic [     7:0] vl_q;
+  logic [XLEN-1:0] vtype_q;
+  logic            exc_vec_encoding;
 
   assign exc_vec_encoding = (instr_ex[6:0] == OpcodeOpV) && !is_vset;
 
@@ -594,11 +598,20 @@ module datapath
       .vtype_d (vtype_d)
   );
 
+`ifdef RISCV_FORMAL
+  logic [7:0] csr_vtype_bits;
+  logic       csr_vtype_ill;
+  logic [6:0] csr_vstart;
+`endif
+
   csr #(
       .XLEN(XLEN),
       .VLEN(VLEN)
   ) csr_inst (
 `ifdef RISCV_FORMAL
+      .dbg_vtype_bits      (csr_vtype_bits),
+      .dbg_vtype_ill       (csr_vtype_ill),
+      .dbg_vstart          (csr_vstart),
       .dbg_csr_wdata       (dbg_csr_wdata),
       .dbg_mscratch        (dbg_mscratch),
       .dbg_mstatus         (dbg_mstatus),
@@ -648,7 +661,7 @@ module datapath
 
   always_comb begin
     if (is_muldiv_ex) result_ex = muldiv_result;
-    else if (is_vset) result_ex = {{XLEN-8{1'b0}}, vl_d};
+    else if (is_vset) result_ex = {{XLEN - 8{1'b0}}, vl_d};
     else if (csr_access_ex) result_ex = csr_rdata;
     else result_ex = alu_result;
   end
@@ -785,6 +798,10 @@ module datapath
   logic [     3:0] rvfi_wstrb_wb;
   logic [XLEN-1:0] rvfi_wdata_wb;
   logic rvfi_trap_mem, rvfi_trap_wb;
+  logic [     7:0] rvfi_vl_wb;
+  logic [     7:0] rvfi_vtype_bits_wb;
+  logic            rvfi_vtype_ill_wb;
+  logic [     6:0] rvfi_vstart_wb;
 
   // Follows stage enables
   always_ff @(posedge clk) begin
@@ -812,22 +829,31 @@ module datapath
       rvfi_memrd_wb <= read_data;
       rvfi_wstrb_wb <= store_wstrb;
       rvfi_wdata_wb <= store_data;
+      // Vector snapshot
+      rvfi_vl_wb <= vl_q;
+      rvfi_vtype_bits_wb <= csr_vtype_bits;
+      rvfi_vtype_ill_wb <= csr_vtype_ill;
+      rvfi_vstart_wb <= csr_vstart;
     end
   end
 
-  assign dbg_valid     = valid_wb;
-  assign dbg_insn      = rvfi_insn_wb;
-  assign dbg_pc_rdata  = rvfi_pc_wb;
-  assign dbg_pc_wdata  = rvfi_pcw_wb;
-  assign dbg_rs1_rdata = rvfi_rs1d_wb;
-  assign dbg_rs2_rdata = rvfi_rs2d_wb;
-  assign dbg_rd_wdata  = result;
-  assign dbg_reg_write = reg_write_wb;
-  assign dbg_mem_addr  = alu_result_wb;
-  assign dbg_mem_wmask = rvfi_wstrb_wb;
-  assign dbg_mem_wdata = rvfi_wdata_wb;
-  assign dbg_mem_rdata = rvfi_memrd_wb;
-  assign dbg_trap      = rvfi_trap_wb;
+  assign dbg_valid      = valid_wb;
+  assign dbg_insn       = rvfi_insn_wb;
+  assign dbg_pc_rdata   = rvfi_pc_wb;
+  assign dbg_pc_wdata   = rvfi_pcw_wb;
+  assign dbg_rs1_rdata  = rvfi_rs1d_wb;
+  assign dbg_rs2_rdata  = rvfi_rs2d_wb;
+  assign dbg_rd_wdata   = result;
+  assign dbg_reg_write  = reg_write_wb;
+  assign dbg_mem_addr   = alu_result_wb;
+  assign dbg_mem_wmask  = rvfi_wstrb_wb;
+  assign dbg_mem_wdata  = rvfi_wdata_wb;
+  assign dbg_mem_rdata  = rvfi_memrd_wb;
+  assign dbg_trap       = rvfi_trap_wb;
+  assign dbg_vl         = rvfi_vl_wb;
+  assign dbg_vtype_bits = rvfi_vtype_bits_wb;
+  assign dbg_vtype_ill  = rvfi_vtype_ill_wb;
+  assign dbg_vstart     = rvfi_vstart_wb;
 `endif
 
 endmodule

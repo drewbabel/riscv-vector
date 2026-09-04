@@ -20,6 +20,9 @@ module csr
     output logic [XLEN-1:0] dbg_minstret,
     output logic [XLEN-1:0] dbg_mcycleh,
     output logic [XLEN-1:0] dbg_minstreth,
+    output logic [     7:0] dbg_vtype_bits,
+    output logic            dbg_vtype_ill,
+    output logic [     6:0] dbg_vstart,
 `endif
     input logic clk,
     input logic core_en,
@@ -271,19 +274,22 @@ module csr
   end
 
 `ifdef RISCV_FORMAL
-  assign dbg_csr_wdata = csr_wdata;
-  assign dbg_mscratch  = mscratch;
-  assign dbg_mstatus   = mstatus;
-  assign dbg_mtvec     = mtvec;
-  assign dbg_mepc      = mepc;
-  assign dbg_mcause    = mcause;
-  assign dbg_mtval     = mtval;
-  assign dbg_mie       = mie;
-  assign dbg_mip       = mip;
-  assign dbg_mcycle    = mcycle;
-  assign dbg_minstret  = minstret;
-  assign dbg_mcycleh   = mcycleh;
-  assign dbg_minstreth = minstreth;
+  assign dbg_csr_wdata  = csr_wdata;
+  assign dbg_mscratch   = mscratch;
+  assign dbg_mstatus    = mstatus;
+  assign dbg_mtvec      = mtvec;
+  assign dbg_mepc       = mepc;
+  assign dbg_mcause     = mcause;
+  assign dbg_mtval      = mtval;
+  assign dbg_mie        = mie;
+  assign dbg_mip        = mip;
+  assign dbg_mcycle     = mcycle;
+  assign dbg_minstret   = minstret;
+  assign dbg_mcycleh    = mcycleh;
+  assign dbg_minstreth  = minstreth;
+  assign dbg_vtype_bits = vtype_bits;
+  assign dbg_vtype_ill  = vtype_ill;
+  assign dbg_vstart     = vstart;
 `endif
 endmodule
 
