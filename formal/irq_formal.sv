@@ -115,12 +115,11 @@ module irq_formal
                  || (csr_addr == VlenbAddr) || (csr_addr == VxsatAddr) || (csr_addr == VxrmAddr)
                  || (csr_addr == VcsrAddr);
 
-  logic wsrc_zero;
-  assign wsrc_zero = funct3[2] ? (zimm == '0) : (rs1_data == '0);
+  logic spec_zero;  // rs1 field
+  assign spec_zero = (funct3[1:0] == 2'b10 || funct3[1:0] == 2'b11) && (zimm == 5'd0);
 
   logic exc_ro_write;
-  assign exc_ro_write = csr_access && (csr_addr[11:10] == 2'b11)
-      && !((funct3[1:0] == 2'b10 || funct3[1:0] == 2'b11) && wsrc_zero);
+  assign exc_ro_write = csr_access && (csr_addr[11:10] == 2'b11) && !spec_zero;
 
   logic exc_vs_off;
   assign exc_vs_off = (is_vec_instr || (csr_access && vec_addr))
