@@ -232,6 +232,8 @@ jobs:
           echo "LD_LIBRARY_PATH=/opt/spike/lib" >> "$GITHUB_ENV"
       - name: Directed rv32im co-sim
         run: python3 tests/cosim.py cosim_m
+      - name: Directed vector configuration co-sim
+        run: python3 tests/cosim.py --vec vecconf
       - name: Randomized co-sim regression (500 programs)
         run: python3 tests/cosim.py --rand 500
 
