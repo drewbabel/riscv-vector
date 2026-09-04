@@ -16,12 +16,33 @@ package csr_pkg;
   localparam logic [11:0] McyclehAddr = 12'hB80;  // CYCLE High
   localparam logic [11:0] MinstrethAddr = 12'hB82;  // INSTructions RETired High
 
+  // Vector CSR addresses
+  localparam logic [11:0] VstartAddr = 12'h008;  // element index
+  localparam logic [11:0] VxsatAddr = 12'h009;  // SATuration flag
+  localparam logic [11:0] VxrmAddr = 12'h00A;  // Rounding Mode
+  localparam logic [11:0] VcsrAddr = 12'h00F;  // Vector CSR
+  localparam logic [11:0] VlAddr = 12'hC20;  // Vector Length
+  localparam logic [11:0] VtypeAddr = 12'hC21;  // Vector TYPE
+  localparam logic [11:0] VlenbAddr = 12'hC22;  // VLEN in Bytes
+
 
   // mstatus bit positions
   localparam int MstatusMie = 3;  // Interrupt Enable
   localparam int MstatusMpie = 7;  // Previous Interrupt Enable
+  localparam int MstatusVsLo = 9;  // Vector Status Low
   localparam int MstatusMppLo = 11;  // Previous Privilege Low
+  localparam int MstatusSd = 31;  // State Dirty
   localparam logic [1:0] PrivMachine = 2'b11;
+
+  // Vector Status encodings
+  localparam logic [1:0] VsOff = 2'b00;  // disabled
+  localparam logic [1:0] VsInitial = 2'b01;  // registers zero
+  localparam logic [1:0] VsClean = 2'b10;  // matches saved copy
+  localparam logic [1:0] VsDirty = 2'b11;  // written since save
+
+  // Writable bits
+  localparam logic [31:0] MstatusMask = (32'd1 << MstatusMie) | (32'd1 << MstatusMpie) |
+      (32'd3 << MstatusVsLo) | (32'd3 << MstatusMppLo);
 
   // Machine timer bit
   localparam int Mtie = 7;

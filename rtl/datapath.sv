@@ -7,6 +7,7 @@ module datapath
   import bp_pkg::*;
 #(
     parameter int XLEN      = 32,
+    parameter int VLEN      = 128,
     parameter bit GSHARE_EN = 1'b1
 ) (
 `ifdef RISCV_FORMAL
@@ -274,7 +275,7 @@ module datapath
       (instr_id[6:0] == OpcodeBranch) || (instr_id[6:0] == OpcodeJal) ||
       (instr_id[6:0] == OpcodeJalr) || (instr_id[6:0] == OpcodeLui) ||
       (instr_id[6:0] == OpcodeAuipc) || (instr_id[6:0] == OpcodeMiscMem) ||
-      (instr_id[6:0] == OpcodeSystem));
+      (instr_id[6:0] == OpcodeSystem) || instr_id[6:0] == OpcodeOpV);
 
   regfile #(
       .XLEN(XLEN)
@@ -570,8 +571,32 @@ module datapath
   assign exc_store_misaligned = commit_valid && mem_write_ex && mem_misaligned;
   assign bad_addr = exc_instr_misaligned ? pc_target_ex : alu_result;
 
+  logic                              is_vset;
+  logic                   [     7:0] vl_d;
+  logic                   [XLEN-1:0] vtype_d;
+  logic                   [     7:0] vl_q;
+  logic                   [XLEN-1:0] vtype_q;
+  logic                              exc_vec_encoding;
+
+  assign exc_vec_encoding = (instr_ex[6:0] == OpcodeOpV) && !is_vset;
+
+  vec_config #(
+      .XLEN(XLEN),
+      .VLEN(VLEN)
+  ) vec_config_inst (
+      .instr   (instr_ex),
+      .rs1_data(forwarded_rs1),
+      .rs2_data(forwarded_rs2),
+      .vl_q    (vl_q),
+      .vtype_q (vtype_q),
+      .is_vset (is_vset),
+      .vl_d    (vl_d),
+      .vtype_d (vtype_d)
+  );
+
   csr #(
-      .XLEN(XLEN)
+      .XLEN(XLEN),
+      .VLEN(VLEN)
   ) csr_inst (
 `ifdef RISCV_FORMAL
       .dbg_csr_wdata       (dbg_csr_wdata),
@@ -599,7 +624,7 @@ module datapath
       .zimm                (instr_ex[19:15]),
       .pc                  (pc_ex),
       .bad_addr            (bad_addr),
-      .exc_illegal         (exc_illegal_ex && commit_valid),
+      .exc_illegal         ((exc_illegal_ex || exc_vec_encoding) && commit_valid),
       .exc_ecall           (is_ecall_ex && commit_valid),
       .exc_ebreak          (is_ebreak_ex && commit_valid),
       .exc_instr_misaligned(exc_instr_misaligned),
@@ -612,10 +637,21 @@ module datapath
       .trap_taken          (trap_taken),
       .trap_vector         (trap_vector),
       .mret_taken          (mret_taken),
-      .mepc_out            (mepc_out)
+      .mepc_out            (mepc_out),
+      .is_vset             (is_vset && commit_valid),
+      .vl_d                (vl_d),
+      .vtype_d             (vtype_d),
+      .is_vec_instr        (is_vset && commit_valid),
+      .vl_q                (vl_q),
+      .vtype_q             (vtype_q)
   );
 
-  assign result_ex = is_muldiv_ex ? muldiv_result : (csr_access_ex ? csr_rdata : alu_result);
+  always_comb begin
+    if (is_muldiv_ex) result_ex = muldiv_result;
+    else if (is_vset) result_ex = {{XLEN-8{1'b0}}, vl_d};
+    else if (csr_access_ex) result_ex = csr_rdata;
+    else result_ex = alu_result;
+  end
 
   assign flush = mispredict | trap_taken | mret_taken;
 

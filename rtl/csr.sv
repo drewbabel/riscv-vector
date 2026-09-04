@@ -3,7 +3,8 @@
 module csr
   import csr_pkg::*;
 #(
-    parameter int XLEN = 32
+    parameter int XLEN = 32,
+    parameter int VLEN = 128
 ) (
 `ifdef RISCV_FORMAL
     output logic [XLEN-1:0] dbg_csr_wdata,
@@ -56,7 +57,15 @@ module csr
     output logic            trap_taken,
     output logic [XLEN-1:0] trap_vector,
     output logic            mret_taken,
-    output logic [XLEN-1:0] mepc_out
+    output logic [XLEN-1:0] mepc_out,
+
+    // Vector configuration
+    input  logic            is_vset,
+    input  logic [     7:0] vl_d,
+    input  logic [XLEN-1:0] vtype_d,
+    input  logic            is_vec_instr,
+    output logic [     7:0] vl_q,
+    output logic [XLEN-1:0] vtype_q
 );
 
   logic [XLEN-1:0] mstatus;
@@ -71,6 +80,17 @@ module csr
   logic [XLEN-1:0] minstret;
   logic [XLEN-1:0] mcycleh;
   logic [XLEN-1:0] minstreth;
+
+  logic [     7:0] vl;
+  logic [     7:0] vtype_bits;
+  logic            vtype_ill;
+  logic [     6:0] vstart;
+
+  logic [XLEN-1:0] mstatus_read;
+  logic            vec_csr_addr;
+  logic            exc_ro_write;
+  logic            exc_vs_off;
+  logic            illegal_any;
 
   logic [XLEN-1:0] csr_wsrc;
   logic [XLEN-1:0] csr_wdata;
@@ -89,7 +109,7 @@ module csr
   end
   assign timer_ready = timer_irq & mstatus[MstatusMie] & mie[Mtie];
   assign ext_ready = ext_irq & mstatus[MstatusMie] & mie[Meie];
-  assign trap_taken  = exc_illegal | exc_ecall | exc_ebreak | exc_instr_misaligned
+  assign trap_taken  = illegal_any | exc_ecall | exc_ebreak | exc_instr_misaligned
                         | exc_load_misaligned | exc_store_misaligned
                         | timer_ready | ext_ready;
   // Reject if trap, or if set/clear with zero source
@@ -98,6 +118,19 @@ module csr
   assign trap_vector = {mtvec[31:2], 2'b00};  // Divide by 4 = remove last 2 bits
   assign mret_taken = is_mret;
   assign mepc_out = mepc;
+
+  assign vl_q = vl;
+  assign vtype_q = vtype_ill ? {1'b1, {XLEN - 1{1'b0}}} : {{XLEN - 8{1'b0}}, vtype_bits};
+  assign mstatus_read = mstatus | (XLEN'(mstatus[MstatusVsLo+1:MstatusVsLo] == VsDirty) << MstatusSd);
+  assign vec_csr_addr = (csr_addr == VstartAddr) || (csr_addr == VlAddr)
+                   || (csr_addr == VtypeAddr)  || (csr_addr == VlenbAddr)
+                   || (csr_addr == VxsatAddr)  || (csr_addr == VxrmAddr)
+                   || (csr_addr == VcsrAddr);
+  assign exc_ro_write = csr_access && (csr_addr[11:10] == 2'b11) &&
+    !((funct3[1:0] == 2'b10 || funct3[1:0] == 2'b11) && (csr_wsrc == '0));
+  assign exc_vs_off = (is_vec_instr || (csr_access && vec_csr_addr)) &&
+    (mstatus[MstatusVsLo+1:MstatusVsLo] == VsOff);
+  assign illegal_any = exc_illegal || exc_ro_write || exc_vs_off;
 
   logic [XLEN-1:0] mip_read;
   always_comb begin
@@ -109,23 +142,27 @@ module csr
   // Read mux
   always_comb begin
     case (csr_addr)
-      MstatusAddr:  csr_rdata = mstatus;
-      MieAddr:      csr_rdata = mie;
-      MtvecAddr:    csr_rdata = mtvec;
+      MstatusAddr: csr_rdata = mstatus_read;
+      MieAddr: csr_rdata = mie;
+      MtvecAddr: csr_rdata = mtvec;
       MscratchAddr: csr_rdata = mscratch;
-      MepcAddr:     csr_rdata = mepc;
-      McauseAddr:   csr_rdata = mcause;
-      MtvalAddr:    csr_rdata = mtval;
-      MipAddr:      csr_rdata = mip_read;
-      McycleAddr:   csr_rdata = mcycle;
+      MepcAddr: csr_rdata = mepc;
+      McauseAddr: csr_rdata = mcause;
+      MtvalAddr: csr_rdata = mtval;
+      MipAddr: csr_rdata = mip_read;
+      McycleAddr: csr_rdata = mcycle;
       MinstretAddr: csr_rdata = minstret;
-      McyclehAddr:   csr_rdata = mcycleh;
+      McyclehAddr: csr_rdata = mcycleh;
       MinstrethAddr: csr_rdata = minstreth;
-      default:      csr_rdata = '0;
+      VlAddr: csr_rdata = {{XLEN - 8{1'b0}}, vl};
+      VtypeAddr: csr_rdata = vtype_ill ? {1'b1, {XLEN - 1{1'b0}}} : {{XLEN - 8{1'b0}}, vtype_bits};
+      VlenbAddr: csr_rdata = XLEN'(VLEN / 8);
+      VstartAddr: csr_rdata = {{XLEN - 7{1'b0}}, vstart};
+      default: csr_rdata = '0;
     endcase
   end
 
-  // Counts every cycle
+  // Counts
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       mcycle  <= '0;
@@ -144,16 +181,20 @@ module csr
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      mstatus  <= '0;
-      mtvec    <= '0;
-      mepc     <= '0;
-      mcause   <= '0;
-      mtval    <= '0;
-      mie      <= '0;
-      mip      <= '0;
-      mscratch <= '0;
-      minstret <= '0;
-      minstreth <= '0;
+      mstatus    <= '0;
+      mtvec      <= '0;
+      mepc       <= '0;
+      mcause     <= '0;
+      mtval      <= '0;
+      mie        <= '0;
+      mip        <= '0;
+      mscratch   <= '0;
+      minstret   <= '0;
+      minstreth  <= '0;
+      vl         <= 8'b0;
+      vtype_bits <= 8'b0;
+      vtype_ill  <= 1'b1;
+      vstart     <= 7'b0;
     end else if (core_en) begin
       if (!trap_taken) begin  // retired only
         minstret  <= minstret + 1;
@@ -162,12 +203,12 @@ module csr
 
       if (trap_taken) begin
         mstatus[MstatusMpie] <= mstatus[MstatusMie];
-        mstatus[MstatusMie]  <= 1'b0;
+        mstatus[MstatusMie] <= 1'b0;
         mepc <= pc;
         if (exc_instr_misaligned) begin
           mcause <= {1'b0, 31'(CauseInstrMisaligned)};
           mtval  <= bad_addr;
-        end else if (exc_illegal) begin
+        end else if (illegal_any) begin
           mcause <= {1'b0, 31'(CauseIllegalInstr)};
           mtval  <= '0;
         end else if (exc_ecall) begin
@@ -185,27 +226,44 @@ module csr
         end else begin
           mcause <= ext_ready ? {1'b1, 31'(CauseMachineExternalIrq)}
               : {1'b1, 31'(CauseMachineTimerIrq)};
-          mtval  <= '0;
+          mtval <= '0;
         end
-      end else if (is_mret) begin
-        mstatus[MstatusMie]  <= mstatus[MstatusMpie];
-        mstatus[MstatusMpie] <= 1'b1;
+      end else begin
+        if (is_mret) begin
+          mstatus[MstatusMie]  <= mstatus[MstatusMpie];
+          mstatus[MstatusMpie] <= 1'b1;
+        end
+        if (is_vset) begin  // store vec_config computation on config instr
+          vl <= vl_d;
+          vtype_bits <= vtype_d[7:0];
+          vtype_ill <= vtype_d[XLEN-1];
+        end
+        if (is_vec_instr) begin
+          vstart <= 7'b0;  // clear when vec instr finished
+        end
+        // Software directly writing
+        if (csr_write_en && csr_addr == VstartAddr) begin
+          vstart <= csr_wdata[6:0];
+        end
+        if (is_vec_instr || (csr_write_en && vec_csr_addr)) begin
+          mstatus[MstatusVsLo+1:MstatusVsLo] <= VsDirty;  // Assign dirty state
+        end
       end
 
       if (csr_write_en) begin
         case (csr_addr)
-          MstatusAddr:  mstatus <= csr_wdata;
-          MieAddr:      mie <= csr_wdata;
-          MtvecAddr:    mtvec <= csr_wdata;
-          MscratchAddr: mscratch <= csr_wdata;
-          MepcAddr:     mepc <= {csr_wdata[XLEN-1:2], 2'b00};  // mepc word aligned
-          McauseAddr:   mcause <= csr_wdata;
-          MtvalAddr:    mtval <= csr_wdata;
+          MstatusAddr:   mstatus <= csr_wdata & MstatusMask;
+          MieAddr:       mie <= csr_wdata;
+          MtvecAddr:     mtvec <= csr_wdata;
+          MscratchAddr:  mscratch <= csr_wdata;
+          MepcAddr:      mepc <= {csr_wdata[XLEN-1:2], 2'b00};  // mepc word aligned
+          McauseAddr:    mcause <= csr_wdata;
+          MtvalAddr:     mtval <= csr_wdata;
           // Read only
-          MipAddr:      mip <= csr_wdata & ~(XLEN'(1) << Mtip) & ~(XLEN'(1) << Meip);
-          MinstretAddr: minstret <= csr_wdata;
+          MipAddr:       mip <= csr_wdata & ~(XLEN'(1) << Mtip) & ~(XLEN'(1) << Meip);
+          MinstretAddr:  minstret <= csr_wdata;
           MinstrethAddr: minstreth <= csr_wdata;
-          default:      ;
+          default:       ;
         endcase
       end
     end
