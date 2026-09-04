@@ -31,7 +31,8 @@ SCALAR_MARCH = "rv32im"
 VECTOR_MARCH = "rv32im_zve32x_zvl128b"  # Zvl128b or VLEN reads 32
 VECTOR = False
 
-VEC_CSRS = {0x008, 0x009, 0x00A, 0x00F, 0xC20, 0xC21, 0xC22}  # vector CSRs only
+VL_ADDR, VTYPE_ADDR, VSTART_ADDR = 0xC20, 0xC21, 0x008
+VTYPE_RESET = 0x8000_0000  # vill set out of reset
 
 
 def march():
@@ -61,16 +62,21 @@ def build_images(src, hexout, spike_elf):
     sh([RVGCC, *gcc_common(), "-T", "tests/link_spike.ld", "-o", spike_elf, src])
 
 
+COMMIT_RE = re.compile(
+    r"COMMIT ([0-9a-f]+) (\d+) ([0-9a-f]+) (\d+) ([0-9a-f]+) ([0-9a-f]+) ([0-9a-f]+)"
+    r" ([0-9a-f]+) ([0-9a-f]+) ([0-9a-f]+) ([0-9a-f]+)")
+
+
 # dut commit trace
 def run_dut(dut_hex):
     out = subprocess.run(["vvp", SIM, f"+hex={dut_hex}", "+n=8000"],
                          cwd=ROOT, capture_output=True, text=True).stdout
     trace = []
     for line in out.splitlines():
-        m = re.match(r"COMMIT ([0-9a-f]+) (\d+) ([0-9a-f]+) (\d+) ([0-9a-f]+) ([0-9a-f]+) ([0-9a-f]+)", line)
+        m = COMMIT_RE.match(line)
         if not m:
             continue
-        pc, rd, val, mw, maddr, wstrb, sdata = m.groups()
+        pc, rd, val, mw, maddr, wstrb, sdata, vl, vtb, vti, vst = m.groups()
         rd_i = int(rd)
         val_i = (int(val, 16) & MASK32) if rd_i else 0  # x0 carries no value
         store = None
@@ -78,30 +84,16 @@ def run_dut(dut_hex):
             ws, sd = int(wstrb, 16), int(sdata, 16)
             widx = (int(maddr, 16) >> 2) & (DEPTH - 1)
             store = (widx, tuple((i, (sd >> (8 * i)) & 0xFF) for i in range(4) if ws & (1 << i)))
-        trace.append((int(pc, 16), rd_i, val_i, store, None))
+        vec = None
+        if VECTOR:  # vtype is the two raw fields recomposed
+            vec = (int(vl, 16), (int(vti, 16) << 31) | int(vtb, 16), int(vst, 16))
+        trace.append((int(pc, 16), rd_i, val_i, store, vec))
     return trace
 
 
 SPIKE_RE = re.compile(r"core\s+\d+:\s+\d+\s+0x([0-9a-f]+)\s+\(0x([0-9a-f]+)\)(.*)")  # commit line
 
-VEC_MARK_RE = re.compile(r"\be(\d+)\s+(mf?\d+)\s+l(\d+)\b")  # vector instruction marker
-VREG_RE = re.compile(r"\bv(\d+)\s+0x([0-9a-f]+)")
-VCSR_RE = re.compile(r"\bc(\d+)_\w+\s+0x([0-9a-f]+)")
-VMEM_RE = re.compile(r"\bmem\s+0x([0-9a-f]+)(?:\s+0x([0-9a-f]+))?")
-
-
-# Vector architectural state
-def parse_vec(tail):
-    vcsrs = tuple((int(a), int(v, 16)) for a, v in VCSR_RE.findall(tail) if int(a) in VEC_CSRS)
-    mark = VEC_MARK_RE.search(tail)
-    if not mark and not vcsrs:  # vsetvli logs no marker
-        return None
-    sew = int(mark.group(1)) if mark else None
-    lmul = mark.group(2) if mark else None
-    vl = int(mark.group(3)) if mark else None
-    vregs = tuple((int(i), int(v, 16)) for i, v in VREG_RE.findall(tail))
-    mem = tuple((int(a, 16), int(v, 16) if v else None) for a, v in VMEM_RE.findall(tail))
-    return (sew, lmul, vl, vregs, vcsrs, mem)
+VCSR_RE = re.compile(r"\bc(\d+)_\w+\s+0x([0-9a-f]+)")  # a control register Spike changed
 
 
 # Golden spike trace
@@ -127,6 +119,7 @@ def run_spike(spike_elf, n):
         proc.wait(timeout=10)
     out = "".join(lines)
     trace = []
+    shadow = {VL_ADDR: 0, VTYPE_ADDR: VTYPE_RESET, VSTART_ADDR: 0}
     for line in out.splitlines():
         m = SPIKE_RE.match(line)
         if not m:
@@ -141,9 +134,12 @@ def run_spike(spike_elf, n):
             val = int(rm.group(2), 16) & MASK32
             if opcode in ABS_PC_OPS and rd != 0:
                 val = (val - BASE) & MASK32  # to dut space
-        vec = parse_vec(tail)
+        for addr, hexval in VCSR_RE.findall(tail):  # Spike prints only on change
+            if int(addr) in shadow:
+                shadow[int(addr)] = int(hexval, 16)
+        vec = (shadow[VL_ADDR], shadow[VTYPE_ADDR], shadow[VSTART_ADDR]) if VECTOR else None
         store = None
-        sm = None if vec else re.search(r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail)
+        sm = re.search(r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail)
         if sm:
             saddr, sval = int(sm.group(1), 16), int(sm.group(2), 16)
             width = STORE_WIDTH[(insn >> 12) & 0x7]  # sb=1 sh=2 sw=4
@@ -157,10 +153,6 @@ def run_spike(spike_elf, n):
     return trace
 
 
-VCSR_NAMES = {0x008: "vstart", 0x009: "vxsat", 0x00A: "vxrm", 0x00F: "vcsr",
-              0xC20: "vl", 0xC21: "vtype", 0xC22: "vlenb"}
-
-
 def fmt(rec):
     pc, rd, val, store, vec = rec
     parts = [f"pc={pc:08x}", f"x{rd}={val:08x}" if rd else "x0"]
@@ -168,12 +160,8 @@ def fmt(rec):
         widx, bs = store
         parts.append(f"mem[w{widx}] " + " ".join(f"b{i}={b:02x}" for i, b in bs))
     if vec is not None:
-        sew, lmul, vl, vregs, vcsrs, mem = vec
-        if sew is not None:
-            parts.append(f"e{sew} {lmul} vl={vl}")
-        parts += [f"v{i}={v:032x}" for i, v in vregs]
-        parts += [f"{VCSR_NAMES.get(a, a)}={v:08x}" for a, v in vcsrs]
-        parts += [f"mem[{a:08x}]" + (f"={v:08x}" if v is not None else " read") for a, v in mem]
+        vl, vtype, vstart = vec
+        parts += [f"vl={vl}", f"vtype={vtype:08x}", f"vstart={vstart}"]
     return "  ".join(parts)
 
 
@@ -182,7 +170,12 @@ def compare(dut, spike):
     n = min(len(dut), len(spike))
     for i in range(n):
         if dut[i] != spike[i]:
-            return False, f"instr {i}\n  DUT   {fmt(dut[i])}\n  Spike {fmt(spike[i])}"
+            why = ""
+            if dut[i][4] != spike[i][4] and dut[i][:4] == spike[i][:4]:
+                names = ("vl", "vtype", "vstart")
+                bad = [n for n, a, b in zip(names, dut[i][4], spike[i][4]) if a != b]
+                why = f" ({', '.join(bad)})"
+            return False, f"instr {i}{why}\n  DUT   {fmt(dut[i])}\n  Spike {fmt(spike[i])}"
     if len(dut) != len(spike):
         return False, f"length DUT {len(dut)} Spike {len(spike)}"
     return True, n
