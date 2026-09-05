@@ -50,8 +50,13 @@ def sh(cmd):
 # Compile the monitor
 def compile_monitor():
     os.makedirs(BUILD, exist_ok=True)
-    sh(["iverilog", "-g2012", "-DRISCV_FORMAL", "-s", "cosim", "-o", SIM, *RTL,
-        os.path.join("tb", "cosim.sv")])
+    r = subprocess.run(["iverilog", "-g2012", "-DRISCV_FORMAL", "-s", "cosim", "-o", SIM, *RTL,
+                        os.path.join("tb", "cosim.sv")], cwd=ROOT, capture_output=True, text=True)
+    notes = [l for l in r.stderr.splitlines() if "sorry: constant selects" not in l]
+    if notes:
+        print("\n".join(notes), file=sys.stderr)
+    if r.returncode:
+        sys.exit(r.returncode)
 
 
 # dut hex plus spike elf
@@ -68,11 +73,23 @@ COMMIT_RE = re.compile(
 
 
 # dut commit trace
-def run_dut(dut_hex):
-    out = subprocess.run(["vvp", SIM, f"+hex={dut_hex}", "+n=8000"],
-                         cwd=ROOT, capture_output=True, text=True).stdout
+TRACE_RE = re.compile(r"TRACE (\d+) ([0-9a-f]+) ([0-9a-f]+)")
+VCD = os.path.join(BUILD, "cosim.vcd")
+TRACE = []  # Retirement times
+
+
+def run_dut(dut_hex, vcd=False):
+    args = ["vvp", SIM, f"+hex={dut_hex}", "+n=8000"]
+    if vcd:
+        args.append(f"+vcd={VCD}")
+    out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True).stdout
     trace = []
+    TRACE.clear()
     for line in out.splitlines():
+        t = TRACE_RE.match(line)
+        if t:
+            TRACE.append((int(t.group(1)), int(t.group(2), 16), int(t.group(3), 16)))
+            continue
         m = COMMIT_RE.match(line)
         if not m:
             continue
@@ -165,6 +182,53 @@ def fmt(rec):
     return "  ".join(parts)
 
 
+# Disassemble words
+def disasm(words):
+    raw = os.path.join(BUILD, "disasm.bin")
+    with open(raw, "wb") as f:
+        for w in words:
+            f.write((w & MASK32).to_bytes(4, "little"))
+    out = subprocess.run(["riscv64-elf-objdump", "-D", "-b", "binary", "-m", "riscv:rv32",
+                          "-M", "numeric,no-aliases", raw], capture_output=True, text=True).stdout
+    text = {}
+    for line in out.splitlines():
+        m = re.match(r"\s*([0-9a-f]+):\s+[0-9a-f]+\s+(.*)", line)
+        if m:
+            text[int(m.group(1), 16) // 4] = m.group(2).replace("\t", " ").strip()
+    return [text.get(i, "?") for i in range(len(words))]
+
+
+# Tracer log
+def write_trace(path, dut):
+    asm = disasm([insn for _, _, insn in TRACE])
+    with open(path, "w") as f:
+        for (t, pc, insn), a, rec in zip(TRACE, asm, dut):
+            rd, val = rec[1], rec[2]
+            f.write(f"{t:>8} {pc:08x} {insn:08x}  {a:<28} " + (f"x{rd}={val:08x}" if rd else "") + "\n")
+
+
+# Locate divergence
+def locate(i):
+    if i >= len(TRACE):
+        return ""
+    t, pc, insn = TRACE[i]
+    a = disasm([insn])[0]
+    cmd = os.path.join(BUILD, "cosim_goto.sucl")
+    with open(cmd, "w") as f:
+        f.write(f"goto_time {t}\n")
+    layout = os.path.join(BUILD, "pipeline_cosim.ron")
+    with open(os.path.join(ROOT, "tb", "surfer", "pipeline.ron.in")) as f:
+        ron = f.read().replace("@TOP@", "cosim").replace("@A@", "dut").replace("@B@", "riscv_pipelined_inst")
+    with open(layout, "w") as f:
+        f.write(ron)
+    surfer = ["surfer", os.path.relpath(VCD, ROOT), "-s", os.path.relpath(layout, ROOT),
+              "-c", os.path.relpath(cmd, ROOT)]
+    if sys.stdout.isatty() and not os.environ.get("CI"):  # Open the waveform
+        subprocess.Popen(surfer, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    return f"\n  at time {t}  pc={pc:08x}  {a}\n  " + " ".join(surfer)
+
+
 # First mismatch wins
 def compare(dut, spike):
     n = min(len(dut), len(spike))
@@ -175,7 +239,7 @@ def compare(dut, spike):
                 names = ("vl", "vtype", "vstart")
                 bad = [n for n, a, b in zip(names, dut[i][4], spike[i][4]) if a != b]
                 why = f" ({', '.join(bad)})"
-            return False, f"instr {i}{why}\n  DUT   {fmt(dut[i])}\n  Spike {fmt(spike[i])}"
+            return False, f"instr {i}{why}\n  DUT   {fmt(dut[i])}\n  Spike {fmt(spike[i])}" + locate(i)
     if len(dut) != len(spike):
         return False, f"length DUT {len(dut)} Spike {len(spike)}"
     return True, n
@@ -302,8 +366,11 @@ def main():
         print(f"RANDOM PASS: {count} programs, {total} instructions matched Spike")
         return
 
+    want_trace = "--trace" in sys.argv
+    if want_trace:
+        sys.argv.remove("--trace")
     if len(sys.argv) != 2:
-        sys.exit("usage: python3 tests/cosim.py [--vec] <prog> | --rand [count] [seed0]")
+        sys.exit("usage: python3 tests/cosim.py [--vec] [--trace] <prog> | --rand [count] [seed0]")
     prog = sys.argv[1]  # single program, assembly or C
     compile_monitor()
     src_c = os.path.join("tests", f"{prog}.c")
@@ -311,8 +378,12 @@ def main():
     dut_hex = os.path.join("tests", f"{prog}.hex")
     spike_elf = os.path.join(BUILD, f"{prog}_spike.elf")
     build_images(src, dut_hex, spike_elf)
-    dut = run_dut(dut_hex)
+    dut = run_dut(dut_hex, vcd=True)
     spike = run_spike(spike_elf, len(dut))
+    if want_trace:
+        log = os.path.join(BUILD, f"{prog}.trace")
+        write_trace(log, dut)
+        print(f"trace written to {os.path.relpath(log, ROOT)}")
     ok, detail = compare(dut, spike)
     if not ok:
         print(f"DIVERGENCE {detail}")

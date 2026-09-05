@@ -15,6 +15,7 @@ module cosim ();
   logic             mem_write;
 
   string            hexfile;
+  string            vcdfile;
   int               max_commits;
 
   always #5 clk = ~clk;
@@ -71,6 +72,8 @@ module cosim ();
     $display("COMMIT %08x %0d %08x %0d %08x %1x %08x %02x %02x %1x %02x", r_pc,
              (r_rw && rd != 0) ? rd : 0, r_wdata, |r_wmask, r_maddr, r_wmask, r_sdata, r_vl,
              r_vtype_bits, r_vtype_ill, r_vstart);
+    // time pc insn
+    $display("TRACE %0t %08x %08x", $time, r_pc, r_insn);
     checks++;
   endtask  // Automatic
 
@@ -81,6 +84,10 @@ module cosim ();
 
     if (!$value$plusargs("hex=%s", hexfile)) $fatal(1, "cosim needs +hex");
     if (!$value$plusargs("n=%d", max_commits)) max_commits = 4000;
+    if ($value$plusargs("vcd=%s", vcdfile)) begin
+      $dumpfile(vcdfile);
+      $dumpvars(0, cosim);
+    end
 
     $readmemh(hexfile, dut.imem_inst.mem);
     if ($isunknown(dut.imem_inst.mem[0]) || dut.imem_inst.mem[0] == 32'h0)
