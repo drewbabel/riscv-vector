@@ -26,7 +26,7 @@ sed -E "s/parameter int ClkDiv = [0-9]+/parameter int ClkDiv = ${CLKDIV}/" \
   rtl/boards/basys3/board_top.sv > "$PATCHED"
 
 echo "sv2v"
-sv2v $PKGS $REST "$PATCHED" > build/design.v
+sv2v -D SYNTHESIS $PKGS $REST "$PATCHED" > build/design.v
 echo "synth (ClkDiv=${CLKDIV}, keep pc_plus4)"
 # Keep pc_plus4 nets
 yosys -q -p "read_verilog build/design.v; hierarchy -top board_top; setattr -set keep 1 w:*pc_plus4*; synth_xilinx -top board_top -flatten; write_json build/design.json"

@@ -856,6 +856,101 @@ module datapath
   assign dbg_vstart     = rvfi_vstart_wb;
 `endif
 
+`ifndef SYNTHESIS
+  // Pipeline view taps
+  (* keep *) logic [XLEN-1:0] dbg_pc_f, dbg_pc_d, dbg_pc_e, dbg_pc_m, dbg_pc_w;
+  (* keep *) logic [XLEN-1:0] dbg_insn_f, dbg_insn_d, dbg_insn_e, dbg_insn_m, dbg_insn_w;
+  (* keep *) logic dbg_valid_f, dbg_valid_d, dbg_valid_e, dbg_valid_m, dbg_valid_w;
+  (* keep *) logic dbg_hold_f, dbg_hold_d, dbg_hold_e, dbg_hold_m;
+  (* keep *) logic dbg_en_d, dbg_en_e, dbg_en_m, dbg_en_w;
+  (* keep *) logic dbg_bubble_d, dbg_bubble_e, dbg_bubble_m;
+  (* keep *) logic dbg_flush;
+  (* keep *) logic [2:0] dbg_redirect_src;
+  (* keep *) logic dbg_stall;
+  (* keep *) logic [1:0] dbg_forward_a, dbg_forward_b;
+  (* keep *) logic dbg_rf_we;
+  (* keep *) logic [4:0] dbg_rf_waddr;
+  (* keep *) logic [XLEN-1:0] dbg_rf_wdata;
+  (* keep *) logic dbg_bus_req;
+  (* keep *) logic [XLEN-1:0] dbg_bus_addr;
+  (* keep *) logic [3:0] dbg_bus_wstrb;
+  (* keep *) logic [XLEN-1:0] dbg_bus_wdata;
+
+  assign dbg_pc_f      = pc;
+  assign dbg_insn_f    = instr;
+  assign dbg_valid_f   = !ifid_bubble;
+
+  assign dbg_pc_d      = pc_id;
+  assign dbg_insn_d    = instr_id;
+  assign dbg_valid_d   = valid_id;
+
+  assign dbg_pc_e      = pc_ex;
+  assign dbg_insn_e    = instr_ex;
+  assign dbg_valid_e   = valid_ex;
+
+  assign dbg_valid_m   = valid_mem;
+  assign dbg_valid_w   = valid_wb;
+
+`ifdef RISCV_FORMAL
+  // Reuse RVFI shadow
+  assign dbg_pc_m      = rvfi_pc_mem;
+  assign dbg_pc_w      = rvfi_pc_wb;
+  assign dbg_insn_m    = rvfi_insn_mem;
+  assign dbg_insn_w    = rvfi_insn_wb;
+`else
+  // Carry past execute
+  always_ff @(posedge clk) begin
+    if (exmem_en) begin
+      dbg_pc_m   <= pc_ex;
+      dbg_insn_m <= instr_ex;
+    end
+    if (memwb_en) begin
+      dbg_pc_w   <= dbg_pc_m;
+      dbg_insn_w <= dbg_insn_m;
+    end
+  end
+`endif
+
+  assign dbg_hold_f    = if_hold;
+  assign dbg_hold_d    = id_hold;
+  assign dbg_hold_e    = ex_hold;
+  assign dbg_hold_m    = mem_hold;
+
+  assign dbg_en_d      = ifid_en;
+  assign dbg_en_e      = idex_en;
+  assign dbg_en_m      = exmem_en;
+  assign dbg_en_w      = memwb_en;
+
+  assign dbg_bubble_d  = ifid_bubble;
+  assign dbg_bubble_e  = idex_bubble;
+  assign dbg_bubble_m  = exmem_bubble;
+
+  assign dbg_flush     = flush;
+
+  // Mirrors pc_next priority
+  always_comb begin
+    if (redirect_pending) dbg_redirect_src = 3'd5;
+    else if (trap_taken) dbg_redirect_src = 3'd1;
+    else if (mret_taken) dbg_redirect_src = 3'd2;
+    else if (mispredict) dbg_redirect_src = 3'd3;
+    else if (predict_taken) dbg_redirect_src = 3'd4;
+    else dbg_redirect_src = 3'd0;
+  end
+
+  assign dbg_stall     = hazard_stall;
+  assign dbg_forward_a = forward_a;
+  assign dbg_forward_b = forward_b;
+
+  assign dbg_rf_we     = reg_write_wb;
+  assign dbg_rf_waddr  = rd_wb;
+  assign dbg_rf_wdata  = result;
+
+  assign dbg_bus_req  = dmem_req;
+  assign dbg_bus_addr  = alu_result_mem;
+  assign dbg_bus_wstrb = store_wstrb;
+  assign dbg_bus_wdata = store_data;
+`endif
+
 endmodule
 
 `default_nettype wire

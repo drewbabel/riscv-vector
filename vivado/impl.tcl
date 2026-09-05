@@ -24,7 +24,7 @@ read_verilog -sv $rest
 read_verilog -sv $dst
 read_xdc [file join $root constraints basys3.xdc]
 
-synth_design -top board_top -part $part
+synth_design -top board_top -part $part -verilog_define SYNTHESIS
 opt_design
 
 set seq  [get_cells -hier -quiet -filter {IS_SEQUENTIAL}]
