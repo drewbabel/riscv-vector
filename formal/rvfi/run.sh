@@ -5,7 +5,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 CORE=rv32i_pipe
-RVF="${RISCV_FORMAL_DIR:-$HOME/Documents/code/riscv-formal}"
+RVF="${RISCV_FORMAL_DIR:-$ROOT/build/riscv-formal}"
 
 if [ ! -d "$RVF" ]; then
   git clone https://github.com/YosysHQ/riscv-formal.git "$RVF"
