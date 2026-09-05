@@ -12,7 +12,7 @@ riscv64-elf-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/cor
   -o build/jalret.elf tests/jalret.s
 riscv64-elf-objcopy -O verilog --verilog-data-width=4 -j .text build/jalret.elf build/jalret.hex
 
-sv2v $PKGS $REST $BOARD_TOP > build/check_design.v
+sv2v -D SYNTHESIS $PKGS $REST $BOARD_TOP > build/check_design.v
 yosys -q -p "read_verilog build/check_design.v; hierarchy -top riscv_pipelined; setattr -set keep 1 w:*pc_plus4*; synth_xilinx -top riscv_pipelined -flatten; write_verilog -noattr build/core_gate.v"
 sed "s/\.INIT(1'hx)/.INIT(1'h0)/g" build/core_gate.v > build/core_gate0.v
 perl -0pe 's/riscv_pipelined #\(\s*\.XLEN\(XLEN\)\s*\)\s*riscv_pipelined_inst/riscv_pipelined riscv_pipelined_inst/s' $BOARD_TOP > build/board_top_check.sv
