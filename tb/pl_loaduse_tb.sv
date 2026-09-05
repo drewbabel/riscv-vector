@@ -51,6 +51,8 @@ module pl_loaduse_tb ();
   endtask  // Automatic
 
   initial begin
+    $dumpfile("pl_loaduse_tb.vcd");
+    $dumpvars(0, pl_loaduse_tb);
     for (int i = 0; i < Depth; i++) dut.imem_inst.mem[i] = 32'h00000013;  // NOP fill
     $readmemh("tests/pl_loaduse.hex", dut.imem_inst.mem);
     do_reset();

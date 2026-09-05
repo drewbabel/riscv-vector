@@ -51,6 +51,8 @@ module pl_fwd_tb ();
   endtask  // Automatic
 
   initial begin
+    $dumpfile("pl_fwd_tb.vcd");
+    $dumpvars(0, pl_fwd_tb);
     for (int i = 0; i < Depth; i++) dut.imem_inst.mem[i] = 32'h00000013;  // NOP fill
     $readmemh("tests/pl_fwd.hex", dut.imem_inst.mem);
     do_reset();
