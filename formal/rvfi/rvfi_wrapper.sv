@@ -1,6 +1,6 @@
 module rvfi_wrapper (
     input clock,
-    input reset,
+    input reset,  // riscv-formal convention
     `RVFI_OUTPUTS
 );
 
@@ -47,10 +47,14 @@ module rvfi_wrapper (
   (* keep *)logic              [31:0] dbg_minstret;
   (* keep *)logic              [31:0] dbg_mcycleh;
   (* keep *)logic              [31:0] dbg_minstreth;
+  (* keep *)logic              [ 7:0] dbg_vl;
+  (* keep *)logic              [ 7:0] dbg_vtype_bits;
+  (* keep *)logic                     dbg_vtype_ill;
+  (* keep *)logic              [ 6:0] dbg_vstart;
 
   // Bounded stalls
-  reg                [ 2:0] imem_stall_cnt = 0;
-  reg                [ 2:0] dmem_stall_cnt = 0;
+  logic              [ 2:0] imem_stall_cnt = 0;
+  logic              [ 2:0] dmem_stall_cnt = 0;
 
   always @(posedge clock) begin
     if (reset || imem_ready) imem_stall_cnt <= 0;
@@ -65,49 +69,53 @@ module rvfi_wrapper (
   end
 
   riscv_pipelined uut (
-      .clk          (clock),
-      .core_en      (1'b1),
-      .rst_n        (!reset),
-      .instr        (instr),
-      .read_data    (read_data),
-      .timer_irq    (1'b0),
-      .ext_irq      (1'b0),
-      .imem_ready   (imem_ready),
-      .dmem_ready   (dmem_ready),
-      .dmem_req     (dmem_req),
-      .pc           (pc),
-      .mem_write    (mem_write),
-      .alu_result   (alu_result),
-      .write_data   (write_data),
-      .store_wstrb  (store_wstrb),
-      .store_data   (store_data),
-      .mem_addr     (mem_addr),
-      .dbg_valid    (dbg_valid),
-      .dbg_insn     (dbg_insn),
-      .dbg_pc_rdata (dbg_pc_rdata),
-      .dbg_pc_wdata (dbg_pc_wdata),
-      .dbg_rs1_rdata(dbg_rs1_rdata),
-      .dbg_rs2_rdata(dbg_rs2_rdata),
-      .dbg_rd_wdata (dbg_rd_wdata),
-      .dbg_reg_write(dbg_reg_write),
-      .dbg_mem_addr (dbg_mem_addr),
-      .dbg_mem_wmask(dbg_mem_wmask),
-      .dbg_mem_wdata(dbg_mem_wdata),
-      .dbg_mem_rdata(dbg_mem_rdata),
-      .dbg_trap     (dbg_trap),
-      .dbg_csr_wdata(dbg_csr_wdata),
-      .dbg_mscratch (dbg_mscratch),
-      .dbg_mstatus  (dbg_mstatus),
-      .dbg_mtvec    (dbg_mtvec),
-      .dbg_mepc     (dbg_mepc),
-      .dbg_mcause   (dbg_mcause),
-      .dbg_mtval    (dbg_mtval),
-      .dbg_mie      (dbg_mie),
-      .dbg_mip      (dbg_mip),
-      .dbg_mcycle   (dbg_mcycle),
-      .dbg_minstret (dbg_minstret),
-      .dbg_mcycleh  (dbg_mcycleh),
-      .dbg_minstreth(dbg_minstreth)
+      .clk           (clock),
+      .core_en       (1'b1),
+      .rst_n         (!reset),
+      .instr         (instr),
+      .read_data     (read_data),
+      .timer_irq     (1'b0),
+      .ext_irq       (1'b0),
+      .imem_ready    (imem_ready),
+      .dmem_ready    (dmem_ready),
+      .dmem_req      (dmem_req),
+      .pc            (pc),
+      .mem_write     (mem_write),
+      .alu_result    (alu_result),
+      .write_data    (write_data),
+      .store_wstrb   (store_wstrb),
+      .store_data    (store_data),
+      .mem_addr      (mem_addr),
+      .dbg_valid     (dbg_valid),
+      .dbg_insn      (dbg_insn),
+      .dbg_pc_rdata  (dbg_pc_rdata),
+      .dbg_pc_wdata  (dbg_pc_wdata),
+      .dbg_rs1_rdata (dbg_rs1_rdata),
+      .dbg_rs2_rdata (dbg_rs2_rdata),
+      .dbg_rd_wdata  (dbg_rd_wdata),
+      .dbg_reg_write (dbg_reg_write),
+      .dbg_mem_addr  (dbg_mem_addr),
+      .dbg_mem_wmask (dbg_mem_wmask),
+      .dbg_mem_wdata (dbg_mem_wdata),
+      .dbg_mem_rdata (dbg_mem_rdata),
+      .dbg_trap      (dbg_trap),
+      .dbg_csr_wdata (dbg_csr_wdata),
+      .dbg_mscratch  (dbg_mscratch),
+      .dbg_mstatus   (dbg_mstatus),
+      .dbg_mtvec     (dbg_mtvec),
+      .dbg_mepc      (dbg_mepc),
+      .dbg_mcause    (dbg_mcause),
+      .dbg_mtval     (dbg_mtval),
+      .dbg_mie       (dbg_mie),
+      .dbg_mip       (dbg_mip),
+      .dbg_mcycle    (dbg_mcycle),
+      .dbg_minstret  (dbg_minstret),
+      .dbg_mcycleh   (dbg_mcycleh),
+      .dbg_minstreth (dbg_minstreth),
+      .dbg_vl        (dbg_vl),
+      .dbg_vtype_bits(dbg_vtype_bits),
+      .dbg_vtype_ill (dbg_vtype_ill),
+      .dbg_vstart    (dbg_vstart)
   );
 
   logic [63:0] order_q;
@@ -195,6 +203,18 @@ module rvfi_wrapper (
 
   logic csr_op;
   assign csr_op = dbg_insn[6:0] == 7'b1110011 && dbg_insn[14:12] != 3'b000;
+
+  // Reads match architecture
+  always_comb begin
+    if (!reset && dbg_valid && csr_op && !rvfi_trap && rvfi_rd_addr != 0) begin
+      case (dbg_insn[31:20])
+        12'hC20: assert (rvfi_rd_wdata == {24'b0, dbg_vl});
+        12'hC21: assert (rvfi_rd_wdata == {dbg_vtype_ill, 23'b0, dbg_vtype_bits});
+        12'hC22: assert (rvfi_rd_wdata == 16);
+        default: ;
+      endcase
+    end
+  end
 
 `ifdef RISCV_FORMAL_CSR_MSCRATCH
   logic is_mscratch;

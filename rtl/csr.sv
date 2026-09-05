@@ -20,6 +20,9 @@ module csr
     output logic [XLEN-1:0] dbg_minstret,
     output logic [XLEN-1:0] dbg_mcycleh,
     output logic [XLEN-1:0] dbg_minstreth,
+    output logic [     7:0] dbg_vtype_bits,
+    output logic            dbg_vtype_ill,
+    output logic [     6:0] dbg_vstart,
 `endif
     input logic clk,
     input logic core_en,
@@ -93,12 +96,14 @@ module csr
   logic            illegal_any;
 
   logic [XLEN-1:0] csr_wsrc;
+  logic            csr_write;
   logic [XLEN-1:0] csr_wdata;
   logic            csr_write_en;
   logic            timer_ready;
   logic            ext_ready;
 
-  assign csr_wsrc = (funct3[2]) ? {{(XLEN - 5) {1'b0}}, zimm} : rs1_data;
+  assign csr_wsrc  = (funct3[2]) ? {{(XLEN - 5) {1'b0}}, zimm} : rs1_data;
+  assign csr_write = !funct3[1] || zimm != 0;
   always_comb begin
     case (funct3)
       Funct3Csrrw, Funct3Csrrwi: csr_wdata = csr_wsrc;
@@ -113,21 +118,20 @@ module csr
                         | exc_load_misaligned | exc_store_misaligned
                         | timer_ready | ext_ready;
   // Reject if trap, or if set/clear with zero source
-  assign csr_write_en = csr_access && !trap_taken &&
-                        !((funct3[1:0] == 2'b10 || funct3[1:0] == 2'b11) && (csr_wsrc == '0));
+  assign csr_write_en = csr_access && !trap_taken && csr_write;
   assign trap_vector = {mtvec[31:2], 2'b00};  // Divide by 4 = remove last 2 bits
   assign mret_taken = is_mret;
   assign mepc_out = mepc;
 
   assign vl_q = vl;
   assign vtype_q = vtype_ill ? {1'b1, {XLEN - 1{1'b0}}} : {{XLEN - 8{1'b0}}, vtype_bits};
-  assign mstatus_read = mstatus | (XLEN'(mstatus[MstatusVsLo+1:MstatusVsLo] == VsDirty) << MstatusSd);
+  assign mstatus_read =
+      mstatus | (XLEN'(mstatus[MstatusVsLo+1:MstatusVsLo] == VsDirty) << MstatusSd);
   assign vec_csr_addr = (csr_addr == VstartAddr) || (csr_addr == VlAddr)
                    || (csr_addr == VtypeAddr)  || (csr_addr == VlenbAddr)
                    || (csr_addr == VxsatAddr)  || (csr_addr == VxrmAddr)
                    || (csr_addr == VcsrAddr);
-  assign exc_ro_write = csr_access && (csr_addr[11:10] == 2'b11) &&
-    !((funct3[1:0] == 2'b10 || funct3[1:0] == 2'b11) && (csr_wsrc == '0));
+  assign exc_ro_write = csr_access && (csr_addr[11:10] == 2'b11) && csr_write;
   assign exc_vs_off = (is_vec_instr || (csr_access && vec_csr_addr)) &&
     (mstatus[MstatusVsLo+1:MstatusVsLo] == VsOff);
   assign illegal_any = exc_illegal || exc_ro_write || exc_vs_off;
@@ -270,19 +274,22 @@ module csr
   end
 
 `ifdef RISCV_FORMAL
-  assign dbg_csr_wdata = csr_wdata;
-  assign dbg_mscratch  = mscratch;
-  assign dbg_mstatus   = mstatus;
-  assign dbg_mtvec     = mtvec;
-  assign dbg_mepc      = mepc;
-  assign dbg_mcause    = mcause;
-  assign dbg_mtval     = mtval;
-  assign dbg_mie       = mie;
-  assign dbg_mip       = mip;
-  assign dbg_mcycle    = mcycle;
-  assign dbg_minstret  = minstret;
-  assign dbg_mcycleh   = mcycleh;
-  assign dbg_minstreth = minstreth;
+  assign dbg_csr_wdata  = csr_wdata;
+  assign dbg_mscratch   = mscratch;
+  assign dbg_mstatus    = mstatus;
+  assign dbg_mtvec      = mtvec;
+  assign dbg_mepc       = mepc;
+  assign dbg_mcause     = mcause;
+  assign dbg_mtval      = mtval;
+  assign dbg_mie        = mie;
+  assign dbg_mip        = mip;
+  assign dbg_mcycle     = mcycle;
+  assign dbg_minstret   = minstret;
+  assign dbg_mcycleh    = mcycleh;
+  assign dbg_minstreth  = minstreth;
+  assign dbg_vtype_bits = vtype_bits;
+  assign dbg_vtype_ill  = vtype_ill;
+  assign dbg_vstart     = vstart;
 `endif
 endmodule
 

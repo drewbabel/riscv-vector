@@ -40,6 +40,10 @@ module cosim ();
   logic [Xlen-1:0] r_maddr;
   logic [     3:0] r_wmask;
   logic [Xlen-1:0] r_sdata;
+  logic [     7:0] r_vl;
+  logic [     7:0] r_vtype_bits;
+  logic            r_vtype_ill;
+  logic [     6:0] r_vstart;
   assign r_valid = dut.riscv_pipelined_inst.dbg_valid;
   assign r_pc    = dut.riscv_pipelined_inst.dbg_pc_rdata;
   assign r_insn  = dut.riscv_pipelined_inst.dbg_insn;
@@ -48,6 +52,10 @@ module cosim ();
   assign r_maddr = dut.riscv_pipelined_inst.dbg_mem_addr;
   assign r_wmask = dut.riscv_pipelined_inst.dbg_mem_wmask;
   assign r_sdata = dut.riscv_pipelined_inst.dbg_mem_wdata;
+  assign r_vl = dut.riscv_pipelined_inst.dbg_vl;
+  assign r_vtype_bits = dut.riscv_pipelined_inst.dbg_vtype_bits;
+  assign r_vtype_ill = dut.riscv_pipelined_inst.dbg_vtype_ill;
+  assign r_vstart = dut.riscv_pipelined_inst.dbg_vstart;
 
   task automatic do_reset();
     rst_n = 0;
@@ -60,8 +68,9 @@ module cosim ();
     logic [4:0] rd;
     rd = r_insn[11:7];
     // pc rd rd_val mem_write mem_addr wstrb store_data
-    $display("COMMIT %08x %0d %08x %0d %08x %1x %08x", r_pc, (r_rw && rd != 0) ? rd : 0, r_wdata,
-             |r_wmask, r_maddr, r_wmask, r_sdata);
+    $display("COMMIT %08x %0d %08x %0d %08x %1x %08x %02x %02x %1x %02x", r_pc,
+             (r_rw && rd != 0) ? rd : 0, r_wdata, |r_wmask, r_maddr, r_wmask, r_sdata, r_vl,
+             r_vtype_bits, r_vtype_ill, r_vstart);
     checks++;
   endtask  // Automatic
 

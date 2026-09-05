@@ -16,6 +16,7 @@ module csr_tb;
   logic [     2:0] funct3;
   logic [Xlen-1:0] rs1_data;
   logic [     4:0] zimm;
+  logic [     4:0] src_spec = 5'd1;  // rs1 field
   logic [Xlen-1:0] pc;
   logic [Xlen-1:0] bad_addr;
   logic            exc_illegal;
@@ -124,7 +125,7 @@ module csr_tb;
     csr_addr   = addr;
     funct3     = op;
     rs1_data   = val;
-    zimm       = val[4:0];
+    zimm       = op[2] ? val[4:0] : src_spec;
     csr_access = 1;
   endtask
 
@@ -335,10 +336,12 @@ module csr_tb;
     csr_peek(VlenbAddr);
     check("vlenb_write_ignored", csr_rdata, Xlen'(Vlen / 8));
 
+    src_spec = 5'd0;
     csr_trap("vl_set_zero_no_trap", Funct3Csrrs, VlAddr, 32'h0, 1'b0);
     csr_peek(VlAddr);
     check("vl_set_zero_reads", csr_rdata, 32'd7);
     csr_trap("vtype_clear_zero_no_trap", Funct3Csrrc, VtypeAddr, 32'h0, 1'b0);
+    src_spec = 5'd1;
     csr_trap("vlenb_seti_zero_no_trap", Funct3Csrrsi, VlenbAddr, 32'h0, 1'b0);
   endtask
 
