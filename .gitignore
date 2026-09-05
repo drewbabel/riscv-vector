@@ -38,3 +38,4 @@ sw/embench/*.hex
 vivado/build/
 
 scratch/
+!tb/surfer/pipeline.ron.in
