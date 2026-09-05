@@ -66,6 +66,8 @@ module pl_muldiv_tb ();
   end
 
   initial begin
+    $dumpfile("pl_muldiv_tb.vcd");
+    $dumpvars(0, pl_muldiv_tb);
     for (int i = 0; i < Depth; i++) dut.imem_inst.mem[i] = 32'h00000013;  // NOP fill
     $readmemh("tests/pl_muldiv.hex", dut.imem_inst.mem);
     do_reset();
