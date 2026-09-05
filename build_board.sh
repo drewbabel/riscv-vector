@@ -14,8 +14,9 @@ done
 CLKDIV="${CLKDIV:-$(sed -n 's/^CLKDIV *?*= *\([0-9]*\).*/\1/p' config.mk)}"
 mkdir -p build
 
-CHIPDB="$HOME/Documents/code/nextpnr-xilinx/xilinx/xc7a35t.bin"
-DBROOT="$HOME/Documents/code/nextpnr-xilinx/xilinx/external/prjxray-db/artix7"
+: "${NEXTPNR_XILINX_DIR:?set NEXTPNR_XILINX_DIR to a nextpnr-xilinx checkout}"
+CHIPDB="$NEXTPNR_XILINX_DIR/xilinx/xc7a35t.bin"
+DBROOT="$NEXTPNR_XILINX_DIR/xilinx/external/prjxray-db/artix7"
 PARTYAML="$DBROOT/xc7a35tcpg236-1/part.yaml"
 PART=xc7a35tcpg236-1
 
@@ -26,7 +27,7 @@ sed -E "s/parameter int ClkDiv = [0-9]+/parameter int ClkDiv = ${CLKDIV}/" \
   rtl/boards/basys3/board_top.sv > "$PATCHED"
 
 echo "sv2v"
-sv2v $PKGS $REST "$PATCHED" > build/design.v
+sv2v -D SYNTHESIS $PKGS $REST "$PATCHED" > build/design.v
 echo "synth (ClkDiv=${CLKDIV}, keep pc_plus4)"
 # Keep pc_plus4 nets
 yosys -q -p "read_verilog build/design.v; hierarchy -top board_top; setattr -set keep 1 w:*pc_plus4*; synth_xilinx -top board_top -flatten; write_json build/design.json"

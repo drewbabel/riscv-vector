@@ -5,9 +5,11 @@
 #   make formal MOD=alu          run every SymbiYosys task in formal/$(MOD).sby (FAIL exits nonzero)
 #   make trace MOD=alu           print a formal counterexample as text
 #   make view-formal MOD=alu     open a formal waveform in surfer; error if .vcd missing
+#   make view-rvfi CHECK=insn_addi_ch0   open a riscv-formal counterexample in surfer
 #   make hex PROG=program        assemble tests/$(PROG).s -> tests/$(PROG).hex for $readmemh
 #   make dis PROG=program        disassemble the built elf (sanity-check the machine code)
 #   make cosim PROG=cosim1       lockstep-compare tests/cosim1.s against Spike (needs spike installed)
+#   make cosim PROG=cosim1 TRACE=1   same, plus build/cosim1.trace, one line per retired instruction
 #   make clean                   delete build artifacts (build/, *.vcd)
 
 SHELL := /bin/bash
@@ -20,7 +22,10 @@ TB  := tb/$(MOD)_tb.sv
 SIM := build/sim
 VDIR := build/vobj_$(MOD)
 VCD := $(MOD)_tb.vcd
-WAVE_STATE := tb/$(MOD).ron
+WAVE_STATE := $(shell test -f tb/$(MOD).ron && echo tb/$(MOD).ron || \
+  (grep -qs riscv_pipelined tb/$(MOD)_tb.sv && echo build/pipeline_$(MOD).ron))
+PIPE_LAYOUT := tb/surfer/pipeline.ron.in
+RVFI_DIR := $(or $(RISCV_FORMAL_DIR),build/riscv-formal)/cores/rv32i_pipe/checks
 FORMAL := formal/$(MOD).sby
 
 # program build: RISC-V assembly -> hex words for $readmemh
@@ -55,7 +60,16 @@ wave:
 	@mkdir -p build
 	iverilog -g2012 -DSIM_BACKDOOR -s $(MOD)_tb -o $(SIM) $(RTL) $(TB)
 	-vvp $(SIM)
+	@$(if $(WAVE_STATE),$(MAKE) -s $(WAVE_STATE),true)
 	surfer $(VCD) $$(test -f $(WAVE_STATE) && echo "-s $(WAVE_STATE)") &
+
+build/pipeline_%.ron: $(PIPE_LAYOUT)
+	@mkdir -p build
+	sed -e 's/@TOP@/$*_tb/' -e 's/@A@/dut/' -e 's/@B@/riscv_pipelined_inst/' $< > $@
+
+build/pipeline_rvfi.ron: $(PIPE_LAYOUT)
+	@mkdir -p build
+	sed -e 's/@TOP@/rvfi_testbench/' -e 's/@A@/wrapper/' -e 's/@B@/uut/' $< > $@
 
 formal:
 	@test -n "$(MOD)" || { echo "usage: make formal MOD=<module>  (e.g. MOD=alu)"; exit 1; }
@@ -71,9 +85,17 @@ formal:
 
 view:
 	@test -n "$(MOD)" || { echo "usage: make view MOD=<module>"; exit 1; }
-	@test -f "tb/$(MOD).ron" || { echo "Error: tb/$(MOD).ron not found"; exit 1; }
 	@test -f "$(VCD)" || { echo "Error: $(VCD) not found (run make MOD=$(MOD) first)"; exit 1; }
-	surfer $(VCD) -s tb/$(MOD).ron &
+	@$(if $(WAVE_STATE),$(MAKE) -s $(WAVE_STATE),true)
+	surfer $(VCD) $$(test -n "$(WAVE_STATE)" && echo "-s $(WAVE_STATE)") &
+
+view-rvfi:
+	@test -n "$(CHECK)" || { echo "usage: make view-rvfi CHECK=<check>  (e.g. CHECK=insn_addi_ch0)"; exit 1; }
+	@vcd=$$(find $(RVFI_DIR)/$(CHECK) -name '*.vcd' 2>/dev/null | head -1); \
+	test -n "$$vcd" || { echo "Error: no .vcd under $(RVFI_DIR)/$(CHECK)/ (run formal/rvfi/run.sh $(CHECK) first)"; exit 1; }; \
+	$(MAKE) -s build/pipeline_rvfi.ron; \
+	echo "surfer $$vcd"; \
+	surfer $$vcd -s build/pipeline_rvfi.ron &
 
 # Echoes MOD's run directory, prompting when the .sby split into several tasks
 define pick_run
@@ -118,10 +140,10 @@ dis:
 
 cosim:
 	@test -n "$(PROG)" || { echo "usage: make cosim PROG=<name>  (lockstep tests/$(PROG).s vs Spike)"; exit 1; }
-	python3 tests/cosim.py $(PROG)
+	python3 tests/cosim.py $(if $(TRACE),--trace) $(PROG)
 
 clean:
 	rm -rf build *.vcd sim_build results.xml
 
 .DEFAULT_GOAL := run
-.PHONY: run vsim prog wave formal view trace view-formal hex dis cosim clean
+.PHONY: run vsim prog wave formal view view-rvfi trace view-formal hex dis cosim clean

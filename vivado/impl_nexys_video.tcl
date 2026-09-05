@@ -44,7 +44,7 @@ if {$single} { read_verilog -sv [lsort [glob [file join $root rtl single_cycle *
 read_verilog -sv $dst
 read_xdc [file join $root constraints nexys_video.xdc]
 
-synth_design -top board_top -part $part \
+synth_design -top board_top -part $part -verilog_define SYNTHESIS \
              -generic UNCACHED=$uncached -generic GSHARE_EN=$gshare \
              -generic SINGLE_CYCLE=$single
 opt_design
