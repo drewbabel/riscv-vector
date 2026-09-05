@@ -14,8 +14,9 @@ done
 CLKDIV="${CLKDIV:-$(sed -n 's/^CLKDIV *?*= *\([0-9]*\).*/\1/p' config.mk)}"
 mkdir -p build
 
-CHIPDB="$HOME/Documents/code/nextpnr-xilinx/xilinx/xc7a35t.bin"
-DBROOT="$HOME/Documents/code/nextpnr-xilinx/xilinx/external/prjxray-db/artix7"
+: "${NEXTPNR_XILINX_DIR:?set NEXTPNR_XILINX_DIR to a nextpnr-xilinx checkout}"
+CHIPDB="$NEXTPNR_XILINX_DIR/xilinx/xc7a35t.bin"
+DBROOT="$NEXTPNR_XILINX_DIR/xilinx/external/prjxray-db/artix7"
 PARTYAML="$DBROOT/xc7a35tcpg236-1/part.yaml"
 PART=xc7a35tcpg236-1
 
