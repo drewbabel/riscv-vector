@@ -26,6 +26,14 @@ module vec_unit
     output logic is_vector,
     output logic vec_hold,
     output logic vec_idle
+`ifdef RISCV_FORMAL
+    ,
+    output logic [       7:0] dbg_vec_tag,
+    output logic              dbg_vec_retire,
+    output logic [AWIDTH-1:0] dbg_vec_vd,
+    output logic [       3:0] dbg_vec_regs,
+    output logic              dbg_vec_idle
+`endif
 );
 
   // Decoded fields
@@ -72,6 +80,15 @@ module vec_unit
   logic     [    VLEN-1:0] alu_result;
 
   logic     [MaxElems-1:0] mask_bits;
+
+  // Mask is data
+  logic v0_is_data;
+  always_comb begin
+    case (seq_op)
+      VEC_ADC, VEC_SBC, VEC_MERGE: v0_is_data = 1'b1;
+      default: v0_is_data = 1'b0;
+    endcase
+  end
 
   // Round three subset
   logic                    op_ready;
@@ -162,7 +179,7 @@ module vec_unit
       .vl(seq_vl),
       .vsew(seq_vsew),
       .vlmul(seq_vlmul),
-      .vm(seq_vm),
+      .vm(seq_vm || v0_is_data),
       .mask_bits(mask_bits),
       .pass_log2(2'd0),
       .raddr1(raddr1),
@@ -198,6 +215,7 @@ module vec_unit
   /* verilator lint_on PINCONNECTEMPTY */
 
   // Live mask bits
+
   for (genvar e = 0; e < MaxElems; e++) begin : g_mask
     logic [8:0] sel;
     assign sel = 9'(elem_base) + 9'(e);
@@ -218,6 +236,21 @@ module vec_unit
       .simm(seq_simm),
       .result(alu_result)
   );
+
+`ifdef RISCV_FORMAL
+  // Retirement export
+  logic [7:0] tag_q;
+  always_ff @(posedge clk) begin
+    if (!rst_n) tag_q <= 8'd0;
+    else if (core_en && seq_done) tag_q <= tag_q + 8'd1;
+  end
+
+  assign dbg_vec_tag    = tag_q;
+  assign dbg_vec_retire = seq_done;
+  assign dbg_vec_vd     = seq_vd;
+  assign dbg_vec_regs   = seq_vlmul[2] ? 4'd1 : 4'(4'd1 << seq_vlmul[1:0]);
+  assign dbg_vec_idle   = vec_idle;
+`endif
 
 endmodule
 

@@ -41,6 +41,11 @@ module datapath
     output logic [     7:0] dbg_vtype_bits,
     output logic            dbg_vtype_ill,
     output logic [     6:0] dbg_vstart,
+    output logic [     7:0] dbg_vec_tag,
+    output logic            dbg_vec_retire,
+    output logic [     4:0] dbg_vec_vd,
+    output logic [     3:0] dbg_vec_regs,
+    output logic            dbg_vec_idle,
 `endif
     input  logic            clk,
     input  logic            core_en,
@@ -624,6 +629,14 @@ module datapath
       .is_vector  (vec_is_vector),
       .vec_hold   (vec_hold),
       .vec_idle   ()
+`ifdef RISCV_FORMAL
+      ,
+      .dbg_vec_tag   (dbg_vec_tag),
+      .dbg_vec_retire(dbg_vec_retire),
+      .dbg_vec_vd    (dbg_vec_vd),
+      .dbg_vec_regs  (dbg_vec_regs),
+      .dbg_vec_idle  (dbg_vec_idle)
+`endif
   );
   /* verilator lint_on PINCONNECTEMPTY */
 
