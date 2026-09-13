@@ -75,8 +75,11 @@ COMMIT_RE = re.compile(
 
 # dut commit trace
 TRACE_RE = re.compile(r"TRACE (\d+) ([0-9a-f]+) ([0-9a-f]+)")
+VCOMMIT_RE = re.compile(r"VCOMMIT (\d+) (\d+) ([0-9a-f]+)")
 VCD = os.path.join(BUILD, "cosim.vcd")
 TRACE = []  # Retirement times
+DUT_VWR = []  # Vector writes
+SPK_VWR = []  # Vector writes
 
 
 def run_dut(dut_hex, vcd=False):
@@ -86,7 +89,12 @@ def run_dut(dut_hex, vcd=False):
     out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True).stdout
     trace = []
     TRACE.clear()
+    DUT_VWR.clear()
     for line in out.splitlines():
+        v = VCOMMIT_RE.match(line)
+        if v:
+            DUT_VWR.append((int(v.group(1)), int(v.group(2)), int(v.group(3), 16)))
+            continue
         t = TRACE_RE.match(line)
         if t:
             TRACE.append((int(t.group(1)), int(t.group(2), 16), int(t.group(3), 16)))
@@ -113,6 +121,8 @@ SPIKE_RE = re.compile(r"core\s+\d+:\s+\d+\s+0x([0-9a-f]+)\s+\(0x([0-9a-f]+)\)(.*
 
 VCSR_RE = re.compile(r"\bc(\d+)_\w+\s+0x([0-9a-f]+)")  # a control register Spike changed
 
+SPIKE_V_RE = re.compile(r"\bv(\d+)\s+0x([0-9a-f]{32})")  # a vector register Spike wrote
+
 
 # Golden spike trace
 def run_spike(spike_elf, n):
@@ -137,6 +147,8 @@ def run_spike(spike_elf, n):
         proc.wait(timeout=10)
     out = "".join(lines)
     trace = []
+    SPK_VWR.clear()
+    vtag = 0
     shadow = {VL_ADDR: 0, VTYPE_ADDR: VTYPE_RESET, VSTART_ADDR: 0}
     for line in out.splitlines():
         m = SPIKE_RE.match(line)
@@ -152,6 +164,11 @@ def run_spike(spike_elf, n):
             val = int(rm.group(2), 16) & MASK32
             if opcode in ABS_PC_OPS and rd != 0:
                 val = (val - BASE) & MASK32  # to dut space
+        vwr = SPIKE_V_RE.findall(tail)
+        if vwr:
+            for vreg, vhex in vwr:
+                SPK_VWR.append((vtag, int(vreg), int(vhex, 16)))
+            vtag += 1
         for addr, hexval in VCSR_RE.findall(tail):  # Spike prints only on change
             if int(addr) in shadow:
                 shadow[int(addr)] = int(hexval, 16)
@@ -231,6 +248,20 @@ def locate(i):
 
 
 # First mismatch wins
+# Vector writes
+def compare_vec():
+    n = min(len(DUT_VWR), len(SPK_VWR))
+    for i in range(n):
+        dt, dr, dv = DUT_VWR[i]
+        st, sr, sv = SPK_VWR[i]
+        if (dr, dv) != (sr, sv):
+            return False, (f"vector write {i} (dut tag {dt}, spike tag {st})\n"
+                           f"  DUT   v{dr} {dv:032x}\n  Spike v{sr} {sv:032x}")
+    if len(DUT_VWR) != len(SPK_VWR):
+        return False, f"vector write count DUT {len(DUT_VWR)} Spike {len(SPK_VWR)}"
+    return True, n
+
+
 def compare(dut, spike):
     n = min(len(dut), len(spike))
     for i in range(n):
@@ -337,7 +368,13 @@ def run_one(src):
     build_images(src, dut_hex, spike_elf)
     dut = run_dut(dut_hex)
     spike = run_spike(spike_elf, len(dut))
-    return compare(dut, spike)
+    ok, why = compare(dut, spike)
+    if not ok or not VECTOR:
+        return ok, why
+    vok, vwhy = compare_vec()
+    if not vok:
+        return False, vwhy
+    return True, f"{why} scalar, {vwhy} vector writes"
 
 
 def main():
@@ -389,7 +426,14 @@ def main():
     if not ok:
         print(f"DIVERGENCE {detail}")
         sys.exit(1)
-    print(f"LOCKSTEP PASS: {detail} instructions match Spike ({prog})")
+    extra = ""
+    if VECTOR:
+        vok, vdetail = compare_vec()
+        if not vok:
+            print(f"DIVERGENCE {vdetail}")
+            sys.exit(1)
+        extra = f", {vdetail} vector register writes"
+    print(f"LOCKSTEP PASS: {detail} instructions match Spike{extra} ({prog})")
 
 
 if __name__ == "__main__":

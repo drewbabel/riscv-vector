@@ -58,6 +58,30 @@ module cosim ();
   assign r_vtype_ill = dut.riscv_pipelined_inst.dbg_vtype_ill;
   assign r_vstart = dut.riscv_pipelined_inst.dbg_vstart;
 
+  // Vector retirement taps
+  localparam int Vlen = 128;
+  localparam int Vregs = 32;
+
+  logic [     7:0] r_vtag;
+  logic            r_vretire;
+  logic [     4:0] r_vvd;
+  logic [     3:0] r_vregs;
+  logic            r_vidle;
+  logic [Vlen-1:0] vpeek     [Vregs];
+
+  assign r_vtag = dut.riscv_pipelined_inst.dbg_vec_tag;
+  assign r_vretire = dut.riscv_pipelined_inst.dbg_vec_retire;
+  assign r_vvd = dut.riscv_pipelined_inst.dbg_vec_vd;
+  assign r_vregs = dut.riscv_pipelined_inst.dbg_vec_regs;
+  assign r_vidle = dut.riscv_pipelined_inst.dbg_vec_idle;
+
+  for (genvar b = 0; b < Vlen; b++) begin : g_vtap
+    for (genvar r = 0; r < Vregs; r++) begin : g_vreg
+      assign vpeek[r][b] =
+          dut.riscv_pipelined_inst.datapath_inst.vec_unit_inst.u_regfile.g_bit[b].bmem[r];
+    end
+  end
+
   task automatic do_reset();
     rst_n = 0;
     repeat (2) @(posedge clk);
@@ -76,6 +100,16 @@ module cosim ();
     $display("TRACE %0t %08x %08x", $time, r_pc, r_insn);
     checks++;
   endtask  // Automatic
+
+  // Vector group written
+  task automatic emit_vcommit();
+    int base;
+    begin
+      base = int'(r_vvd);
+      for (int g = 0; g < int'(r_vregs); g++)
+      $display("VCOMMIT %0d %0d %032x", r_vtag, (base + g) % Vregs, vpeek[(base+g)%Vregs]);
+    end
+  endtask
 
   initial begin
     logic [Xlen-1:0] last_pc;
@@ -100,6 +134,7 @@ module cosim ();
     for (int i = 0; i < max_commits && !stop; i++) begin
       @(posedge clk);
       #1;
+      if (r_vretire) emit_vcommit();
       if (r_valid) begin
         if (have_last && r_pc === last_pc) stop = 1;
         else begin
@@ -108,6 +143,13 @@ module cosim ();
           have_last = 1;
         end
       end
+    end
+
+    // Drain the unit
+    for (int i = 0; i < 2000 && !r_vidle; i++) begin
+      @(posedge clk);
+      #1;
+      if (r_vretire) emit_vcommit();
     end
 
     $display("MONITOR: %0d commits", checks);
