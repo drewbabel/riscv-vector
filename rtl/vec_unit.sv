@@ -75,6 +75,7 @@ module vec_unit
 
   // Round three subset
   logic                    op_ready;
+  logic                    accept_now;
   always_comb begin
     case (dec_op)
       VEC_ADD, VEC_SUB, VEC_RSUB, VEC_AND, VEC_OR, VEC_XOR, VEC_SLL, VEC_SRL, VEC_SRA, VEC_MINU,
@@ -84,7 +85,8 @@ module vec_unit
     endcase
   end
 
-  assign is_vector = instr_valid && dec_valid && op_ready;
+  assign is_vector  = dec_valid && op_ready;
+  assign accept_now = instr_valid && is_vector;
 
   /* verilator lint_off PINCONNECTEMPTY */
 
@@ -111,7 +113,7 @@ module vec_unit
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en),
-      .instr_valid(is_vector),
+      .instr_valid(accept_now),
       .op(dec_op),
       .src(dec_src),
       .vs1(dec_vs1),
