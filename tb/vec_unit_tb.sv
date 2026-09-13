@@ -214,13 +214,15 @@ module vec_unit_tb
     logic [31:0] ea;
     logic [31:0] eb;
     logic cin;
+    logic uses_v0;
     begin
       per_reg = VLEN / w;
       for (int r = 0; r < regs; r++) begin
         for (int e = 0; e < per_reg; e++) begin
           idx = r * per_reg + e;
           cin = shadow[0][idx];
-          if ((idx < len) && (vmb || cin)) begin
+          uses_v0 = (o == VEC_ADC) || (o == VEC_SBC) || (o == VEC_MERGE);
+          if ((idx < len) && (vmb || cin || uses_v0)) begin
             ea = get_elem(shadow[(32'(s2)+r)%Depth], w, e);
             case (form)
               0: eb = get_elem(shadow[(32'(s1)+r)%Depth], w, e);
