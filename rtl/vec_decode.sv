@@ -26,6 +26,7 @@ module vec_decode
   localparam logic [2:0] Funct3Opmvv = 3'b010;
   localparam logic [2:0] Funct3Opmvx = 3'b110;
 
+  // Instruction fields
   logic [5:0] funct6;
   logic [2:0] funct3;
   logic is_opv;
@@ -39,6 +40,7 @@ module vec_decode
   assign simm = instr[19:15];
   assign vd = instr[11:7];
 
+  // Instruction forms
   assign is_opv = (instr[6:0] == OpcodeOpV);
   assign is_v = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opivv);
   assign is_x = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opivx);
@@ -370,6 +372,7 @@ module vec_decode
     end
   end
 
+  // Source form
   always_comb begin
     if (!is_opv) begin
       src = VEC_SRC_NONE;

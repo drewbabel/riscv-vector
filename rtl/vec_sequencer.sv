@@ -29,6 +29,7 @@ module vec_sequencer #(
     output logic                done
 );
 
+  // Counters
   logic [3:0] reg_idx;
   logic [3:0] pass_idx;
 
@@ -47,6 +48,7 @@ module vec_sequencer #(
   logic [9:0] base_bit;
   logic [6:0] bit_sel;
 
+  // Group geometry
   assign regs_per_group = vlmul[2] ? 5'd1 : 5'(5'd1 << vlmul[1:0]);
   assign bits_per_elem = 6'(6'd8 << vsew);
   assign elems_per_reg = 5'(5'd16 >> vsew);
@@ -59,6 +61,7 @@ module vec_sequencer #(
   assign last_pass = (pass_idx == 4'(passes_per_reg - 5'd1));
   assign last_reg = (reg_idx == 4'(regs_per_group - 5'd1));
 
+  // Port addresses
   assign raddr1 = vs1 + AWIDTH'(reg_idx);
   assign raddr2 = vs2 + AWIDTH'(reg_idx);
   assign raddr3 = reads_vd ? (vd + AWIDTH'(reg_idx)) : '0;
@@ -89,6 +92,7 @@ module vec_sequencer #(
     end
   end
 
+  // Walk the group
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       reg_idx  <= 4'd0;

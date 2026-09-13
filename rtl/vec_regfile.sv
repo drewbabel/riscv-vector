@@ -26,6 +26,7 @@ module vec_regfile #(
     // Zero init
     initial for (int i = 0; i < Depth; i++) bmem[i] = 1'b0;
 
+    // Masked write
     always_ff @(posedge clk) begin
       if (core_en && we && wstrb[b]) bmem[waddr] <= wdata[b];
     end
