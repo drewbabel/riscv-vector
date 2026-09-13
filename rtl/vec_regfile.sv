@@ -16,7 +16,8 @@ module vec_regfile #(
     input  logic [AWIDTH-1:0] raddr3,
     output logic [  VLEN-1:0] rdata1,
     output logic [  VLEN-1:0] rdata2,
-    output logic [  VLEN-1:0] rdata3
+    output logic [  VLEN-1:0] rdata3,
+    output logic [  VLEN-1:0] rdata0
 );
 
   // Per bit slices
@@ -35,6 +36,7 @@ module vec_regfile #(
     assign rdata1[b] = bmem[raddr1];
     assign rdata2[b] = bmem[raddr2];
     assign rdata3[b] = bmem[raddr3];
+    assign rdata0[b] = bmem[0];
   end
 
 endmodule

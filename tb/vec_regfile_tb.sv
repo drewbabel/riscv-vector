@@ -21,6 +21,7 @@ module vec_regfile_tb ();
   logic [VLEN-1:0] rdata1;
   logic [VLEN-1:0] rdata2;
   logic [VLEN-1:0] rdata3;
+  logic [VLEN-1:0] rdata0;
 
   logic [VLEN-1:0] shadow[Depth];
 
@@ -41,7 +42,8 @@ module vec_regfile_tb ();
       .raddr3(raddr3),
       .rdata1(rdata1),
       .rdata2(rdata2),
-      .rdata3(rdata3)
+      .rdata3(rdata3),
+      .rdata0(rdata0)
   );
 
   // Reference model
