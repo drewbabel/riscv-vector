@@ -200,6 +200,10 @@ module datapath
   logic                                  muldiv_done;
   logic                                  muldiv_start;
   logic                                  muldiv_hold;
+  logic                                  commit_ready;
+  logic                                  vec_is_vector;
+  logic                                  vec_hold;
+  logic                                  vec_issue_ok;
 
   logic                                  bp_taken;
   logic                   [GhistLen-1:0] bp_index;
@@ -374,7 +378,9 @@ module datapath
     end
   end
 
-  assign commit_valid = valid_ex && !muldiv_hold && !mem_hold;
+  // Ready before holding
+  assign commit_ready = valid_ex && !muldiv_hold && !mem_hold;
+  assign commit_valid = commit_ready && !vec_hold;
 
   hazard_unit #(
       .XLEN(XLEN)
@@ -402,11 +408,11 @@ module datapath
   );
 
   assign muldiv_hold = is_muldiv_ex && !muldiv_done;
-  assign stall = hazard_stall || muldiv_hold;
+  assign stall = hazard_stall || muldiv_hold || vec_hold;
 
   assign if_hold = !imem_ready;
   assign id_hold = hazard_stall;
-  assign ex_hold = muldiv_hold;
+  assign ex_hold = muldiv_hold || vec_hold;
   assign dmem_req = valid_mem && ((result_src_mem == 2'd1) || mem_write_mem);
   assign mem_hold = dmem_req && !dmem_ready;
 
@@ -421,7 +427,7 @@ module datapath
   assign memwb_bubble = mem_hold;
 
   // Hold sampled operands
-  assign fwd_hold = muldiv_hold && !muldiv_start;
+  assign fwd_hold = (muldiv_hold && !muldiv_start) || vec_hold;
   assign mem_pc4 = (result_src_mem == 2'd2);
 
   always_comb begin
@@ -582,7 +588,7 @@ module datapath
   logic [XLEN-1:0] vtype_q;
   logic            exc_vec_encoding;
 
-  assign exc_vec_encoding = (instr_ex[6:0] == OpcodeOpV) && !is_vset;
+  assign exc_vec_encoding = (instr_ex[6:0] == OpcodeOpV) && !is_vset && !vec_is_vector;
 
   vec_config #(
       .XLEN(XLEN),
@@ -597,6 +603,29 @@ module datapath
       .vl_d    (vl_d),
       .vtype_d (vtype_d)
   );
+
+  // Blocked while illegal
+  assign vec_issue_ok = commit_ready && !vtype_q[XLEN-1];
+
+  /* verilator lint_off PINCONNECTEMPTY */
+  vec_unit #(
+      .VLEN(VLEN)
+  ) vec_unit_inst (
+      .clk        (clk),
+      .rst_n      (rst_n),
+      .core_en    (core_en),
+      .instr      (instr_ex),
+      .instr_valid(vec_issue_ok),
+      .xdata      (forwarded_rs1),
+      .vl         (vl_q),
+      .vsew       (vtype_q[5:3]),
+      .vlmul      (vtype_q[2:0]),
+      .vxrm       (2'd0),
+      .is_vector  (vec_is_vector),
+      .vec_hold   (vec_hold),
+      .vec_idle   ()
+  );
+  /* verilator lint_on PINCONNECTEMPTY */
 
 `ifdef RISCV_FORMAL
   logic [7:0] csr_vtype_bits;
