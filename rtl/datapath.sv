@@ -214,6 +214,13 @@ module datapath
   logic                                  vec_is_vector;
   logic                                  vec_hold;
   logic                                  vec_issue_ok;
+  logic                                  vec_idle;
+  logic                                  vec_load_pending;
+  logic                                  vec_store_pending;
+  logic                                  vec_misaligned;
+  logic                                  vmem_hold;
+  logic                                  is_fence_ex;
+  logic                   [    XLEN-1:0] vec_bad_addr;
 
   logic                                  bp_taken;
   logic                   [GhistLen-1:0] bp_index;
@@ -293,7 +300,8 @@ module datapath
       (instr_id[6:0] == OpcodeBranch) || (instr_id[6:0] == OpcodeJal) ||
       (instr_id[6:0] == OpcodeJalr) || (instr_id[6:0] == OpcodeLui) ||
       (instr_id[6:0] == OpcodeAuipc) || (instr_id[6:0] == OpcodeMiscMem) ||
-      (instr_id[6:0] == OpcodeSystem) || instr_id[6:0] == OpcodeOpV);
+      (instr_id[6:0] == OpcodeSystem) || (instr_id[6:0] == OpcodeOpV) ||
+      (instr_id[6:0] == OpcodeLoadFp) || (instr_id[6:0] == OpcodeStoreFp));
 
   regfile #(
       .XLEN(XLEN)
@@ -389,7 +397,7 @@ module datapath
   end
 
   // Ready before holding
-  assign commit_ready = valid_ex && !muldiv_hold && !mem_hold;
+  assign commit_ready = valid_ex && !muldiv_hold && !vmem_hold && !mem_hold;
   assign commit_valid = commit_ready && !vec_hold;
 
   hazard_unit #(
@@ -418,11 +426,11 @@ module datapath
   );
 
   assign muldiv_hold = is_muldiv_ex && !muldiv_done;
-  assign stall = hazard_stall || muldiv_hold || vec_hold;
+  assign stall = hazard_stall || muldiv_hold || vec_hold || vmem_hold;
 
   assign if_hold = !imem_ready;
   assign id_hold = hazard_stall;
-  assign ex_hold = muldiv_hold || vec_hold;
+  assign ex_hold = muldiv_hold || vec_hold || vmem_hold;
   assign dmem_req = valid_mem && ((result_src_mem == 2'd1) || mem_write_mem);
   assign mem_hold = dmem_req && !dmem_ready;
 
@@ -437,7 +445,13 @@ module datapath
   assign memwb_bubble = mem_hold;
 
   // Hold sampled operands
-  assign fwd_hold = (muldiv_hold && !muldiv_start) || vec_hold;
+  assign fwd_hold = muldiv_hold && !muldiv_start;
+
+  // Vector memory ordering
+  assign is_fence_ex = (instr_ex[6:0] == OpcodeMiscMem) && (funct3_ex == 3'b000);
+  assign vmem_hold = valid_ex && (((result_src_ex == 2'd1) && vec_store_pending) ||
+      (mem_write_ex && (vec_load_pending || vec_store_pending)) || (is_fence_ex && !vec_idle));
+
   assign mem_pc4 = (result_src_mem == 2'd2);
 
   always_comb begin
@@ -587,9 +601,15 @@ module datapath
     endcase
   end
 
-  assign exc_load_misaligned = commit_valid && (result_src_ex == 2'd1) && mem_misaligned;
-  assign exc_store_misaligned = commit_valid && mem_write_ex && mem_misaligned;
-  assign bad_addr = exc_instr_misaligned ? pc_target_ex : alu_result;
+  assign exc_load_misaligned = commit_valid && (((result_src_ex == 2'd1) && mem_misaligned) ||
+      ((instr_ex[6:0] == OpcodeLoadFp) && vec_misaligned));
+  assign exc_store_misaligned = commit_valid && ((mem_write_ex && mem_misaligned) ||
+      ((instr_ex[6:0] == OpcodeStoreFp) && vec_misaligned));
+  always_comb begin
+    if (exc_instr_misaligned) bad_addr = pc_target_ex;
+    else if (vec_misaligned) bad_addr = vec_bad_addr;
+    else bad_addr = alu_result;
+  end
 
   logic            is_vset;
   logic [     7:0] vl_d;
@@ -598,7 +618,8 @@ module datapath
   logic [XLEN-1:0] vtype_q;
   logic            exc_vec_encoding;
 
-  assign exc_vec_encoding = (instr_ex[6:0] == OpcodeOpV) && !is_vset && !vec_is_vector;
+  assign exc_vec_encoding = (((instr_ex[6:0] == OpcodeOpV) && !is_vset) ||
+      (instr_ex[6:0] == OpcodeLoadFp) || (instr_ex[6:0] == OpcodeStoreFp)) && !vec_is_vector;
 
   vec_config #(
       .XLEN(XLEN),
@@ -614,8 +635,7 @@ module datapath
       .vtype_d (vtype_d)
   );
 
-  // Blocked while illegal
-  assign vec_issue_ok = commit_ready && !vtype_q[XLEN-1];
+  assign vec_issue_ok = commit_ready;
 
   /* verilator lint_off PINCONNECTEMPTY */
   vec_unit #(
@@ -633,7 +653,10 @@ module datapath
       .core_en    (core_en),
       .instr      (instr_ex),
       .instr_valid(vec_issue_ok),
+      .cancel     (trap_taken),
       .xdata      (forwarded_rs1),
+      .xstride    (forwarded_rs2),
+      .vill       (vtype_q[XLEN-1]),
       .vl         (vl_q),
       .vsew       (vtype_q[5:3]),
       .vlmul      (vtype_q[2:0]),
@@ -644,9 +667,13 @@ module datapath
       .mem_addr   (vmem_addr),
       .mem_wdata  (vmem_wdata),
       .mem_wstrb  (vmem_wstrb),
+      .mem_misaligned(vec_misaligned),
+      .mem_bad_addr(vec_bad_addr),
       .is_vector  (vec_is_vector),
       .vec_hold   (vec_hold),
-      .vec_idle   ()
+      .vec_idle   (vec_idle),
+      .load_pending(vec_load_pending),
+      .store_pending(vec_store_pending)
   );
   /* verilator lint_on PINCONNECTEMPTY */
 
@@ -706,7 +733,7 @@ module datapath
       .is_vset             (is_vset && commit_valid),
       .vl_d                (vl_d),
       .vtype_d             (vtype_d),
-      .is_vec_instr        (is_vset && commit_valid),
+      .is_vec_instr        ((is_vset || vec_is_vector) && commit_valid),
       .vl_q                (vl_q),
       .vtype_q             (vtype_q)
   );
