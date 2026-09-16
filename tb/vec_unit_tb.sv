@@ -7,6 +7,8 @@ module vec_unit_tb
   localparam int AWIDTH = 5;
   localparam int VLEN = 128;
   localparam int Depth = 2 ** AWIDTH;
+  localparam int Bytes = 256;
+  localparam int Timeout = 100000;
 
   int checks = 0;
   int errors = 0;
@@ -16,7 +18,10 @@ module vec_unit_tb
   logic core_en;
   logic [31:0] instr;
   logic instr_valid;
+  logic cancel;
   logic [31:0] xdata;
+  logic [31:0] xstride;
+  logic vill;
   logic [7:0] vl;
   logic [2:0] vsew;
   logic [2:0] vlmul;
@@ -24,8 +29,23 @@ module vec_unit_tb
   logic is_vector;
   logic vec_hold;
   logic vec_idle;
+  logic load_pending;
+  logic store_pending;
+  logic mem_misaligned;
+  logic [31:0] mem_bad_addr;
 
   logic [VLEN-1:0] shadow[Depth];
+
+  // Memory model
+  logic [31:0] mem_rdata;
+  logic mem_ready;
+  logic mem_req;
+  logic [31:0] mem_addr;
+  logic [31:0] mem_wdata;
+  logic [3:0] mem_wstrb;
+  logic [7:0] mem[Bytes];
+  logic [7:0] gmem[Bytes];
+  int ready_pct = 100;
 
   always #5 clk = ~clk;
 
@@ -38,21 +58,44 @@ module vec_unit_tb
       .core_en(core_en),
       .instr(instr),
       .instr_valid(instr_valid),
+      .cancel(cancel),
       .xdata(xdata),
+      .xstride(xstride),
+      .vill(vill),
       .vl(vl),
       .vsew(vsew),
       .vlmul(vlmul),
       .vxrm(vxrm),
-      .mem_rdata('0),
-      .mem_ready(1'b0),
-      .mem_req(),
-      .mem_addr(),
-      .mem_wdata(),
-      .mem_wstrb(),
+      .mem_rdata(mem_rdata),
+      .mem_ready(mem_ready),
+      .mem_req(mem_req),
+      .mem_addr(mem_addr),
+      .mem_wdata(mem_wdata),
+      .mem_wstrb(mem_wstrb),
+      .mem_misaligned(mem_misaligned),
+      .mem_bad_addr(mem_bad_addr),
       .is_vector(is_vector),
       .vec_hold(vec_hold),
-      .vec_idle(vec_idle)
+      .vec_idle(vec_idle),
+      .load_pending(load_pending),
+      .store_pending(store_pending)
   );
+
+  assign mem_rdata = {
+    mem[(mem_addr+3)%Bytes], mem[(mem_addr+2)%Bytes], mem[(mem_addr+1)%Bytes], mem[mem_addr%Bytes]
+  };
+
+  always @(posedge clk) begin
+    #2;
+    mem_ready = ($urandom_range(99) < ready_pct);
+  end
+
+  always @(posedge clk) begin
+    if (rst_n && core_en && mem_req && mem_ready) begin
+      for (int k = 0; k < 4; k++)
+      if (mem_wstrb[k]) mem[(mem_addr+32'(k))%Bytes] <= mem_wdata[k*8+:8];
+    end
+  end
 
   // Element access
   function automatic logic [VLEN-1:0] wmask(input int w);
@@ -170,11 +213,19 @@ module vec_unit_tb
     core_en     = 1'b1;
     instr       = '0;
     instr_valid = 1'b0;
+    cancel      = 1'b0;
     xdata       = '0;
-    vl          = 8'd4;
-    vsew        = 3'd2;
-    vlmul       = 3'd0;
-    vxrm        = 2'd0;
+    xstride     = '0;
+    vill        = 1'b0;
+    mem_ready   = 1'b1;
+    for (int b = 0; b < Bytes; b++) begin
+      mem[b]  = 8'($urandom);
+      gmem[b] = mem[b];
+    end
+    vl    = 8'd4;
+    vsew  = 3'd2;
+    vlmul = 3'd0;
+    vxrm  = 2'd0;
     repeat (3) @(negedge clk);
     rst_n = 1'b1;
     @(negedge clk);
@@ -415,11 +466,246 @@ module vec_unit_tb
     end
   endtask
 
+  // Memory encode
+  function automatic logic [31:0] enc_mem(input logic store, input logic [1:0] w, input logic whole,
+                                          input logic strided, input logic vmb,
+                                          input logic [4:0] d);
+    logic [2:0] f3;
+    f3 = (w == 2'd2) ? 3'b110 : ((w == 2'd1) ? 3'b101 : 3'b000);
+    enc_mem = {
+      3'b000,
+      1'b0,
+      strided ? 2'b10 : 2'b00,
+      vmb,
+      whole ? 5'b01000 : (strided ? 5'd12 : 5'd0),
+      5'd10,
+      f3,
+      d,
+      store ? 7'b0100111 : 7'b0000111
+    };
+  endfunction
+
+  // Memory reference
+  task automatic ref_mem(input logic store, input int w, input logic vmb, input logic [4:0] d,
+                         input logic [31:0] b, input logic [31:0] st, input int len);
+    int bytes;
+    int per_reg;
+    int r;
+    logic [31:0] a;
+    logic [31:0] e;
+    begin
+      bytes   = 1 << w;
+      per_reg = 16 >> w;
+      for (int i = 0; i < len; i++) begin
+        a = b + 32'(i) * st;
+        r = (int'(d) + i / per_reg) % Depth;
+        if (!(vmb || shadow[0][i])) continue;
+        if (!store) begin
+          e = 32'h0;
+          for (int k = 0; k < bytes; k++) e[k*8+:8] = gmem[(a+32'(k))%Bytes];
+          shadow[r] = set_elem(shadow[r], bytes * 8, i % per_reg, e);
+        end else begin
+          e = get_elem(shadow[r], bytes * 8, i % per_reg);
+          for (int k = 0; k < bytes; k++) gmem[(a+32'(k))%Bytes] = e[k*8+:8];
+        end
+      end
+    end
+  endtask
+
+  task automatic check_mem(input string tag);
+    for (int k = 0; k < Bytes; k++) begin
+      checks = checks + 1;
+      if (mem[k] !== gmem[k]) begin
+        errors = errors + 1;
+        if (errors < 12) $display("FAIL %0s byte %0d got=%h want=%h", tag, k, mem[k], gmem[k]);
+      end
+    end
+  endtask
+
+  task automatic note(input string what, input logic [31:0] got, input logic [31:0] want);
+    checks = checks + 1;
+    if (got !== want) begin
+      errors = errors + 1;
+      $display("FAIL %0s got=%h want=%h at %0t", what, got, want, $time);
+    end
+  endtask
+
+  // Run one move
+  task automatic run_mem(input logic store, input logic [1:0] w, input logic whole,
+                         input logic strided, input logic vmb, input logic [4:0] d,
+                         input logic [31:0] b, input logic [31:0] st, input logic [2:0] sew,
+                         input logic [2:0] lmul, input logic [7:0] len);
+    int count;
+    begin
+      vsew    = sew;
+      vlmul   = lmul;
+      vl      = len;
+      xdata   = b;
+      xstride = st;
+      count   = whole ? (VLEN >> (3 + w)) : int'(len);
+      ref_mem(store, int'(w), vmb || whole, d, b, strided ? st : (32'd1 << w), count);
+      issue(enc_mem(store, w, whole, strided, vmb || whole, d));
+      drain();
+      check_regs("run_mem");
+      check_mem("run_mem");
+    end
+  endtask
+
+  // Legality and alignment
+  task automatic check_mem_rules();
+    begin
+      vsew  = 3'd0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      vill  = 1'b1;
+      instr = enc_mem(1'b0, 2'd0, 1'b0, 1'b0, 1'b1, 5'd3);
+      #1 note("element load under vill", 32'(is_vector), 32'd0);
+      instr = enc_mem(1'b0, 2'd1, 1'b1, 1'b0, 1'b1, 5'd3);
+      #1 note("whole load under vill", 32'(is_vector), 32'd1);
+      vill  = 1'b0;
+      vlmul = 3'd3;
+      instr = enc_mem(1'b1, 2'd1, 1'b0, 1'b0, 1'b1, 5'd3);
+      #1 note("group too wide", 32'(is_vector), 32'd0);
+      vsew  = 3'd2;
+      vlmul = 3'b101;
+      instr = enc_mem(1'b0, 2'd0, 1'b0, 1'b0, 1'b1, 5'd3);
+      #1 note("group too narrow", 32'(is_vector), 32'd0);
+      vsew  = 3'd1;
+      vlmul = 3'd0;
+      xdata = 32'h0000_0101;
+      instr = enc_mem(1'b0, 2'd1, 1'b0, 1'b0, 1'b1, 5'd3);
+      #1 note("half base misaligned", 32'(mem_misaligned), 32'd1);
+      note("half base address", mem_bad_addr, 32'h0000_0101);
+      xdata   = 32'h0000_0100;
+      xstride = 32'd3;
+      instr   = enc_mem(1'b1, 2'd1, 1'b0, 1'b1, 1'b1, 5'd3);
+      #1 note("half stride misaligned", 32'(mem_misaligned), 32'd1);
+      note("half stride address", mem_bad_addr, 32'h0000_0103);
+      vl = 8'd1;
+      #1 note("one element stride", 32'(mem_misaligned), 32'd0);
+      vl = 8'd0;
+      xdata = 32'h0000_0103;
+      #1 note("empty base", 32'(mem_misaligned), 32'd0);
+      vl = 8'd4;
+      instr = enc_mem(1'b1, 2'd0, 1'b0, 1'b1, 1'b1, 5'd3);
+      #1 note("byte never misaligned", 32'(mem_misaligned), 32'd0);
+      vsew  = 3'd2;
+      xdata = 32'h0000_0102;
+      instr = enc_mem(1'b0, 2'd2, 1'b1, 1'b0, 1'b1, 5'd3);
+      #1 note("whole word misaligned", 32'(mem_misaligned), 32'd1);
+      xdata   = '0;
+      xstride = '0;
+    end
+  endtask
+
+  // Trap drops instruction
+  task automatic check_mem_cancel();
+    begin
+      vsew   = 3'd0;
+      vlmul  = 3'd0;
+      vl     = 8'd16;
+      xdata  = 32'd16;
+      cancel = 1'b1;
+      issue(enc_mem(1'b1, 2'd0, 1'b0, 1'b0, 1'b1, 5'd5));
+      cancel = 1'b0;
+      drain();
+      check_regs("cancel");
+      check_mem("cancel");
+    end
+  endtask
+
+  // Pending until drained
+  task automatic check_mem_pending();
+    begin
+      ready_pct = 20;
+      vsew = 3'd0;
+      vlmul = 3'd0;
+      vl = 8'd16;
+      xdata = 32'd40;
+      ref_mem(1'b1, 0, 1'b1, 5'd6, 32'd40, 32'd1, 16);
+      issue(enc_mem(1'b1, 2'd0, 1'b0, 1'b0, 1'b1, 5'd6));
+      note("store pending", 32'(store_pending), 32'd1);
+      note("no load pending", 32'(load_pending), 32'd0);
+      xdata = 32'd80;
+      ref_mem(1'b0, 0, 1'b1, 5'd7, 32'd80, 32'd1, 16);
+      issue(enc_mem(1'b0, 2'd0, 1'b0, 1'b0, 1'b1, 5'd7));
+      note("load pending", 32'(load_pending), 32'd1);
+      drain();
+      note("store cleared", 32'(store_pending), 32'd0);
+      note("load cleared", 32'(load_pending), 32'd0);
+      check_regs("pending");
+      check_mem("pending");
+      ready_pct = 100;
+    end
+  endtask
+
+  // Directed moves
+  task automatic check_moves();
+    begin
+      seed_all();
+      run_mem(1'b0, 2'd0, 1'b0, 1'b0, 1'b1, 5'd3, 32'd8, '0, 3'd0, 3'd0, 8'd5);
+      run_mem(1'b0, 2'd1, 1'b0, 1'b0, 1'b1, 5'd4, 32'd20, '0, 3'd1, 3'd0, 8'd8);
+      run_mem(1'b1, 2'd2, 1'b0, 1'b0, 1'b1, 5'd5, 32'd64, '0, 3'd2, 3'd0, 8'd4);
+      run_mem(1'b1, 2'd1, 1'b0, 1'b1, 1'b1, 5'd6, 32'd100, -32'sd6, 3'd1, 3'd0, 8'd7);
+      run_mem(1'b0, 2'd0, 1'b0, 1'b1, 1'b0, 5'd8, 32'd7, 32'd3, 3'd0, 3'd0, 8'd9);
+      run_mem(1'b1, 2'd0, 1'b0, 1'b0, 1'b0, 5'd9, 32'd140, '0, 3'd0, 3'd0, 8'd16);
+      run_mem(1'b0, 2'd0, 1'b1, 1'b0, 1'b1, 5'd10, 32'd33, '0, 3'd2, 3'd0, 8'd1);
+      run_mem(1'b1, 2'd0, 1'b1, 1'b0, 1'b1, 5'd11, 32'd200, '0, 3'd1, 3'd0, 8'd0);
+      run_mem(1'b0, 2'd2, 1'b1, 1'b0, 1'b1, 5'd12, 32'd16, '0, 3'd0, 3'd0, 8'd3);
+      run_mem(1'b0, 2'd1, 1'b0, 1'b0, 1'b1, 5'd13, 32'd40, '0, 3'd0, 3'd0, 8'd12);
+      run_mem(1'b1, 2'd0, 1'b0, 1'b0, 1'b1, 5'd20, 32'd0, '0, 3'd0, 3'd3, 8'd100);
+      run_mem(1'b0, 2'd0, 1'b0, 1'b0, 1'b1, 5'd24, 32'd0, '0, 3'd0, 3'd0, 8'd0);
+    end
+  endtask
+
+  // Random moves
+  task automatic soak_mem(input int n);
+    logic store;
+    logic [1:0] w;
+    logic whole;
+    logic strided;
+    logic vmb;
+    logic [2:0] sew;
+    logic [2:0] lmul;
+    logic [4:0] d;
+    logic [7:0] len;
+    int emul;
+    int vlmax;
+    begin
+      seed_all();
+      for (int i = 0; i < n; i++) begin
+        store   = 1'($urandom);
+        w       = 2'($urandom % 3);
+        whole   = (($urandom % 4) == 0) && (store == 1'b0 || w == 2'd0);
+        strided = !whole && 1'($urandom);
+        vmb     = whole || 1'($urandom);
+        emul    = 9;
+        while (emul > 3 || emul < -3) begin
+          sew  = 3'($urandom % 3);
+          lmul = 3'($urandom % 4);
+          emul = whole ? 0 : int'(lmul) + int'(w) - int'(sew);
+        end
+        vlmax     = (VLEN << lmul) >> (3 + sew);
+        len       = 8'($urandom % ((vlmax > 255 ? 255 : vlmax) + 1));
+        d         = (!vmb && !store) ? 5'd23 - 5'($urandom % 20) : 5'($urandom);
+        ready_pct = (($urandom % 2) == 0) ? 100 : 40;
+        run_mem(store, w, whole, strided, vmb, d, 32'($urandom % Bytes) & ~((32'd1 << w) - 1),
+                32'($signed(32'($urandom % 13)) - 6) << w, sew, lmul, len);
+      end
+      ready_pct = 100;
+    end
+  endtask
+
   task automatic verdict();
     $display("vec_unit: %0d checks, %0d errors", checks, errors);
     if (errors != 0) $fatal(1, "vec_unit FAILED");
     $finish;
   endtask
+
+  initial begin
+    repeat (Timeout) @(posedge clk);
+    $fatal(1, "vec_unit timeout, %0d errors, %0d checks", errors, checks);
+  end
 
   initial begin
     // Quiet start
@@ -448,6 +734,21 @@ module vec_unit_tb
 
     // Random traffic
     soak(120);
+
+    // Legality and alignment
+    check_mem_rules();
+
+    // Trap drops instruction
+    check_mem_cancel();
+
+    // Pending until drained
+    check_mem_pending();
+
+    // Directed moves
+    check_moves();
+
+    // Random moves
+    soak_mem(300);
 
     verdict();
   end
