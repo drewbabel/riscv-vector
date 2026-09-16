@@ -124,6 +124,8 @@ package vec_pkg;
     VEC_WMACC,
     VEC_WMACCUS,
     VEC_WMACCSU,
+    VEC_LOAD,
+    VEC_STORE,
     VEC_ILLEGAL
   } vec_op_e;
 

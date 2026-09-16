@@ -17,7 +17,12 @@ module vec_decode
     output logic            reads_vd,
     output logic            reads_xreg,
     output logic            writes_xreg,
-    output logic            writes_mask
+    output logic            writes_mask,
+
+    // Memory forms
+    output logic [1:0] mem_width,
+    output logic       mem_whole,
+    output logic       mem_strided
 );
 
   localparam logic [2:0] Funct3Opivv = 3'b000;
@@ -31,6 +36,10 @@ module vec_decode
   logic [2:0] funct3;
   logic is_opv;
   logic is_v, is_x, is_i, is_mv, is_mx;
+  logic    is_load;
+  logic    is_store;
+  logic    width_ok;
+  vec_op_e mem_op;
 
   assign funct6 = instr[31:26];
   assign funct3 = instr[14:12];
@@ -47,6 +56,8 @@ module vec_decode
   assign is_i = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opivi);
   assign is_mv = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opmvv);
   assign is_mx = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opmvx);
+  assign is_load = (instr[6:0] == OpcodeLoadFp);
+  assign is_store = (instr[6:0] == OpcodeStoreFp);
 
   always_comb begin
     op = VEC_ILLEGAL;
@@ -54,6 +65,39 @@ module vec_decode
     reads_vd = 1'b0;
     writes_xreg = 1'b0;
     writes_mask = 1'b0;
+    mem_width = 2'd0;
+    mem_whole = 1'b0;
+    mem_strided = 1'b0;
+    width_ok = 1'b0;
+    mem_op = VEC_LOAD;
+
+    // Loads and stores
+    if ((is_load || is_store) && (instr[31:28] == 4'b0000)) begin
+      case (funct3)
+        3'b000:  width_ok = 1'b1;
+        3'b101:  width_ok = 1'b1;
+        3'b110:  width_ok = 1'b1;
+        default: width_ok = 1'b0;
+      endcase
+      mem_width = (funct3 == 3'b110) ? 2'd2 : ((funct3 == 3'b101) ? 2'd1 : 2'd0);
+      mem_op = vec_pkg::vec_op_e'(is_load ? VEC_LOAD : VEC_STORE);
+      if (width_ok) begin
+        case (instr[27:26])
+          2'b00: begin
+            if (vs2 == 5'b00000) op = mem_op;
+            if ((vs2 == 5'b01000) && vm && (is_load || funct3 == 3'b000)) begin
+              op = mem_op;
+              mem_whole = 1'b1;
+            end
+          end
+          2'b10: begin
+            op = mem_op;
+            mem_strided = 1'b1;
+          end
+          default: ;
+        endcase
+      end
+    end
 
     // Integer arithmetic
     if (is_v || is_x || is_i) begin
@@ -386,7 +430,7 @@ module vec_decode
     end
   end
 
-  assign reads_xreg = (src == VEC_SRC_VX) && (op != VEC_ILLEGAL);
+  assign reads_xreg = ((src == VEC_SRC_VX) || is_load || is_store) && (op != VEC_ILLEGAL);
   assign valid = (op != VEC_ILLEGAL);
 
 endmodule
