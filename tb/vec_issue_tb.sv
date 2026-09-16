@@ -15,6 +15,7 @@ module vec_issue_tb
   logic core_en;
 
   logic instr_valid;
+  logic cancel;
   vec_op_e op;
   vec_src_e src;
   logic [AWIDTH-1:0] vs1;
@@ -24,6 +25,7 @@ module vec_issue_tb
   logic reads_vd;
   logic [4:0] simm;
   logic [31:0] xdata;
+  logic [31:0] xstride;
   logic [7:0] vl;
   logic [2:0] vsew;
   logic [2:0] vlmul;
@@ -41,12 +43,15 @@ module vec_issue_tb
   logic seq_reads_vd;
   logic [4:0] seq_simm;
   logic [31:0] seq_xdata;
+  logic [31:0] seq_xstride;
   logic [7:0] seq_vl;
   logic [2:0] seq_vsew;
   logic [2:0] seq_vlmul;
   logic [1:0] seq_vxrm;
   logic vec_hold;
   logic vec_idle;
+  logic load_pending;
+  logic store_pending;
 
   int run_len = 3;
 
@@ -59,6 +64,7 @@ module vec_issue_tb
       .rst_n(rst_n),
       .core_en(core_en),
       .instr_valid(instr_valid),
+      .cancel(cancel),
       .op(op),
       .src(src),
       .vs1(vs1),
@@ -68,6 +74,7 @@ module vec_issue_tb
       .reads_vd(reads_vd),
       .simm(simm),
       .xdata(xdata),
+      .xstride(xstride),
       .vl(vl),
       .vsew(vsew),
       .vlmul(vlmul),
@@ -84,12 +91,15 @@ module vec_issue_tb
       .seq_reads_vd(seq_reads_vd),
       .seq_simm(seq_simm),
       .seq_xdata(seq_xdata),
+      .seq_xstride(seq_xstride),
       .seq_vl(seq_vl),
       .seq_vsew(seq_vsew),
       .seq_vlmul(seq_vlmul),
       .seq_vxrm(seq_vxrm),
       .vec_hold(vec_hold),
-      .vec_idle(vec_idle)
+      .vec_idle(vec_idle),
+      .load_pending(load_pending),
+      .store_pending(store_pending)
   );
 
   // Sequencer stand in
@@ -129,6 +139,7 @@ module vec_issue_tb
   logic sb_reads_vd[SbDepth];
   logic [4:0] sb_simm[SbDepth];
   logic [31:0] sb_xdata[SbDepth];
+  logic [31:0] sb_xstride[SbDepth];
   logic [7:0] sb_vl[SbDepth];
   logic [2:0] sb_vsew[SbDepth];
   logic [2:0] sb_vlmul[SbDepth];
@@ -157,6 +168,7 @@ module vec_issue_tb
     sb_reads_vd[sb_tail] = reads_vd;
     sb_simm[sb_tail]     = simm;
     sb_xdata[sb_tail]    = xdata;
+    sb_xstride[sb_tail]  = xstride;
     sb_vl[sb_tail]       = vl;
     sb_vsew[sb_tail]     = vsew;
     sb_vlmul[sb_tail]    = vlmul;
@@ -179,6 +191,7 @@ module vec_issue_tb
       note("reads_vd", 32'(sb_reads_vd[sb_head]), 32'(seq_reads_vd));
       note("simm", 32'(sb_simm[sb_head]), 32'(seq_simm));
       note("xdata", sb_xdata[sb_head], seq_xdata);
+      note("xstride", sb_xstride[sb_head], seq_xstride);
       note("vl", 32'(sb_vl[sb_head]), 32'(seq_vl));
       note("vsew", 32'(sb_vsew[sb_head]), 32'(seq_vsew));
       note("vlmul", 32'(sb_vlmul[sb_head]), 32'(seq_vlmul));
@@ -186,6 +199,22 @@ module vec_issue_tb
       sb_head  = (sb_head + 1) % SbDepth;
       launched = launched + 1;
     end
+  endtask
+
+  // Pending work model
+  int inflight[$];
+
+  task automatic check_pending();
+    logic want_load;
+    logic want_store;
+    want_load  = 1'b0;
+    want_store = 1'b0;
+    for (int i = 0; i < inflight.size(); i++) begin
+      if (inflight[i] == int'(VEC_LOAD)) want_load = 1'b1;
+      if (inflight[i] == int'(VEC_STORE)) want_store = 1'b1;
+    end
+    note("load pending", 32'(load_pending), 32'(want_load));
+    note("store pending", 32'(store_pending), 32'(want_store));
   endtask
 
   // Invariants every cycle
@@ -215,7 +244,12 @@ module vec_issue_tb
   always @(posedge clk) begin
     if (rst_n && core_en) begin
       check_invariants();
-      if (instr_valid && !vec_hold) sb_push();
+      check_pending();
+      if (seq_done) void'(inflight.pop_front());
+      if (instr_valid && !vec_hold && !cancel) begin
+        sb_push();
+        inflight.push_back(int'(op));
+      end
       if (seq_start) sb_check();
     end
   end
@@ -224,6 +258,8 @@ module vec_issue_tb
     rst_n       = 1'b0;
     core_en     = 1'b1;
     instr_valid = 1'b0;
+    cancel      = 1'b0;
+    xstride     = '0;
     op          = VEC_ADD;
     src         = VEC_SRC_VV;
     vs1         = '0;
@@ -264,18 +300,28 @@ module vec_issue_tb
     reads_vd    = rvd;
     simm        = im;
     xdata       = xd;
+    xstride     = $urandom;
     instr_valid = 1'b1;
     #1;
     while (vec_hold) @(negedge clk);
     @(posedge clk);
     #1 instr_valid = 1'b0;
+    cancel = 1'b0;
     scramble_config();
   endtask
 
+  function automatic vec_op_e random_op();
+    case ($urandom % 4)
+      0: return VEC_LOAD;
+      1: return VEC_STORE;
+      default: return vec_op_e'($urandom % 16);
+    endcase
+  endfunction
+
   task automatic present_random();
-    present(vec_op_e'($urandom % 16), vec_src_e'($urandom % 3), AWIDTH'($urandom),
-            AWIDTH'($urandom), AWIDTH'($urandom), 1'($urandom), 1'($urandom), 5'($urandom),
-            $urandom);
+    cancel = (($urandom % 8) == 0);
+    present(random_op(), vec_src_e'($urandom % 3), AWIDTH'($urandom), AWIDTH'($urandom),
+            AWIDTH'($urandom), 1'($urandom), 1'($urandom), 5'($urandom), $urandom);
   endtask
 
   task automatic gap(input int n);
@@ -356,6 +402,33 @@ module vec_issue_tb
     @(negedge clk);
   endtask
 
+  // Trapped instruction dropped
+  task automatic check_cancel();
+    int taken;
+    settle();
+    taken  = accepted;
+    cancel = 1'b1;
+    present(VEC_STORE, VEC_SRC_NONE, 5'd1, 5'd2, 5'd3, 1'b1, 1'b0, 5'd0, 32'd0);
+    gap(3);
+    note("cancel accepted", 32'(accepted), 32'(taken));
+    note("cancel idle", 32'(vec_idle), 32'd1);
+    note("cancel store pending", 32'(store_pending), 32'd0);
+  endtask
+
+  // Memory flags set
+  task automatic check_flags_on_entry();
+    settle();
+    run_len = 6;
+    present(VEC_LOAD, VEC_SRC_NONE, 5'd1, 5'd2, 5'd3, 1'b1, 1'b0, 5'd0, 32'd0);
+    note("load pending on entry", 32'(load_pending), 32'd1);
+    present(VEC_STORE, VEC_SRC_NONE, 5'd1, 5'd2, 5'd3, 1'b1, 1'b0, 5'd0, 32'd0);
+    note("store pending on entry", 32'(store_pending), 32'd1);
+    settle();
+    note("load cleared", 32'(load_pending), 32'd0);
+    note("store cleared", 32'(store_pending), 32'd0);
+    run_len = 3;
+  endtask
+
   // Zero length completes
   task automatic check_zero_length();
     settle();
@@ -404,6 +477,12 @@ module vec_issue_tb
 
     // Zero length completes
     check_zero_length();
+
+    // Trapped instruction dropped
+    check_cancel();
+
+    // Memory flags set
+    check_flags_on_entry();
 
     // Random traffic
     soak(400);
