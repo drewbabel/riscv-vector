@@ -22,6 +22,9 @@ module vec_decode_tb
   logic            reads_xreg;
   logic            writes_xreg;
   logic            writes_mask;
+  logic     [ 1:0] mem_width;
+  logic            mem_whole;
+  logic            mem_strided;
 
   localparam logic [2:0] Fvv = 3'b000;
   localparam logic [2:0] Fvx = 3'b100;
@@ -43,13 +46,45 @@ module vec_decode_tb
       .reads_vd   (reads_vd),
       .reads_xreg (reads_xreg),
       .writes_xreg(writes_xreg),
-      .writes_mask(writes_mask)
+      .writes_mask(writes_mask),
+      .mem_width  (mem_width),
+      .mem_whole  (mem_whole),
+      .mem_strided(mem_strided)
   );
 
   function automatic logic [31:0] enc(input logic [5:0] funct6, input logic mask_bit,
                                       input logic [4:0] rs2, input logic [4:0] rs1,
                                       input logic [2:0] funct3, input logic [4:0] rd);
     return {funct6, mask_bit, rs2, rs1, funct3, rd, OpcodeOpV};
+  endfunction
+
+  function automatic logic [31:0] enc_mem(input logic [6:0] top, input logic [4:0] rs2,
+                                          input logic [2:0] width, input logic store);
+    return {top, rs2, 5'd10, width, 5'd3, store ? OpcodeStoreFp : OpcodeLoadFp};
+  endfunction
+
+  // Reference memory forms
+  function automatic logic [4:0] ref_mem(input logic [6:0] top, input logic [4:0] rs2,
+                                         input logic [2:0] width, input logic store);
+    logic [2:0] nf;
+    logic mew, mask_bit;
+    logic [1:0] mop, w;
+    nf = top[6:4];
+    mew = top[3];
+    mop = top[2:1];
+    mask_bit = top[0];
+    case (width)
+      3'b000: w = 2'd0;
+      3'b101: w = 2'd1;
+      3'b110: w = 2'd2;
+      default: return 5'b0;
+    endcase
+    if (nf != 3'b000 || mew) return 5'b0;
+    if (mop == 2'b10) return {1'b1, w, 2'b01};
+    if (mop != 2'b00) return 5'b0;
+    if (rs2 == 5'b00000) return {1'b1, w, 2'b00};
+    if (rs2 == 5'b01000 && mask_bit && (!store || width == 3'b000)) return {1'b1, w, 2'b10};
+    return 5'b0;
   endfunction
 
   // Reference legality
@@ -189,6 +224,32 @@ module vec_decode_tb
     end
   endtask
 
+  task automatic chk_mem(input logic [6:0] top, input logic [4:0] rs2, input logic [2:0] width,
+                         input logic store, input logic [4:0] exp);
+    logic [4:0] got;
+    vec_op_e    exp_op;
+    instr = enc_mem(top, rs2, width, store);
+    #1;
+    exp_op = vec_op_e'(!exp[4] ? VEC_ILLEGAL : (store ? VEC_STORE : VEC_LOAD));
+    got = {valid, mem_width, mem_whole, mem_strided};
+    if (!exp[4]) got[3:0] = 4'b0;
+    checks++;
+    if (got !== exp || op !== exp_op || (exp[4] && (!reads_xreg || vd !== 5'd3 ||
+        vm !== top[0] || src !== VEC_SRC_NONE))) begin
+      errors++;
+      $display("FAIL mem top=%b rs2=%b w=%b store=%b got=%b exp=%b at %0t", top, rs2, width,
+               store, got, exp, $time);
+    end
+  endtask
+
+  task automatic sweep_mem();
+    for (int s = 0; s < 2; s++)
+    for (int t = 0; t < 128; t++)
+    for (int r = 0; r < 32; r++)
+    for (int w = 0; w < 8; w++)
+    chk_mem(7'(t), 5'(r), 3'(w), 1'(s), ref_mem(7'(t), 5'(r), 3'(w), 1'(s)));
+  endtask
+
   task automatic chk_not_vector();
     instr = {25'b0, OpcodeOp};
     #1;
@@ -282,8 +343,27 @@ module vec_decode_tb
     chk_flags(6'b111101, Fmv, 5'd1, 4'b1000);
     chk_flags(6'b011001, Fmv, 5'd1, 4'b0001);
 
+    // Loads and stores
+    chk_mem(7'b0000001, 5'b00000, 3'b000, 1'b0, 5'b10000);
+    chk_mem(7'b0000000, 5'b00000, 3'b101, 1'b0, 5'b10100);
+    chk_mem(7'b0000001, 5'b00000, 3'b110, 1'b1, 5'b11000);
+    chk_mem(7'b0000100, 5'd12, 3'b101, 1'b0, 5'b10101);
+    chk_mem(7'b0000101, 5'd13, 3'b000, 1'b1, 5'b10001);
+    chk_mem(7'b0000001, 5'b01000, 3'b101, 1'b0, 5'b10110);
+    chk_mem(7'b0000001, 5'b01000, 3'b000, 1'b1, 5'b10010);
+
+    // Memory form illegal
+    chk_mem(7'b0000001, 5'b01000, 3'b101, 1'b1, 5'b00000);
+    chk_mem(7'b0000000, 5'b01000, 3'b000, 1'b0, 5'b00000);
+    chk_mem(7'b0000001, 5'b00000, 3'b111, 1'b0, 5'b00000);
+    chk_mem(7'b0000001, 5'b10000, 3'b000, 1'b0, 5'b00000);
+    chk_mem(7'b0010001, 5'b00000, 3'b000, 1'b0, 5'b00000);
+    chk_mem(7'b0001001, 5'b00000, 3'b000, 1'b0, 5'b00000);
+    chk_mem(7'b0000111, 5'd12, 3'b000, 1'b0, 5'b00000);
+
     // Exhaustive legality
     sweep();
+    sweep_mem();
 
     verdict();
   end
