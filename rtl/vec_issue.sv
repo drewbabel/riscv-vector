@@ -11,6 +11,7 @@ module vec_issue
 
     // Execute stage
     input logic                  instr_valid,
+    input logic                  cancel,
     input vec_op_e               op,
     input vec_src_e              src,
     input logic     [AWIDTH-1:0] vs1,
@@ -20,6 +21,7 @@ module vec_issue
     input logic                  reads_vd,
     input logic     [       4:0] simm,
     input logic     [      31:0] xdata,
+    input logic     [      31:0] xstride,
 
     // Live configuration
     input logic [7:0] vl,
@@ -42,6 +44,7 @@ module vec_issue
     output logic                  seq_reads_vd,
     output logic     [       4:0] seq_simm,
     output logic     [      31:0] seq_xdata,
+    output logic     [      31:0] seq_xstride,
     output logic     [       7:0] seq_vl,
     output logic     [       2:0] seq_vsew,
     output logic     [       2:0] seq_vlmul,
@@ -49,7 +52,9 @@ module vec_issue
 
     // Pipeline handshake
     output logic vec_hold,
-    output logic vec_idle
+    output logic vec_idle,
+    output logic load_pending,
+    output logic store_pending
 );
 
   // Queue slot
@@ -63,6 +68,7 @@ module vec_issue
   logic                  q_reads_vd;
   logic     [       4:0] q_simm;
   logic     [      31:0] q_xdata;
+  logic     [      31:0] q_xstride;
   logic     [       7:0] q_vl;
   logic     [       2:0] q_vsew;
   logic     [       2:0] q_vlmul;
@@ -70,14 +76,20 @@ module vec_issue
 
   // Executing slot
   logic                  e_valid;
+  logic                  e_load;
+  logic                  e_store;
 
   logic                  accept;
   logic                  launch;
 
-  assign launch   = q_valid && !e_valid;
-  assign accept   = instr_valid && (!q_valid || launch);
+  assign launch = q_valid && !e_valid;
+  assign accept = instr_valid && !cancel && (!q_valid || launch);
   assign vec_hold = instr_valid && q_valid && !launch;
   assign vec_idle = !q_valid && !e_valid && !seq_busy;
+
+  // Pending memory work
+  assign load_pending = (q_valid && q_op == VEC_LOAD) || (e_valid && e_load);
+  assign store_pending = (q_valid && q_op == VEC_STORE) || (e_valid && e_store);
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -91,6 +103,8 @@ module vec_issue
       if (launch) begin
         seq_start    <= 1'b1;
         e_valid      <= 1'b1;
+        e_load       <= (q_op == VEC_LOAD);
+        e_store      <= (q_op == VEC_STORE);
         seq_op       <= q_op;
         seq_src      <= q_src;
         seq_vs1      <= q_vs1;
@@ -100,6 +114,7 @@ module vec_issue
         seq_reads_vd <= q_reads_vd;
         seq_simm     <= q_simm;
         seq_xdata    <= q_xdata;
+        seq_xstride  <= q_xstride;
         seq_vl       <= q_vl;
         seq_vsew     <= q_vsew;
         seq_vlmul    <= q_vlmul;
@@ -119,6 +134,7 @@ module vec_issue
         q_reads_vd <= reads_vd;
         q_simm     <= simm;
         q_xdata    <= xdata;
+        q_xstride  <= xstride;
         q_vl       <= vl;
         q_vsew     <= vsew;
         q_vlmul    <= vlmul;
