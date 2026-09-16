@@ -227,6 +227,14 @@ jobs:
         run: python3 tests/cosim.py cosim_m
       - name: Directed vector configuration co-sim
         run: python3 tests/cosim.py --vec vecconf
+      - name: Directed vector memory co-sim
+        run: python3 tests/cosim.py --vec vecmem
+      - name: Vector trap co-sim
+        run: python3 tests/cosim.py --vec vectrap
+      - name: Vector memcpy co-sim
+        run: python3 tests/cosim.py --vec vecmemcpy
+      - name: Randomized vector memory co-sim (100 programs)
+        run: python3 tests/cosim.py --vec --rand 100
       - name: Randomized co-sim regression (500 programs)
         run: python3 tests/cosim.py --rand 500
 
