@@ -61,7 +61,7 @@ wave:
 	iverilog -g2012 -DSIM_BACKDOOR -s $(MOD)_tb -o $(SIM) $(RTL) $(TB)
 	-vvp $(SIM)
 	@$(if $(WAVE_STATE),$(MAKE) -s $(WAVE_STATE),true)
-	surfer $(VCD) $$(test -f $(WAVE_STATE) && echo "-s $(WAVE_STATE)") &
+	surfer $(VCD) $$(test -n "$(WAVE_STATE)" && echo "-s $(WAVE_STATE)") &
 
 build/pipeline_%.ron: $(PIPE_LAYOUT)
 	@mkdir -p build
