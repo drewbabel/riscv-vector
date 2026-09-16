@@ -7,6 +7,13 @@ module vec_unit
     parameter  int VLEN     = 128,
     localparam int MaxElems = VLEN / 8
 ) (
+`ifdef RISCV_FORMAL
+    output logic [       7:0] dbg_vec_tag,
+    output logic              dbg_vec_retire,
+    output logic [AWIDTH-1:0] dbg_vec_vd,
+    output logic [       3:0] dbg_vec_regs,
+    output logic              dbg_vec_idle,
+`endif
     input logic clk,
     input logic rst_n,
     input logic core_en,
@@ -22,18 +29,18 @@ module vec_unit
     input logic [2:0] vlmul,
     input logic [1:0] vxrm,
 
+    // Memory port
+    input  logic [31:0] mem_rdata,
+    input  logic        mem_ready,
+    output logic        mem_req,
+    output logic [31:0] mem_addr,
+    output logic [31:0] mem_wdata,
+    output logic [ 3:0] mem_wstrb,
+
     // Pipeline handshake
     output logic is_vector,
     output logic vec_hold,
     output logic vec_idle
-`ifdef RISCV_FORMAL
-    ,
-    output logic [       7:0] dbg_vec_tag,
-    output logic              dbg_vec_retire,
-    output logic [AWIDTH-1:0] dbg_vec_vd,
-    output logic [       3:0] dbg_vec_regs,
-    output logic              dbg_vec_idle
-`endif
 );
 
   // Decoded fields
@@ -236,6 +243,11 @@ module vec_unit
       .simm(seq_simm),
       .result(alu_result)
   );
+
+  assign mem_req   = 1'b0;
+  assign mem_addr  = '0;
+  assign mem_wdata = '0;
+  assign mem_wstrb = 4'h0;
 
 `ifdef RISCV_FORMAL
   // Retirement export

@@ -62,6 +62,17 @@ module riscv_pipelined
     output logic [XLEN-1:0] mem_addr
 );
 
+  logic            s_req;
+  logic            s_ready;
+  logic [XLEN-1:0] s_addr;
+  logic [XLEN-1:0] s_wdata;
+  logic [     3:0] s_wstrb;
+  logic            v_req;
+  logic            v_ready;
+  logic [XLEN-1:0] v_addr;
+  logic [XLEN-1:0] v_wdata;
+  logic [     3:0] v_wstrb;
+
   datapath #(
       .XLEN     (XLEN),
       .GSHARE_EN(GSHARE_EN)
@@ -111,15 +122,43 @@ module riscv_pipelined
       .timer_irq  (timer_irq),
       .ext_irq    (ext_irq),
       .imem_ready (imem_ready),
-      .dmem_ready (dmem_ready),
-      .dmem_req   (dmem_req),
+      .dmem_ready (s_ready),
+      .dmem_req   (s_req),
       .pc         (pc),
       .mem_write  (mem_write),
       .alu_result (alu_result),
       .write_data (write_data),
-      .store_wstrb(store_wstrb),
-      .store_data (store_data),
-      .mem_addr   (mem_addr)
+      .store_wstrb(s_wstrb),
+      .store_data (s_wdata),
+      .mem_addr   (s_addr),
+      .vmem_ready (v_ready),
+      .vmem_req   (v_req),
+      .vmem_addr  (v_addr),
+      .vmem_wdata (v_wdata),
+      .vmem_wstrb (v_wstrb)
+  );
+
+  dmem_arb #(
+      .XLEN(XLEN)
+  ) dmem_arb_inst (
+      .clk    (clk),
+      .rst_n  (rst_n),
+      .core_en(core_en),
+      .s_req  (s_req),
+      .s_addr (s_addr),
+      .s_wdata(s_wdata),
+      .s_wstrb(s_wstrb),
+      .s_ready(s_ready),
+      .v_req  (v_req),
+      .v_addr (v_addr),
+      .v_wdata(v_wdata),
+      .v_wstrb(v_wstrb),
+      .v_ready(v_ready),
+      .req    (dmem_req),
+      .addr   (mem_addr),
+      .wdata  (store_data),
+      .wstrb  (store_wstrb),
+      .ready  (dmem_ready)
   );
 
 endmodule

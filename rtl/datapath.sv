@@ -63,7 +63,12 @@ module datapath
     output logic [XLEN-1:0] write_data,
     output logic [     3:0] store_wstrb,
     output logic [XLEN-1:0] store_data,
-    output logic [XLEN-1:0] mem_addr
+    output logic [XLEN-1:0] mem_addr,
+    input  logic            vmem_ready,
+    output logic            vmem_req,
+    output logic [XLEN-1:0] vmem_addr,
+    output logic [XLEN-1:0] vmem_wdata,
+    output logic [     3:0] vmem_wstrb
 );
 
   logic                   [    XLEN-1:0] pc_next;
@@ -616,6 +621,13 @@ module datapath
   vec_unit #(
       .VLEN(VLEN)
   ) vec_unit_inst (
+`ifdef RISCV_FORMAL
+      .dbg_vec_tag   (dbg_vec_tag),
+      .dbg_vec_retire(dbg_vec_retire),
+      .dbg_vec_vd    (dbg_vec_vd),
+      .dbg_vec_regs  (dbg_vec_regs),
+      .dbg_vec_idle  (dbg_vec_idle),
+`endif
       .clk        (clk),
       .rst_n      (rst_n),
       .core_en    (core_en),
@@ -626,17 +638,15 @@ module datapath
       .vsew       (vtype_q[5:3]),
       .vlmul      (vtype_q[2:0]),
       .vxrm       (2'd0),
+      .mem_rdata  (read_data),
+      .mem_ready  (vmem_ready),
+      .mem_req    (vmem_req),
+      .mem_addr   (vmem_addr),
+      .mem_wdata  (vmem_wdata),
+      .mem_wstrb  (vmem_wstrb),
       .is_vector  (vec_is_vector),
       .vec_hold   (vec_hold),
       .vec_idle   ()
-`ifdef RISCV_FORMAL
-      ,
-      .dbg_vec_tag   (dbg_vec_tag),
-      .dbg_vec_retire(dbg_vec_retire),
-      .dbg_vec_vd    (dbg_vec_vd),
-      .dbg_vec_regs  (dbg_vec_regs),
-      .dbg_vec_idle  (dbg_vec_idle)
-`endif
   );
   /* verilator lint_on PINCONNECTEMPTY */
 

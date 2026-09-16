@@ -43,6 +43,12 @@ module vec_unit_tb
       .vsew(vsew),
       .vlmul(vlmul),
       .vxrm(vxrm),
+      .mem_rdata('0),
+      .mem_ready(1'b0),
+      .mem_req(),
+      .mem_addr(),
+      .mem_wdata(),
+      .mem_wstrb(),
       .is_vector(is_vector),
       .vec_hold(vec_hold),
       .vec_idle(vec_idle)
