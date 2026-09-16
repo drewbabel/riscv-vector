@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 BASE = 0x8000_0000  # Spike DRAM base
-DEPTH = 64
+DEPTH = 256
 MASK32 = 0xFFFF_FFFF
 ABS_PC_OPS = {0x17, 0x6F, 0x67}  # auipc jal jalr
 STORE_WIDTH = {0: 1, 1: 2, 2: 4}  # store funct3 to byte count
@@ -76,10 +76,15 @@ COMMIT_RE = re.compile(
 # dut commit trace
 TRACE_RE = re.compile(r"TRACE (\d+) ([0-9a-f]+) ([0-9a-f]+)")
 VCOMMIT_RE = re.compile(r"VCOMMIT (\d+) (\d+) ([0-9a-f]+)")
+VMEM_RE = re.compile(r"VMEM ([0-9a-f]+) ([0-9a-f]) ([0-9a-f]+)")
 VCD = os.path.join(BUILD, "cosim.vcd")
 TRACE = []  # Retirement times
 DUT_VWR = []  # Vector writes
 SPK_VWR = []  # Vector writes
+DUT_VMEM = []  # Vector store bytes
+FENCE_BUSY = []  # Fence retired early
+SPK_VMEM = []  # Vector store bytes
+VEC_WIDTH = {0: 1, 5: 2, 6: 4}  # width field to byte count
 
 
 def run_dut(dut_hex, vcd=False):
@@ -87,10 +92,20 @@ def run_dut(dut_hex, vcd=False):
     if vcd:
         args.append(f"+vcd={VCD}")
     out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True).stdout
+    FENCE_BUSY.clear()
+    FENCE_BUSY.extend(l for l in out.splitlines() if l.startswith("FENCE BUSY"))
     trace = []
     TRACE.clear()
     DUT_VWR.clear()
+    DUT_VMEM.clear()
     for line in out.splitlines():
+        vm = VMEM_RE.match(line)
+        if vm:  # strobed bytes of a beat
+            addr, ws, wd = int(vm.group(1), 16), int(vm.group(2), 16), int(vm.group(3), 16)
+            for k in range(4):
+                if ws & (1 << k):
+                    DUT_VMEM.append(((addr + k) & (DEPTH * 4 - 1), (wd >> (8 * k)) & 0xFF))
+            continue
         v = VCOMMIT_RE.match(line)
         if v:
             DUT_VWR.append((int(v.group(1)), int(v.group(2)), int(v.group(3), 16)))
@@ -148,6 +163,7 @@ def run_spike(spike_elf, n):
     out = "".join(lines)
     trace = []
     SPK_VWR.clear()
+    SPK_VMEM.clear()
     vtag = 0
     shadow = {VL_ADDR: 0, VTYPE_ADDR: VTYPE_RESET, VSTART_ADDR: 0}
     for line in out.splitlines():
@@ -173,9 +189,15 @@ def run_spike(spike_elf, n):
             if int(addr) in shadow:
                 shadow[int(addr)] = int(hexval, 16)
         vec = (shadow[VL_ADDR], shadow[VTYPE_ADDR], shadow[VSTART_ADDR]) if VECTOR else None
+        if opcode == 0x27:  # vector store elements
+            size = VEC_WIDTH[(insn >> 12) & 0x7]
+            for eaddr, ehex in re.findall(r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail):
+                for k in range(size):
+                    SPK_VMEM.append(((int(eaddr, 16) + k) & (DEPTH * 4 - 1),
+                                     (int(ehex, 16) >> (8 * k)) & 0xFF))
         store = None
         sm = re.search(r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail)
-        if sm:
+        if sm and opcode == 0x23:
             saddr, sval = int(sm.group(1), 16), int(sm.group(2), 16)
             width = STORE_WIDTH[(insn >> 12) & 0x7]  # sb=1 sh=2 sw=4
             off = saddr & 0x3
@@ -259,6 +281,19 @@ def compare_vec():
                            f"  DUT   v{dr} {dv:032x}\n  Spike v{sr} {sv:032x}")
     if len(DUT_VWR) != len(SPK_VWR):
         return False, f"vector write count DUT {len(DUT_VWR)} Spike {len(SPK_VWR)}"
+    return True, n
+
+
+# Vector store bytes
+def compare_vmem():
+    n = min(len(DUT_VMEM), len(SPK_VMEM))
+    for i in range(n):
+        if DUT_VMEM[i] != SPK_VMEM[i]:
+            (da, dv), (sa, sv) = DUT_VMEM[i], SPK_VMEM[i]
+            return False, (f"vector store byte {i}\n  DUT   b{da:02x}={dv:02x}\n"
+                           f"  Spike b{sa:02x}={sv:02x}")
+    if len(DUT_VMEM) != len(SPK_VMEM):
+        return False, f"vector store byte count DUT {len(DUT_VMEM)} Spike {len(SPK_VMEM)}"
     return True, n
 
 
@@ -361,6 +396,80 @@ def gen(seed):
     return "\n".join(lines) + "\n", mode
 
 
+# Vector memory program
+VSIZE = {8: 1, 16: 2, 32: 4}
+VBASE, VSTRIDE = 9, 11  # base and stride registers
+
+
+def whole_insn(store, width, rd, base):
+    f3 = {8: 0, 16: 5, 32: 6}[width]
+    op = 0x27 if store else 0x07
+    return (1 << 25) | (8 << 20) | (base << 15) | (f3 << 12) | (rd << 7) | op
+
+
+def gen_vec(seed):
+    rng = random.Random(seed)
+    sew, vl = 8, 0
+    body = []
+
+    def vset():
+        nonlocal sew, vl
+        sew = rng.choice([8, 16, 32])
+        avl = rng.choice([0, 1, 2, 3, 5, 8, 8])
+        vl = min(avl, 128 // sew)
+        body.append(f"li x10, {avl}")
+        body.append(f"vsetvli x5, x10, e{sew}, m1, tu, mu")
+        if vl:  # element 0 always live
+            body.append(f"addi x{VBASE}, x{BASE_REG}, {rng.randrange(0, 241, VSIZE[sew])}")
+            body.append(f"vle{sew}.v v0, (x{VBASE})")
+            body.append("vor.vi v0, v0, 1")
+
+    vset()
+    for _ in range(rng.randint(16, 36)):
+        size = VSIZE[sew]
+        kind = rng.choice(["vle", "vse", "vle", "vse", "vlse", "vsse", "whole", "sw", "lw",
+                           "sb", "lb", "vset", "fence"])
+        mask = ", v0.t" if rng.random() < 0.3 else ""
+        match kind:
+            case "vle" | "vse":
+                vd = rng.randint(1, 31) if kind == "vle" else rng.randint(0, 31)
+                body.append(f"addi x{VBASE}, x{BASE_REG}, {rng.randrange(0, 241, size)}")
+                body.append(f"{kind}{sew}.v v{vd}, (x{VBASE}){mask}")
+            case "vlse" | "vsse":
+                vd = rng.randint(1, 31) if kind == "vlse" else rng.randint(0, 31)
+                body.append(f"addi x{VBASE}, x{BASE_REG}, {rng.randrange(96, 161, size)}")
+                body.append(f"li x{VSTRIDE}, {rng.randint(-3, 3) * size}")
+                body.append(f"{kind}{sew}.v v{vd}, (x{VBASE}), x{VSTRIDE}{mask}")
+            case "whole":
+                store = rng.random() < 0.5
+                width = 8 if store else rng.choice([8, 16, 32])
+                body.append(f"addi x{VBASE}, x{BASE_REG}, {rng.randrange(0, 241, 4)}")
+                body.append(f".word 0x{whole_insn(store, width, rng.randint(1, 31), VBASE):08x}")
+            case "sw":
+                body.append(f"sw x{rng.randint(1, 31)}, {rng.randrange(0, 253, 4)}(x{BASE_REG})")
+            case "lw":
+                body.append(f"lw x{rng.choice([12, 13, 14])}, {rng.randrange(0, 253, 4)}(x{BASE_REG})")
+            case "sb":
+                body.append(f"sb x{rng.randint(1, 31)}, {rng.randint(0, 255)}(x{BASE_REG})")
+            case "lb":
+                body.append(f"lbu x{rng.choice([12, 13, 14])}, {rng.randint(0, 255)}(x{BASE_REG})")
+            case "vset":
+                vset()
+            case "fence":
+                body.append("fence")
+
+    lines = ["        .section .text", "        .globl _start", "_start:",
+             "        li x5, 0x200", "        csrs mstatus, x5",
+             f"        lui x{BASE_REG}, 0x80008", "        li x5, 64",
+             f"        mv x6, x{BASE_REG}", f"        li x7, {rng.randint(1, 0x7FFFFFFF)}",
+             "Lfill:  sw x7, 0(x6)", "        slli x8, x7, 13", "        xor x7, x7, x8",
+             "        srli x8, x7, 17", "        xor x7, x7, x8", "        addi x6, x6, 4",
+             "        addi x5, x5, -1", "        bnez x5, Lfill"]
+    lines += [f"        {insn}" for insn in body]
+    lines.append("Ldone: beq x0, x0, Ldone")  # park sentinel
+    return "\n".join(lines) + "\n", "vector"
+
+
 # Build run compare
 def run_one(src):
     dut_hex = os.path.join(BUILD, "prog.hex")
@@ -369,12 +478,17 @@ def run_one(src):
     dut = run_dut(dut_hex)
     spike = run_spike(spike_elf, len(dut))
     ok, why = compare(dut, spike)
+    if ok and FENCE_BUSY:
+        return False, FENCE_BUSY[0]
     if not ok or not VECTOR:
         return ok, why
     vok, vwhy = compare_vec()
     if not vok:
         return False, vwhy
-    return True, f"{why} scalar, {vwhy} vector writes"
+    mok, mwhy = compare_vmem()
+    if not mok:
+        return False, mwhy
+    return True, why
 
 
 def main():
@@ -389,7 +503,7 @@ def main():
         compile_monitor()
         total = 0
         for seed in range(seed0, seed0 + count):
-            asm, mode = gen(seed)
+            asm, mode = gen_vec(seed) if VECTOR else gen(seed)
             src = os.path.join(BUILD, "rand.s")
             with open(src, "w") as f:
                 f.write(asm)
@@ -426,13 +540,20 @@ def main():
     if not ok:
         print(f"DIVERGENCE {detail}")
         sys.exit(1)
+    if FENCE_BUSY:
+        print(f"DIVERGENCE {FENCE_BUSY[0]}")
+        sys.exit(1)
     extra = ""
     if VECTOR:
         vok, vdetail = compare_vec()
         if not vok:
             print(f"DIVERGENCE {vdetail}")
             sys.exit(1)
-        extra = f", {vdetail} vector register writes"
+        mok, mdetail = compare_vmem()
+        if not mok:
+            print(f"DIVERGENCE {mdetail}")
+            sys.exit(1)
+        extra = f", {vdetail} vector register writes, {mdetail} vector store bytes"
     print(f"LOCKSTEP PASS: {detail} instructions match Spike{extra} ({prog})")
 
 

@@ -5,7 +5,7 @@ module cosim ();
   int checks = 0;
 
   localparam int Xlen = 32;
-  localparam int Depth = 64;
+  localparam int Depth = 256;
 
   logic             clk = 1'b0;
   logic             rst_n;
@@ -34,6 +34,7 @@ module cosim ();
 
   // RVFI retirement taps
   logic            r_valid;
+  logic            r_trap;
   logic [Xlen-1:0] r_pc;
   logic [Xlen-1:0] r_insn;
   logic [Xlen-1:0] r_wdata;
@@ -46,6 +47,7 @@ module cosim ();
   logic            r_vtype_ill;
   logic [     6:0] r_vstart;
   assign r_valid = dut.riscv_pipelined_inst.dbg_valid;
+  assign r_trap = dut.riscv_pipelined_inst.dbg_trap;
   assign r_pc    = dut.riscv_pipelined_inst.dbg_pc_rdata;
   assign r_insn  = dut.riscv_pipelined_inst.dbg_insn;
   assign r_wdata = dut.riscv_pipelined_inst.dbg_rd_wdata;
@@ -80,6 +82,32 @@ module cosim ();
       assign vpeek[r][b] =
           dut.riscv_pipelined_inst.datapath_inst.vec_unit_inst.u_regfile.g_bit[b].bmem[r];
     end
+  end
+
+  // Vector store beats
+  logic            r_vmreq;
+  logic            r_vmready;
+  logic [Xlen-1:0] r_vmaddr;
+  logic [Xlen-1:0] r_vmdata;
+  logic [     3:0] r_vmstrb;
+
+  assign r_vmreq   = dut.riscv_pipelined_inst.v_req;
+  assign r_vmready = dut.riscv_pipelined_inst.v_ready;
+  assign r_vmaddr  = dut.riscv_pipelined_inst.v_addr;
+  assign r_vmdata  = dut.riscv_pipelined_inst.v_wdata;
+  assign r_vmstrb  = dut.riscv_pipelined_inst.v_wstrb;
+
+  always @(negedge clk) begin
+    // addr wstrb data
+    if (rst_n && r_vmreq && r_vmready && r_vmstrb != 4'h0)
+      $display("VMEM %08x %1x %08x", r_vmaddr, r_vmstrb, r_vmdata);
+  end
+
+  // Fence drains unit
+  always @(negedge clk) begin
+    if (rst_n && dut.riscv_pipelined_inst.datapath_inst.commit_valid &&
+        dut.riscv_pipelined_inst.datapath_inst.is_fence_ex && !r_vidle)
+      $display("FENCE BUSY %0t", $time);
   end
 
   task automatic do_reset();
@@ -135,7 +163,8 @@ module cosim ();
       @(posedge clk);
       #1;
       if (r_vretire) emit_vcommit();
-      if (r_valid) begin
+      // Spike skips traps
+      if (r_valid && !r_trap) begin
         if (have_last && r_pc === last_pc) stop = 1;
         else begin
           emit_commit();
