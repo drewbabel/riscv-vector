@@ -1,0 +1,20 @@
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+cover: mode cover
+cover: depth 40
+
+[engines]
+prove: smtbmc z3
+prove: abc pdr
+cover: smtbmc z3
+
+[script]
+read -formal vec_mem_formal.v
+prep -top vec_mem_formal
+
+[files]
+build/vec_mem_formal.v
