@@ -21,9 +21,12 @@ module vec_unit
     // Execute stage
     input logic [31:0] instr,
     input logic        instr_valid,
+    input logic        cancel,
     input logic [31:0] xdata,
+    input logic [31:0] xstride,
 
     // Live configuration
+    input logic       vill,
     input logic [7:0] vl,
     input logic [2:0] vsew,
     input logic [2:0] vlmul,
@@ -37,10 +40,16 @@ module vec_unit
     output logic [31:0] mem_wdata,
     output logic [ 3:0] mem_wstrb,
 
+    // Memory checks
+    output logic        mem_misaligned,
+    output logic [31:0] mem_bad_addr,
+
     // Pipeline handshake
     output logic is_vector,
     output logic vec_hold,
-    output logic vec_idle
+    output logic vec_idle,
+    output logic load_pending,
+    output logic store_pending
 );
 
   // Decoded fields
@@ -53,6 +62,9 @@ module vec_unit
   logic     [  AWIDTH-1:0] dec_vd;
   logic     [         4:0] dec_simm;
   logic                    dec_reads_vd;
+  logic     [         1:0] dec_width;
+  logic                    dec_whole;
+  logic                    dec_strided;
 
   // Issued instruction
   vec_op_e                 seq_op;
@@ -65,6 +77,7 @@ module vec_unit
   logic                    seq_reads_vd;
   logic     [         4:0] seq_simm;
   logic     [        31:0] seq_xdata;
+  logic     [        31:0] seq_xstride;
   logic     [         7:0] seq_vl;
   logic     [         2:0] seq_vsew;
   logic     [         2:0] seq_vlmul;
@@ -86,6 +99,15 @@ module vec_unit
   logic     [    VLEN-1:0] rdata0;
   logic     [    VLEN-1:0] alu_result;
 
+  // Memory sequencer
+  logic                    seq_mem;
+  logic     [  AWIDTH-1:0] m_raddr;
+  logic                    m_wen;
+  logic     [    VLEN-1:0] m_wstrb;
+  logic     [    VLEN-1:0] m_wdata;
+  logic                    m_busy;
+  logic                    m_done;
+
   logic     [MaxElems-1:0] mask_bits;
 
   // Mask is data
@@ -103,13 +125,40 @@ module vec_unit
   always_comb begin
     case (dec_op)
       VEC_ADD, VEC_SUB, VEC_RSUB, VEC_AND, VEC_OR, VEC_XOR, VEC_SLL, VEC_SRL, VEC_SRA, VEC_MINU,
-      VEC_MIN, VEC_MAXU, VEC_MAX, VEC_ADC, VEC_SBC, VEC_MERGE:
+      VEC_MIN, VEC_MAXU, VEC_MAX, VEC_ADC, VEC_SBC, VEC_MERGE, VEC_LOAD, VEC_STORE:
       op_ready = 1'b1;
       default: op_ready = 1'b0;
     endcase
   end
 
-  assign is_vector  = dec_valid && op_ready;
+  // Memory snapshot
+  logic               dec_mem;
+  logic signed [ 3:0] emul_log2;
+  logic               emul_ok;
+  logic        [ 7:0] issue_vl;
+  logic        [ 2:0] issue_vsew;
+  logic        [31:0] issue_stride;
+  logic               base_off;
+  logic               stride_off;
+
+  assign dec_mem = (dec_op == VEC_LOAD) || (dec_op == VEC_STORE);
+  assign emul_log2 = 4'($signed(vlmul)) + $signed({2'b00, dec_width}) - $signed({1'b0, vsew});
+  assign emul_ok = !dec_mem || dec_whole || (emul_log2 >= -4'sd3 && emul_log2 <= 4'sd3);
+
+  assign issue_vl = (dec_mem && dec_whole) ? 8'(VLEN >> (3 + dec_width)) : vl;
+  assign issue_vsew = dec_mem ? {1'b0, dec_width} : vsew;
+  assign issue_stride = dec_strided ? xstride : (32'd1 << dec_width);
+
+  // Alignment check
+  assign base_off = (dec_width == 2'd2) ? (xdata[1:0] != 2'b00)
+      : ((dec_width == 2'd1) && xdata[0]);
+  assign stride_off = (dec_width == 2'd2) ? (issue_stride[1:0] != 2'b00)
+      : ((dec_width == 2'd1) && issue_stride[0]);
+  assign mem_misaligned = dec_mem && is_vector
+      && (((issue_vl != 8'd0) && base_off) || ((issue_vl > 8'd1) && stride_off));
+  assign mem_bad_addr = base_off ? xdata : (xdata + issue_stride);
+
+  assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 
   /* verilator lint_off PINCONNECTEMPTY */
@@ -128,7 +177,10 @@ module vec_unit
       .reads_vd(dec_reads_vd),
       .reads_xreg(),
       .writes_xreg(),
-      .writes_mask()
+      .writes_mask(),
+      .mem_width(dec_width),
+      .mem_whole(dec_whole),
+      .mem_strided(dec_strided)
   );
 
   vec_issue #(
@@ -138,6 +190,7 @@ module vec_unit
       .rst_n(rst_n),
       .core_en(core_en),
       .instr_valid(accept_now),
+      .cancel(cancel),
       .op(dec_op),
       .src(dec_src),
       .vs1(dec_vs1),
@@ -147,12 +200,13 @@ module vec_unit
       .reads_vd(dec_reads_vd),
       .simm(dec_simm),
       .xdata(xdata),
-      .vl(vl),
-      .vsew(vsew),
+      .xstride(issue_stride),
+      .vl(issue_vl),
+      .vsew(issue_vsew),
       .vlmul(vlmul),
       .vxrm(vxrm),
-      .seq_busy(seq_busy),
-      .seq_done(seq_done),
+      .seq_busy(seq_busy || m_busy),
+      .seq_done(seq_done || m_done),
       .seq_start(seq_start),
       .seq_op(seq_op),
       .seq_src(seq_src),
@@ -163,12 +217,15 @@ module vec_unit
       .seq_reads_vd(seq_reads_vd),
       .seq_simm(seq_simm),
       .seq_xdata(seq_xdata),
+      .seq_xstride(seq_xstride),
       .seq_vl(seq_vl),
       .seq_vsew(seq_vsew),
       .seq_vlmul(seq_vlmul),
       .seq_vxrm(),
       .vec_hold(vec_hold),
-      .vec_idle(vec_idle)
+      .vec_idle(vec_idle),
+      .load_pending(load_pending),
+      .store_pending(store_pending)
   );
 
   // Single width only
@@ -178,7 +235,7 @@ module vec_unit
   ) u_sequencer (
       .clk(clk),
       .rst_n(rst_n),
-      .start(seq_start),
+      .start(seq_start && !seq_mem),
       .vs1(seq_vs1),
       .vs2(seq_vs2),
       .vd(seq_vd),
@@ -200,17 +257,50 @@ module vec_unit
       .done(seq_done)
   );
 
+  assign seq_mem = (seq_op == VEC_LOAD) || (seq_op == VEC_STORE);
+
+  vec_mem #(
+      .AWIDTH(AWIDTH),
+      .VLEN  (VLEN)
+  ) u_mem (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(core_en),
+      .start(seq_start && seq_mem),
+      .load(seq_op == VEC_LOAD),
+      .vm(seq_vm),
+      .vd(seq_vd),
+      .count(seq_vl),
+      .width(seq_vsew[1:0]),
+      .base(seq_xdata),
+      .stride(seq_xstride),
+      .v0(rdata0),
+      .rdata(rdata1),
+      .raddr(m_raddr),
+      .wen(m_wen),
+      .wstrb(m_wstrb),
+      .wdata(m_wdata),
+      .mem_rdata(mem_rdata),
+      .mem_ready(mem_ready),
+      .mem_req(mem_req),
+      .mem_addr(mem_addr),
+      .mem_wdata(mem_wdata),
+      .mem_wstrb(mem_wstrb),
+      .busy(m_busy),
+      .done(m_done)
+  );
+
   vec_regfile #(
       .AWIDTH(AWIDTH),
       .VLEN  (VLEN)
   ) u_regfile (
       .clk(clk),
       .core_en(core_en),
-      .we(wen),
-      .wstrb(wstrb),
-      .waddr(waddr),
-      .wdata(alu_result),
-      .raddr1(raddr1),
+      .we(seq_mem ? m_wen : wen),
+      .wstrb(seq_mem ? m_wstrb : wstrb),
+      .waddr(seq_mem ? m_raddr : waddr),
+      .wdata(seq_mem ? m_wdata : alu_result),
+      .raddr1(seq_mem ? m_raddr : raddr1),
       .raddr2(raddr2),
       .raddr3(raddr3),
       .rdata1(rdata1),
@@ -244,23 +334,26 @@ module vec_unit
       .result(alu_result)
   );
 
-  assign mem_req   = 1'b0;
-  assign mem_addr  = '0;
-  assign mem_wdata = '0;
-  assign mem_wstrb = 4'h0;
-
 `ifdef RISCV_FORMAL
   // Retirement export
   logic [7:0] tag_q;
   always_ff @(posedge clk) begin
     if (!rst_n) tag_q <= 8'd0;
-    else if (core_en && seq_done) tag_q <= tag_q + 8'd1;
+    else if (core_en && (seq_done || m_done)) tag_q <= tag_q + 8'd1;
+  end
+
+  // Registers written
+  logic [3:0] regs_written;
+  always_comb begin
+    if (!seq_mem) regs_written = seq_vlmul[2] ? 4'd1 : 4'(4'd1 << seq_vlmul[1:0]);
+    else if (seq_op == VEC_STORE || seq_vl == 8'd0) regs_written = 4'd0;
+    else regs_written = 4'((seq_vl - 8'd1) >> (3'd4 - 3'(seq_vsew[1:0]))) + 4'd1;
   end
 
   assign dbg_vec_tag    = tag_q;
-  assign dbg_vec_retire = seq_done;
+  assign dbg_vec_retire = seq_done || m_done;
   assign dbg_vec_vd     = seq_vd;
-  assign dbg_vec_regs   = seq_vlmul[2] ? 4'd1 : 4'(4'd1 << seq_vlmul[1:0]);
+  assign dbg_vec_regs   = regs_written;
   assign dbg_vec_idle   = vec_idle;
 `endif
 
