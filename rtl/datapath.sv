@@ -46,6 +46,8 @@ module datapath
     output logic [     4:0] dbg_vec_vd,
     output logic [     3:0] dbg_vec_regs,
     output logic            dbg_vec_idle,
+    output logic            dbg_ex_commit,
+    output logic [XLEN-1:0] dbg_ex_insn,
 `endif
     input  logic            clk,
     input  logic            core_en,
@@ -917,6 +919,8 @@ module datapath
   end
 
   assign dbg_valid      = valid_wb;
+  assign dbg_ex_commit  = commit_valid && !trap_taken;
+  assign dbg_ex_insn    = instr_ex;
   assign dbg_insn       = rvfi_insn_wb;
   assign dbg_pc_rdata   = rvfi_pc_wb;
   assign dbg_pc_wdata   = rvfi_pcw_wb;

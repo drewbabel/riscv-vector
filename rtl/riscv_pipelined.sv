@@ -42,6 +42,10 @@ module riscv_pipelined
     output logic [     4:0] dbg_vec_vd,
     output logic [     3:0] dbg_vec_regs,
     output logic            dbg_vec_idle,
+    output logic            dbg_ex_commit,
+    output logic [XLEN-1:0] dbg_ex_insn,
+    output logic            dbg_s_take,
+    output logic            dbg_v_take,
 `endif
     input  logic            clk,
     input  logic            core_en,
@@ -113,6 +117,8 @@ module riscv_pipelined
       .dbg_vec_vd(dbg_vec_vd),
       .dbg_vec_regs(dbg_vec_regs),
       .dbg_vec_idle(dbg_vec_idle),
+      .dbg_ex_commit(dbg_ex_commit),
+      .dbg_ex_insn(dbg_ex_insn),
 `endif
       .clk        (clk),
       .core_en    (core_en),
@@ -160,6 +166,11 @@ module riscv_pipelined
       .wstrb  (store_wstrb),
       .ready  (dmem_ready)
   );
+
+`ifdef RISCV_FORMAL
+  assign dbg_s_take = s_req && s_ready;
+  assign dbg_v_take = v_req && v_ready;
+`endif
 
 endmodule
 
