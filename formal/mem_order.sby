@@ -1,0 +1,24 @@
+[tasks]
+bmc
+cover
+
+[options]
+bmc: mode bmc
+bmc: depth 30
+cover: mode cover
+cover: depth 20
+
+[engines]
+bmc: smtbmc yices
+bmc: abc bmc3
+cover: smtbmc yices
+
+[script]
+read -formal mem_order_formal.v
+hierarchy -top mem_order_formal
+blackbox *vec_alu* *vec_regfile* *muldiv* *gshare* *btb*
+cutpoint -blackbox
+prep -top mem_order_formal
+
+[files]
+build/mem_order_formal.v
