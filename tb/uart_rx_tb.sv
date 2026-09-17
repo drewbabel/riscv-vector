@@ -148,7 +148,7 @@ module uart_rx_tb ();
   endtask  // Automatic
 
   initial begin
-    $dumpfile("tb.vcd");
+    $dumpfile("uart_rx_tb.vcd");
     $dumpvars(0, uart_rx_tb);
     do_reset();
 
