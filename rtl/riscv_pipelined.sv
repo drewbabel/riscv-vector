@@ -37,6 +37,15 @@ module riscv_pipelined
     output logic [     7:0] dbg_vtype_bits,
     output logic            dbg_vtype_ill,
     output logic [     6:0] dbg_vstart,
+    output logic [     7:0] dbg_vec_tag,
+    output logic            dbg_vec_retire,
+    output logic [     4:0] dbg_vec_vd,
+    output logic [     3:0] dbg_vec_regs,
+    output logic            dbg_vec_idle,
+    output logic            dbg_ex_commit,
+    output logic [XLEN-1:0] dbg_ex_insn,
+    output logic            dbg_s_take,
+    output logic            dbg_v_take,
 `endif
     input  logic            clk,
     input  logic            core_en,
@@ -56,6 +65,17 @@ module riscv_pipelined
     output logic [XLEN-1:0] store_data,
     output logic [XLEN-1:0] mem_addr
 );
+
+  logic            s_req;
+  logic            s_ready;
+  logic [XLEN-1:0] s_addr;
+  logic [XLEN-1:0] s_wdata;
+  logic [     3:0] s_wstrb;
+  logic            v_req;
+  logic            v_ready;
+  logic [XLEN-1:0] v_addr;
+  logic [XLEN-1:0] v_wdata;
+  logic [     3:0] v_wstrb;
 
   datapath #(
       .XLEN     (XLEN),
@@ -92,6 +112,13 @@ module riscv_pipelined
       .dbg_vtype_bits(dbg_vtype_bits),
       .dbg_vtype_ill(dbg_vtype_ill),
       .dbg_vstart(dbg_vstart),
+      .dbg_vec_tag(dbg_vec_tag),
+      .dbg_vec_retire(dbg_vec_retire),
+      .dbg_vec_vd(dbg_vec_vd),
+      .dbg_vec_regs(dbg_vec_regs),
+      .dbg_vec_idle(dbg_vec_idle),
+      .dbg_ex_commit(dbg_ex_commit),
+      .dbg_ex_insn(dbg_ex_insn),
 `endif
       .clk        (clk),
       .core_en    (core_en),
@@ -101,16 +128,49 @@ module riscv_pipelined
       .timer_irq  (timer_irq),
       .ext_irq    (ext_irq),
       .imem_ready (imem_ready),
-      .dmem_ready (dmem_ready),
-      .dmem_req   (dmem_req),
+      .dmem_ready (s_ready),
+      .dmem_req   (s_req),
       .pc         (pc),
       .mem_write  (mem_write),
       .alu_result (alu_result),
       .write_data (write_data),
-      .store_wstrb(store_wstrb),
-      .store_data (store_data),
-      .mem_addr   (mem_addr)
+      .store_wstrb(s_wstrb),
+      .store_data (s_wdata),
+      .mem_addr   (s_addr),
+      .vmem_ready (v_ready),
+      .vmem_req   (v_req),
+      .vmem_addr  (v_addr),
+      .vmem_wdata (v_wdata),
+      .vmem_wstrb (v_wstrb)
   );
+
+  dmem_arb #(
+      .XLEN(XLEN)
+  ) dmem_arb_inst (
+      .clk    (clk),
+      .rst_n  (rst_n),
+      .core_en(core_en),
+      .s_req  (s_req),
+      .s_addr (s_addr),
+      .s_wdata(s_wdata),
+      .s_wstrb(s_wstrb),
+      .s_ready(s_ready),
+      .v_req  (v_req),
+      .v_addr (v_addr),
+      .v_wdata(v_wdata),
+      .v_wstrb(v_wstrb),
+      .v_ready(v_ready),
+      .req    (dmem_req),
+      .addr   (mem_addr),
+      .wdata  (store_data),
+      .wstrb  (store_wstrb),
+      .ready  (dmem_ready)
+  );
+
+`ifdef RISCV_FORMAL
+  assign dbg_s_take = s_req && s_ready;
+  assign dbg_v_take = v_req && v_ready;
+`endif
 
 endmodule
 

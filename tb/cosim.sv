@@ -5,7 +5,7 @@ module cosim ();
   int checks = 0;
 
   localparam int Xlen = 32;
-  localparam int Depth = 64;
+  localparam int Depth = 256;
 
   logic             clk = 1'b0;
   logic             rst_n;
@@ -34,6 +34,7 @@ module cosim ();
 
   // RVFI retirement taps
   logic            r_valid;
+  logic            r_trap;
   logic [Xlen-1:0] r_pc;
   logic [Xlen-1:0] r_insn;
   logic [Xlen-1:0] r_wdata;
@@ -46,6 +47,7 @@ module cosim ();
   logic            r_vtype_ill;
   logic [     6:0] r_vstart;
   assign r_valid = dut.riscv_pipelined_inst.dbg_valid;
+  assign r_trap = dut.riscv_pipelined_inst.dbg_trap;
   assign r_pc    = dut.riscv_pipelined_inst.dbg_pc_rdata;
   assign r_insn  = dut.riscv_pipelined_inst.dbg_insn;
   assign r_wdata = dut.riscv_pipelined_inst.dbg_rd_wdata;
@@ -57,6 +59,56 @@ module cosim ();
   assign r_vtype_bits = dut.riscv_pipelined_inst.dbg_vtype_bits;
   assign r_vtype_ill = dut.riscv_pipelined_inst.dbg_vtype_ill;
   assign r_vstart = dut.riscv_pipelined_inst.dbg_vstart;
+
+  // Vector retirement taps
+  localparam int Vlen = 128;
+  localparam int Vregs = 32;
+
+  logic [     7:0] r_vtag;
+  logic            r_vretire;
+  logic [     4:0] r_vvd;
+  logic [     3:0] r_vregs;
+  logic            r_vidle;
+  logic [Vlen-1:0] vpeek     [Vregs];
+
+  assign r_vtag = dut.riscv_pipelined_inst.dbg_vec_tag;
+  assign r_vretire = dut.riscv_pipelined_inst.dbg_vec_retire;
+  assign r_vvd = dut.riscv_pipelined_inst.dbg_vec_vd;
+  assign r_vregs = dut.riscv_pipelined_inst.dbg_vec_regs;
+  assign r_vidle = dut.riscv_pipelined_inst.dbg_vec_idle;
+
+  for (genvar b = 0; b < Vlen; b++) begin : g_vtap
+    for (genvar r = 0; r < Vregs; r++) begin : g_vreg
+      assign vpeek[r][b] =
+          dut.riscv_pipelined_inst.datapath_inst.vec_unit_inst.u_regfile.g_bit[b].bmem[r];
+    end
+  end
+
+  // Vector store beats
+  logic            r_vmreq;
+  logic            r_vmready;
+  logic [Xlen-1:0] r_vmaddr;
+  logic [Xlen-1:0] r_vmdata;
+  logic [     3:0] r_vmstrb;
+
+  assign r_vmreq   = dut.riscv_pipelined_inst.v_req;
+  assign r_vmready = dut.riscv_pipelined_inst.v_ready;
+  assign r_vmaddr  = dut.riscv_pipelined_inst.v_addr;
+  assign r_vmdata  = dut.riscv_pipelined_inst.v_wdata;
+  assign r_vmstrb  = dut.riscv_pipelined_inst.v_wstrb;
+
+  always @(negedge clk) begin
+    // addr wstrb data
+    if (rst_n && r_vmreq && r_vmready && r_vmstrb != 4'h0)
+      $display("VMEM %08x %1x %08x", r_vmaddr, r_vmstrb, r_vmdata);
+  end
+
+  // Fence drains unit
+  always @(negedge clk) begin
+    if (rst_n && dut.riscv_pipelined_inst.datapath_inst.commit_valid &&
+        dut.riscv_pipelined_inst.datapath_inst.is_fence_ex && !r_vidle)
+      $display("FENCE BUSY %0t", $time);
+  end
 
   task automatic do_reset();
     rst_n = 0;
@@ -76,6 +128,16 @@ module cosim ();
     $display("TRACE %0t %08x %08x", $time, r_pc, r_insn);
     checks++;
   endtask  // Automatic
+
+  // Vector group written
+  task automatic emit_vcommit();
+    int base;
+    begin
+      base = int'(r_vvd);
+      for (int g = 0; g < int'(r_vregs); g++)
+      $display("VCOMMIT %0d %0d %032x", r_vtag, (base + g) % Vregs, vpeek[(base+g)%Vregs]);
+    end
+  endtask
 
   initial begin
     logic [Xlen-1:0] last_pc;
@@ -100,7 +162,9 @@ module cosim ();
     for (int i = 0; i < max_commits && !stop; i++) begin
       @(posedge clk);
       #1;
-      if (r_valid) begin
+      if (r_vretire) emit_vcommit();
+      // Spike skips traps
+      if (r_valid && !r_trap) begin
         if (have_last && r_pc === last_pc) stop = 1;
         else begin
           emit_commit();
@@ -108,6 +172,13 @@ module cosim ();
           have_last = 1;
         end
       end
+    end
+
+    // Drain the unit
+    for (int i = 0; i < 2000 && !r_vidle; i++) begin
+      @(posedge clk);
+      #1;
+      if (r_vretire) emit_vcommit();
     end
 
     $display("MONITOR: %0d commits", checks);

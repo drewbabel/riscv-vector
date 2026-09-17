@@ -17,6 +17,8 @@ package opcode_pkg;
 
   // Vector opcodes
   localparam logic [6:0] OpcodeOpV = 7'b1010111;
+  localparam logic [6:0] OpcodeLoadFp = 7'b0000111;
+  localparam logic [6:0] OpcodeStoreFp = 7'b0100111;
   localparam logic [2:0] Funct3Opcfg = 3'b111;
 
 endpackage
