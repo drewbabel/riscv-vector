@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "andrewnolte.vscode-system-verilog",
+    "ms-vscode.cpptools",
+    "charliermarsh.ruff",
+    "editorconfig.editorconfig"
+  ]
+}

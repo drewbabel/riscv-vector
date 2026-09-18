@@ -1,0 +1,15 @@
+#!/bin/bash
+
+msg=$(head -1 "$1")
+
+case "$msg" in
+    wip*|fixup!*|squash!*|Merge*|Revert*) exit 0 ;;
+esac
+
+if ! printf '%s' "$msg" | grep -qE '^\[(rtl|tb|sw|formal|ci|syn|docs)\] [A-Z][^.]{1,39}$'; then
+    echo "commit-msg: subject must be [tag] Imperative summary" >&2
+    echo "  tag: rtl tb sw formal ci syn docs" >&2
+    echo "  capitalized verb, 40 chars after the tag, no trailing period" >&2
+    echo "  got: $msg" >&2
+    exit 1
+fi
