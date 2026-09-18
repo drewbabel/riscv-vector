@@ -1,0 +1,17 @@
+{
+  "name": "riscv-vector",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "postCreateCommand": "./setup.sh || true",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "andrewnolte.vscode-system-verilog",
+        "ms-vscode.cpptools",
+        "charliermarsh.ruff",
+        "editorconfig.editorconfig"
+      ]
+    }
+  }
+}
