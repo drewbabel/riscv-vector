@@ -5,7 +5,10 @@ module vec_sequencer
 #(
     parameter int AWIDTH = 5,
     parameter int VLEN = 128,
-    localparam int MaxElems = VLEN / 8
+    parameter int ELEN = 32,
+    localparam int MaxElems = VLEN / 8,
+    localparam int Widths = $clog2(ELEN / 8) + 1,
+    localparam int SelW = $clog2(Widths)
 ) (
     input  logic                clk,
     input  logic                rst_n,
@@ -20,6 +23,7 @@ module vec_sequencer
     input  logic [         2:0] vlmul,
     input  logic                vm,
     input  logic [MaxElems-1:0] mask_bits,
+    input  logic [    VLEN-1:0] v0_bits,
 
     // Element geometry
     input vec_rel_e d_rel,
@@ -27,6 +31,9 @@ module vec_sequencer
     input vec_rel_e s2_rel,
     input logic     mul_rate,
     input logic     single_write,
+    input logic     mask_dest,
+    input logic     mask_whole,
+    input logic     mask_src,
 
     // Register ports
     output logic [AWIDTH-1:0] raddr1,
@@ -65,8 +72,15 @@ module vec_sequencer
 
   // Widest port
   always_comb begin
-    if (single_write) begin
+    if (mask_whole) begin
+      lmax = lsew;
+    end else if (single_write) begin
       lmax = ls2;
+    end else if (mask_dest) begin
+      lmax = ls2;
+      if (ls1 > lmax) lmax = ls1;
+    end else if (mask_src) begin
+      lmax = ld;
     end else begin
       lmax = ld;
       if (ls1 > lmax) lmax = ls1;
@@ -80,14 +94,14 @@ module vec_sequencer
     if (mul_rate && (ln > 3'd2)) ln = 3'd2;
   end
 
-  assign elem_count = 5'(5'd1 << ln);
+  assign elem_count = mask_whole ? 5'd1 : 5'(5'd1 << ln);
 
   // Group geometry
   logic [4:0] regs_per_group;
   logic [7:0] total_elems;
 
   assign regs_per_group = vlmul[2] ? 5'd1 : 5'(5'd1 << vlmul[1:0]);
-  assign total_elems = 8'(regs_per_group) << (3'd7 - lsew);
+  assign total_elems = mask_whole ? 8'd1 : (8'(regs_per_group) << (3'd7 - lsew));
 
   // Element counter
   logic [7:0] elem_q;
@@ -102,9 +116,10 @@ module vec_sequencer
   logic [12:0] prod2;
   logic [12:0] prodd;
 
-  assign prod1 = single_write ? 13'd0 : (13'(elem_base) << ls1);
-  assign prod2 = 13'(elem_base) << ls2;
-  assign prodd = single_write ? 13'd0 : (13'(elem_base) << ld);
+  assign prod1 = (single_write || mask_src) ? 13'd0 : (13'(elem_base) << ls1);
+  assign prod2 = mask_src ? 13'd0 : (13'(elem_base) << ls2);
+  assign prodd = single_write ? 13'd0
+      : (mask_dest ? 13'(elem_base) : (13'(elem_base) << ld));
 
   assign s1_off = prod1[6:0];
   assign s2_off = prod2[6:0];
@@ -118,7 +133,11 @@ module vec_sequencer
 
   // Destination bits
   logic [5:0] dbits;
-  assign dbits = 6'(6'd1 << ld);
+  assign dbits = mask_dest ? 6'd1 : 6'(6'd1 << ld);
+
+  // The live prefix
+  logic [VLEN-1:0] vl_mask;
+  assign vl_mask = VLEN'({VLEN{1'b1}} >> (9'(VLEN) - 9'(vl)));
 
   // Live elements
   always_comb begin
@@ -131,20 +150,35 @@ module vec_sequencer
   logic [VLEN-1:0] unit_mask;
   assign unit_mask = VLEN'({32{1'b1}} >> (6'd32 - dbits));
 
+  // Active elements spread
+  logic [VLEN-1:0] spread_w[Widths];
+  logic [VLEN-1:0] spread;
+  logic [SelW-1:0] dsel;
+
+  for (genvar g = 0; g < Widths; g++) begin : g_w
+    localparam int W = 8 << g;
+    for (genvar e = 0; e < VLEN / W; e++) begin : g_e
+      assign spread_w[g][e*W+:W] = {W{elem_active[e]}};
+    end
+  end
+
+  assign dsel   = (ld >= 3'd3 && 32'(ld - 3'd3) < Widths) ? SelW'(ld - 3'd3) : SelW'(Widths - 1);
+  always_comb begin
+    spread = mask_dest ? VLEN'(elem_active) : '0;
+    for (int g = 0; g < Widths; g++) begin
+      if (!mask_dest && (dsel == SelW'(g))) spread = spread_w[g];
+    end
+  end
+
   // Tail plus mask
-  logic [8:0] base_bit;
   always_comb begin
     wstrb = '0;
-    base_bit = 9'd0;
     if (single_write) begin
       if (last) wstrb = unit_mask;
+    end else if (mask_whole) begin
+      if (last) wstrb = vl_mask & (vm ? {VLEN{1'b1}} : v0_bits);
     end else begin
-      for (int e = 0; e < MaxElems; e++) begin
-        if (elem_active[e]) begin
-          base_bit = 9'(d_off) + 9'(e) * 9'(dbits);
-          wstrb = wstrb | (unit_mask << base_bit);
-        end
-      end
+      wstrb = spread << d_off;
     end
   end
 

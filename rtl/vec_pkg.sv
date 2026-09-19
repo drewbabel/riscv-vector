@@ -138,7 +138,7 @@ package vec_pkg;
   } vec_op_e;
 
   // Datapath class
-  typedef enum logic [2:0] {
+  typedef enum logic [3:0] {
     VEC_CLS_NONE,
     VEC_CLS_ALU,
     VEC_CLS_MIXED,
@@ -146,7 +146,12 @@ package vec_pkg;
     VEC_CLS_RED,
     VEC_CLS_MEM,
     VEC_CLS_XS,
-    VEC_CLS_SX
+    VEC_CLS_SX,
+    VEC_CLS_CMP,
+    VEC_CLS_MLOG,
+    VEC_CLS_MSET,
+    VEC_CLS_IOTA,
+    VEC_CLS_XM
   } vec_cls_e;
 
   typedef struct packed {
@@ -156,6 +161,9 @@ package vec_pkg;
     logic     mul_rate;
     logic     single_write;
     logic     widen;
+    logic     mask_dest;
+    logic     mask_whole;
+    logic     mask_src;
   } vec_geom_t;
 
   function automatic logic [2:0] vec_rel_log2(input vec_rel_e rel, input logic [2:0] base);
@@ -190,6 +198,13 @@ package vec_pkg;
       VEC_REDSUM, VEC_REDAND, VEC_REDOR, VEC_REDXOR, VEC_REDMINU, VEC_REDMIN, VEC_REDMAXU,
       VEC_REDMAX, VEC_WREDSUMU, VEC_WREDSUM:
       vec_class = VEC_CLS_RED;
+      VEC_MSEQ, VEC_MSNE, VEC_MSLTU, VEC_MSLT, VEC_MSLEU, VEC_MSLE, VEC_MSGTU, VEC_MSGT:
+      vec_class = VEC_CLS_CMP;
+      VEC_MAND, VEC_MNAND, VEC_MANDN, VEC_MOR, VEC_MNOR, VEC_MORN, VEC_MXOR, VEC_MXNOR:
+      vec_class = VEC_CLS_MLOG;
+      VEC_MSBF, VEC_MSIF, VEC_MSOF: vec_class = VEC_CLS_MSET;
+      VEC_IOTA, VEC_ID: vec_class = VEC_CLS_IOTA;
+      VEC_CPOP, VEC_FIRST: vec_class = VEC_CLS_XM;
       VEC_LOAD, VEC_STORE: vec_class = VEC_CLS_MEM;
       VEC_MV_X_S:          vec_class = VEC_CLS_XS;
       VEC_MV_S_X:          vec_class = VEC_CLS_SX;
@@ -204,6 +219,9 @@ package vec_pkg;
     vec_geom.mul_rate = 1'b0;
     vec_geom.single_write = 1'b0;
     vec_geom.widen = 1'b0;
+    vec_geom.mask_dest = 1'b0;
+    vec_geom.mask_whole = 1'b0;
+    vec_geom.mask_src = 1'b0;
     case (vec_class(op))
       VEC_CLS_MIXED: begin
         case (eew)
@@ -234,6 +252,18 @@ package vec_pkg;
         end
       end
       VEC_CLS_XS, VEC_CLS_SX: vec_geom.single_write = 1'b1;
+      VEC_CLS_CMP: vec_geom.mask_dest = 1'b1;
+      VEC_CLS_MLOG, VEC_CLS_MSET: begin
+        vec_geom.mask_dest  = 1'b1;
+        vec_geom.mask_whole = 1'b1;
+        vec_geom.mask_src   = 1'b1;
+      end
+      VEC_CLS_XM: begin
+        vec_geom.single_write = 1'b1;
+        vec_geom.mask_whole   = 1'b1;
+        vec_geom.mask_src     = 1'b1;
+      end
+      VEC_CLS_IOTA: vec_geom.mask_src = 1'b1;
       default: ;
     endcase
   endfunction
