@@ -2,6 +2,9 @@
 
 module vec_unit_tb
   import vec_pkg::*;
+  import csr_pkg::VxrmAddr;
+  import csr_pkg::VxsatAddr;
+  import csr_pkg::VcsrAddr;
 ();
 
   localparam int AWIDTH = 5;
@@ -26,6 +29,11 @@ module vec_unit_tb
   logic [2:0] vsew;
   logic [2:0] vlmul;
   logic [1:0] vxrm;
+  logic       vxsat;
+  logic       csr_we;
+  logic [11:0] csr_waddr;
+  logic [31:0] csr_wdata;
+  logic        csr_wait;
   logic is_vector;
   logic vec_hold;
   logic vec_idle;
@@ -67,7 +75,12 @@ module vec_unit_tb
       .vl(vl),
       .vsew(vsew),
       .vlmul(vlmul),
+      .csr_we(csr_we),
+      .csr_waddr(csr_waddr),
+      .csr_wdata(csr_wdata),
+      .csr_wait(csr_wait),
       .vxrm(vxrm),
+      .vxsat(vxsat),
       .mem_rdata(mem_rdata),
       .mem_ready(mem_ready),
       .mem_req(mem_req),
@@ -229,7 +242,10 @@ module vec_unit_tb
     vl    = 8'd4;
     vsew  = 3'd2;
     vlmul = 3'd0;
-    vxrm  = 2'd0;
+    csr_we = 1'b0;
+    csr_waddr = 12'd0;
+    csr_wdata = 32'd0;
+    csr_wait = 1'b0;
     repeat (3) @(negedge clk);
     rst_n = 1'b1;
     @(negedge clk);
@@ -599,6 +615,46 @@ module vec_unit_tb
       #1 note("whole word misaligned", 32'(mem_misaligned), 32'd1);
       xdata   = '0;
       xstride = '0;
+    end
+  endtask
+
+  // Write one register
+  task automatic csr_poke(input logic [11:0] addr, input logic [31:0] val);
+    @(negedge clk);
+    csr_we    = 1'b1;
+    csr_waddr = addr;
+    csr_wdata = val;
+    @(posedge clk);
+    #1 csr_we = 1'b0;
+  endtask
+
+  // Rounding and saturation
+  task automatic check_fixed_point();
+    begin
+      csr_poke(VxrmAddr, 32'd2);
+      note("vxrm takes a write", 32'(vxrm), 32'd2);
+      note("vxsat untouched", 32'(vxsat), 32'd0);
+      csr_poke(VxsatAddr, 32'd1);
+      note("vxsat takes a write", 32'(vxsat), 32'd1);
+      note("vxrm untouched", 32'(vxrm), 32'd2);
+      csr_poke(VcsrAddr, 32'd3);
+      note("vcsr sets the mode", 32'(vxrm), 32'd1);
+      note("vcsr sets the flag", 32'(vxsat), 32'd1);
+      csr_poke(VcsrAddr, 32'd0);
+      note("vcsr clears both", 32'({vxrm, vxsat}), 32'd0);
+
+      vsew  = 3'd0;
+      vlmul = 3'd3;
+      vl    = 8'd128;
+      issue(enc(6'b000000, 1'b1, 5'd16, 5'd8, 3'b000, 5'd24));
+      @(negedge clk);
+      csr_wait = 1'b1;
+      #1 note("the access waits", 32'(vec_hold), 32'd1);
+      drain();
+      #1 note("the access lands", 32'(vec_hold), 32'd0);
+      csr_wait = 1'b0;
+      vlmul = 3'd0;
+      seed_all();
     end
   endtask
 
@@ -1121,6 +1177,7 @@ module vec_unit_tb
     // Legality and alignment
     check_mem_rules();
     check_group_rules();
+    check_fixed_point();
 
     // Trap drops instruction
     check_mem_cancel();
