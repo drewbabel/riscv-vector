@@ -14,6 +14,8 @@ module vec_issue
     input logic                  cancel,
     input vec_op_e               op,
     input vec_src_e              src,
+    input vec_eew_e              eew,
+    input logic                  writes_xreg,
     input logic     [AWIDTH-1:0] vs1,
     input logic     [AWIDTH-1:0] vs2,
     input logic     [AWIDTH-1:0] vd,
@@ -37,6 +39,7 @@ module vec_issue
     output logic                  seq_start,
     output vec_op_e               seq_op,
     output vec_src_e              seq_src,
+    output vec_eew_e              seq_eew,
     output logic     [AWIDTH-1:0] seq_vs1,
     output logic     [AWIDTH-1:0] seq_vs2,
     output logic     [AWIDTH-1:0] seq_vd,
@@ -61,6 +64,8 @@ module vec_issue
   logic                  q_valid;
   vec_op_e               q_op;
   vec_src_e              q_src;
+  vec_eew_e              q_eew;
+  logic                  q_xreg;
   logic     [AWIDTH-1:0] q_vs1;
   logic     [AWIDTH-1:0] q_vs2;
   logic     [AWIDTH-1:0] q_vd;
@@ -78,13 +83,19 @@ module vec_issue
   logic                  e_valid;
   logic                  e_load;
   logic                  e_store;
+  logic                  e_xreg;
 
   logic                  accept;
   logic                  launch;
+  logic                  x_wait;
+  logic                  x_spent;
+  logic                  x_hold;
 
   assign launch = q_valid && !e_valid;
-  assign accept = instr_valid && !cancel && (!q_valid || launch);
-  assign vec_hold = instr_valid && q_valid && !launch;
+  assign x_wait = (q_valid && q_xreg) || (e_valid && e_xreg);
+  assign accept = instr_valid && !cancel && !x_wait && !x_spent && (!q_valid || launch);
+  assign x_hold = instr_valid && (x_wait || writes_xreg) && !x_spent;
+  assign vec_hold = x_hold || (instr_valid && q_valid && !launch);
   assign vec_idle = !q_valid && !e_valid && !seq_busy;
 
   // Pending memory work
@@ -96,8 +107,10 @@ module vec_issue
       q_valid   <= 1'b0;
       e_valid   <= 1'b0;
       seq_start <= 1'b0;
+      x_spent   <= 1'b0;
     end else if (core_en) begin
       seq_start <= 1'b0;
+      x_spent   <= seq_done && e_valid && e_xreg;
 
       // Drain the slot
       if (launch) begin
@@ -105,8 +118,10 @@ module vec_issue
         e_valid      <= 1'b1;
         e_load       <= (q_op == VEC_LOAD);
         e_store      <= (q_op == VEC_STORE);
+        e_xreg       <= q_xreg;
         seq_op       <= q_op;
         seq_src      <= q_src;
+        seq_eew      <= q_eew;
         seq_vs1      <= q_vs1;
         seq_vs2      <= q_vs2;
         seq_vd       <= q_vd;
@@ -127,6 +142,8 @@ module vec_issue
         q_valid    <= 1'b1;
         q_op       <= op;
         q_src      <= src;
+        q_eew      <= eew;
+        q_xreg     <= writes_xreg;
         q_vs1      <= vs1;
         q_vs2      <= vs2;
         q_vd       <= vd;
