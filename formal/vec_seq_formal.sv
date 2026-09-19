@@ -27,6 +27,9 @@ module vec_seq_formal
   vec_rel_e            s2_rel;
   logic                mul_rate;
   logic                single_write;
+  logic                mask_dest;
+  logic                mask_whole;
+  logic                mask_src;
 
   logic [  AWIDTH-1:0] raddr1;
   logic [  AWIDTH-1:0] raddr2;
@@ -68,6 +71,10 @@ module vec_seq_formal
       .s2_rel      (s2_rel),
       .mul_rate    (mul_rate),
       .single_write(single_write),
+      .mask_dest   (mask_dest),
+      .mask_whole  (mask_whole),
+      .mask_src    (mask_src),
+      .v0_bits     ({VLEN{1'b1}}),
       .raddr1      (raddr1),
       .raddr2      (raddr2),
       .raddr3      (raddr3),
@@ -102,9 +109,9 @@ module vec_seq_formal
   assign ls1 = vec_rel_log2(s1_rel, lsew);
   assign ls2 = vec_rel_log2(s2_rel, lsew);
   assign group_regs = vlmul[2] ? 5'd1 : 5'(5'd1 << vlmul[1:0]);
-  assign d_regs = single_write ? 5'd1 : vec_rel_regs(d_rel, group_regs[3:0]);
-  assign s1_regs = single_write ? 5'd1 : vec_rel_regs(s1_rel, group_regs[3:0]);
-  assign s2_regs = vec_rel_regs(s2_rel, group_regs[3:0]);
+  assign d_regs = (single_write || mask_dest) ? 5'd1 : vec_rel_regs(d_rel, group_regs[3:0]);
+  assign s1_regs = (single_write || mask_src) ? 5'd1 : vec_rel_regs(s1_rel, group_regs[3:0]);
+  assign s2_regs = mask_src ? 5'd1 : vec_rel_regs(s2_rel, group_regs[3:0]);
   assign total_elems = 8'(group_regs) << (3'd7 - lsew);
   assign dbits = 6'(6'd1 << ld);
 
@@ -121,6 +128,15 @@ module vec_seq_formal
   always_ff @(posedge clk) f_past_valid <= 1'b1;
   always_comb if (!f_past_valid) assume (!rst_n);
   always_ff @(posedge clk) if (f_past_valid) assume (rst_n);
+
+  // Issued mask shapes
+  always_comb begin
+    assume (!(mask_dest && single_write));
+    assume (!mask_whole || ((mask_dest && mask_src) || (single_write && mask_src)));
+    assume (!mask_dest || (d_rel == VEC_REL_SAME));
+    assume (!mask_src || ((s1_rel == VEC_REL_SAME) && (s2_rel == VEC_REL_SAME)));
+    assume (!mask_whole || (vl <= 8'(VLEN)));
+  end
 
   // Legal configuration
   always_comb begin
@@ -142,6 +158,9 @@ module vec_seq_formal
   // Snapshot holds
   always_ff @(posedge clk) begin
     if (f_past_valid && $past(busy)) begin
+      assume (mask_dest == $past(mask_dest));
+      assume (mask_whole == $past(mask_whole));
+      assume (mask_src == $past(mask_src));
       assume (vl == $past(vl));
       assume (vsew == $past(vsew));
       assume (vlmul == $past(vlmul));
@@ -187,15 +206,16 @@ module vec_seq_formal
 
   // Twice the rate
   always_comb begin
-    if (f_past_valid && busy && !single_write && (d_rel == VEC_REL_WIDE) && (s2_rel == VEC_REL_SAME)) begin
+    if (f_past_valid && busy && !single_write && !mask_dest && !mask_src
+        && (d_rel == VEC_REL_WIDE) && (s2_rel == VEC_REL_SAME)) begin
       assert (dest_pos == (src2_pos << 1));
     end
   end
 
   // Two source phases
   always_comb begin
-    if (f_past_valid && busy && !single_write && !mul_rate && (d_rel == VEC_REL_SAME)
-        && (s1_rel == VEC_REL_SAME) && (s2_rel == VEC_REL_WIDE)) begin
+    if (f_past_valid && busy && !single_write && !mul_rate && !mask_dest && !mask_src
+        && (d_rel == VEC_REL_SAME) && (s1_rel == VEC_REL_SAME) && (s2_rel == VEC_REL_WIDE)) begin
       assert (src2_pos == (dest_pos << 1));
       assert ((13'(elem_count) << ld) == 13'(VLEN / 2));
     end
@@ -211,9 +231,33 @@ module vec_seq_formal
     end
   end
 
+  always_comb begin
+    if (f_past_valid && busy && single_write) assert (write_count == 8'd0);
+  end
+
   always_ff @(posedge clk) begin
     if (f_past_valid && rst_n && $past(core_en) && $past(single_write) && $past(busy) && done) begin
       assert (write_count == 8'd1);
+    end
+  end
+
+  // One mask register
+  always_comb begin
+    if (f_past_valid && busy && mask_dest) begin
+      assert (waddr == vd);
+      assert (9'(d_off) < 9'(VLEN));
+      assert (9'(d_off) == 9'(elem_base));
+    end
+  end
+
+  // Inside the length
+  logic [VLEN-1:0] live_mask;
+  assign live_mask = VLEN'({VLEN{1'b1}} >> (9'(VLEN) - 9'(vl)));
+
+  always_comb begin
+    if (f_past_valid && mask_whole && !single_write && wen) begin
+      assert ((wstrb & ~live_mask) == '0);
+      assert (last);
     end
   end
 
@@ -223,6 +267,8 @@ module vec_seq_formal
     cover (busy && (s2_rel == VEC_REL_WIDE) && (d_off == 7'd64));
     cover (done && single_write);
     cover (busy && (elem_count == 5'd16));
+    cover (busy && mask_dest && !mask_whole && (elem_base != 8'd0));
+    cover (wen && mask_whole && !single_write);
   end
 
 endmodule
