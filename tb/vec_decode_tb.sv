@@ -24,6 +24,7 @@ module vec_decode_tb
   logic            writes_mask;
   logic     [ 1:0] mem_width;
   logic            mem_whole;
+  logic            mem_mask;
   logic            mem_strided;
 
   localparam logic [2:0] Fvv = 3'b000;
@@ -49,6 +50,7 @@ module vec_decode_tb
       .writes_mask(writes_mask),
       .mem_width  (mem_width),
       .mem_whole  (mem_whole),
+      .mem_mask   (mem_mask),
       .mem_strided(mem_strided)
   );
 
@@ -64,7 +66,7 @@ module vec_decode_tb
   endfunction
 
   // Reference memory forms
-  function automatic logic [4:0] ref_mem(input logic [6:0] top, input logic [4:0] rs2,
+  function automatic logic [5:0] ref_mem(input logic [6:0] top, input logic [4:0] rs2,
                                          input logic [2:0] width, input logic store);
     logic [2:0] nf;
     logic mew, mask_bit;
@@ -77,14 +79,15 @@ module vec_decode_tb
       3'b000: w = 2'd0;
       3'b101: w = 2'd1;
       3'b110: w = 2'd2;
-      default: return 5'b0;
+      default: return 6'b0;
     endcase
-    if (nf != 3'b000 || mew) return 5'b0;
-    if (mop == 2'b10) return {1'b1, w, 2'b01};
-    if (mop != 2'b00) return 5'b0;
-    if (rs2 == 5'b00000) return {1'b1, w, 2'b00};
-    if (rs2 == 5'b01000 && mask_bit && (!store || width == 3'b000)) return {1'b1, w, 2'b10};
-    return 5'b0;
+    if (nf != 3'b000 || mew) return 6'b0;
+    if (mop == 2'b10) return {1'b1, w, 3'b010};
+    if (mop != 2'b00) return 6'b0;
+    if (rs2 == 5'b00000) return {1'b1, w, 3'b000};
+    if (rs2 == 5'b01000 && mask_bit && (!store || width == 3'b000)) return {1'b1, w, 3'b100};
+    if (rs2 == 5'b01011 && mask_bit && width == 3'b000) return {1'b1, w, 3'b001};
+    return 6'b0;
   endfunction
 
   // Reference legality
@@ -225,16 +228,16 @@ module vec_decode_tb
   endtask
 
   task automatic chk_mem(input logic [6:0] top, input logic [4:0] rs2, input logic [2:0] width,
-                         input logic store, input logic [4:0] exp);
-    logic [4:0] got;
+                         input logic store, input logic [5:0] exp);
+    logic [5:0] got;
     vec_op_e    exp_op;
     instr = enc_mem(top, rs2, width, store);
     #1;
-    exp_op = vec_op_e'(!exp[4] ? VEC_ILLEGAL : (store ? VEC_STORE : VEC_LOAD));
-    got = {valid, mem_width, mem_whole, mem_strided};
-    if (!exp[4]) got[3:0] = 4'b0;
+    exp_op = vec_op_e'(!exp[5] ? VEC_ILLEGAL : (store ? VEC_STORE : VEC_LOAD));
+    got = {valid, mem_width, mem_whole, mem_strided, mem_mask};
+    if (!exp[5]) got[4:0] = 5'b0;
     checks++;
-    if (got !== exp || op !== exp_op || (exp[4] && (!reads_xreg || vd !== 5'd3 ||
+    if (got !== exp || op !== exp_op || (exp[5] && (!reads_xreg || vd !== 5'd3 ||
         vm !== top[0] || src !== VEC_SRC_NONE))) begin
       errors++;
       $display("FAIL mem top=%b rs2=%b w=%b store=%b got=%b exp=%b at %0t", top, rs2, width,
@@ -344,22 +347,26 @@ module vec_decode_tb
     chk_flags(6'b011001, Fmv, 5'd1, 4'b0001);
 
     // Loads and stores
-    chk_mem(7'b0000001, 5'b00000, 3'b000, 1'b0, 5'b10000);
-    chk_mem(7'b0000000, 5'b00000, 3'b101, 1'b0, 5'b10100);
-    chk_mem(7'b0000001, 5'b00000, 3'b110, 1'b1, 5'b11000);
-    chk_mem(7'b0000100, 5'd12, 3'b101, 1'b0, 5'b10101);
-    chk_mem(7'b0000101, 5'd13, 3'b000, 1'b1, 5'b10001);
-    chk_mem(7'b0000001, 5'b01000, 3'b101, 1'b0, 5'b10110);
-    chk_mem(7'b0000001, 5'b01000, 3'b000, 1'b1, 5'b10010);
+    chk_mem(7'b0000001, 5'b00000, 3'b000, 1'b0, 6'b100000);
+    chk_mem(7'b0000000, 5'b00000, 3'b101, 1'b0, 6'b101000);
+    chk_mem(7'b0000001, 5'b00000, 3'b110, 1'b1, 6'b110000);
+    chk_mem(7'b0000100, 5'd12, 3'b101, 1'b0, 6'b101010);
+    chk_mem(7'b0000101, 5'd13, 3'b000, 1'b1, 6'b100010);
+    chk_mem(7'b0000001, 5'b01000, 3'b101, 1'b0, 6'b101100);
+    chk_mem(7'b0000001, 5'b01000, 3'b000, 1'b1, 6'b100100);
+    chk_mem(7'b0000001, 5'b01011, 3'b000, 1'b0, 6'b100001);
+    chk_mem(7'b0000001, 5'b01011, 3'b000, 1'b1, 6'b100001);
+    chk_mem(7'b0000000, 5'b01011, 3'b000, 1'b0, 6'b000000);
+    chk_mem(7'b0000001, 5'b01011, 3'b101, 1'b0, 6'b000000);
 
     // Memory form illegal
-    chk_mem(7'b0000001, 5'b01000, 3'b101, 1'b1, 5'b00000);
-    chk_mem(7'b0000000, 5'b01000, 3'b000, 1'b0, 5'b00000);
-    chk_mem(7'b0000001, 5'b00000, 3'b111, 1'b0, 5'b00000);
-    chk_mem(7'b0000001, 5'b10000, 3'b000, 1'b0, 5'b00000);
-    chk_mem(7'b0010001, 5'b00000, 3'b000, 1'b0, 5'b00000);
-    chk_mem(7'b0001001, 5'b00000, 3'b000, 1'b0, 5'b00000);
-    chk_mem(7'b0000111, 5'd12, 3'b000, 1'b0, 5'b00000);
+    chk_mem(7'b0000001, 5'b01000, 3'b101, 1'b1, 6'b000000);
+    chk_mem(7'b0000000, 5'b01000, 3'b000, 1'b0, 6'b000000);
+    chk_mem(7'b0000001, 5'b00000, 3'b111, 1'b0, 6'b000000);
+    chk_mem(7'b0000001, 5'b10000, 3'b000, 1'b0, 6'b000000);
+    chk_mem(7'b0010001, 5'b00000, 3'b000, 1'b0, 6'b000000);
+    chk_mem(7'b0001001, 5'b00000, 3'b000, 1'b0, 6'b000000);
+    chk_mem(7'b0000111, 5'd12, 3'b000, 1'b0, 6'b000000);
 
     // Exhaustive legality
     sweep();

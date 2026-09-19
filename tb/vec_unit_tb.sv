@@ -391,9 +391,6 @@ module vec_unit_tb
       issue(enc(6'b001100, 1'b1, 5'd4, 5'd3, 3'b000, 5'd5));
       drain();
       check_regs("gather");
-      issue(enc(6'b011000, 1'b1, 5'd4, 5'd3, 3'b000, 5'd5));
-      drain();
-      check_regs("compare");
       issue(enc(6'b100101, 1'b1, 5'd4, 5'd3, 3'b010, 5'd5));
       drain();
       check_regs("multiply");
@@ -1135,6 +1132,317 @@ module vec_unit_tb
     run_move_xs(5'd4, 3'd2, 8'd0);
   endtask
 
+  // Mask bit read
+  function automatic logic mbit(input logic [4:0] r, input int i);
+    mbit = shadow[r][i];
+  endfunction
+
+  function automatic logic [31:0] mask_w(input int w);
+    mask_w = (w >= 32) ? 32'hFFFF_FFFF : ((32'd1 << w) - 32'd1);
+  endfunction
+
+  function automatic logic [31:0] sign_ext(input logic [31:0] v, input int w);
+    logic [31:0] t;
+    begin
+      t = v & mask_w(w);
+      sign_ext = t[w-1] ? (t | ~mask_w(w)) : t;
+    end
+  endfunction
+
+  // One compare bit
+  function automatic logic ref_cmp_bit(input vec_op_e o, input logic [31:0] a,
+                                       input logic [31:0] b, input int w);
+    logic signed [32:0] sa;
+    logic signed [32:0] sb;
+    logic        [32:0] ua;
+    logic        [32:0] ub;
+    begin
+      sa = 33'($signed(sign_ext(a, w)));
+      sb = 33'($signed(sign_ext(b, w)));
+      ua = {1'b0, a & mask_w(w)};
+      ub = {1'b0, b & mask_w(w)};
+      case (o)
+        VEC_MSEQ:  ref_cmp_bit = (ua == ub);
+        VEC_MSNE:  ref_cmp_bit = (ua != ub);
+        VEC_MSLTU: ref_cmp_bit = (ua < ub);
+        VEC_MSLEU: ref_cmp_bit = (ua <= ub);
+        VEC_MSGTU: ref_cmp_bit = (ua > ub);
+        VEC_MSLT:  ref_cmp_bit = (sa < sb);
+        VEC_MSLE:  ref_cmp_bit = (sa <= sb);
+        VEC_MSGT:  ref_cmp_bit = (sa > sb);
+        default:   ref_cmp_bit = 1'b0;
+      endcase
+    end
+  endfunction
+
+  function automatic logic [5:0] cmp_funct6(input vec_op_e o);
+    case (o)
+      VEC_MSEQ:  cmp_funct6 = 6'b011000;
+      VEC_MSNE:  cmp_funct6 = 6'b011001;
+      VEC_MSLTU: cmp_funct6 = 6'b011010;
+      VEC_MSLT:  cmp_funct6 = 6'b011011;
+      VEC_MSLEU: cmp_funct6 = 6'b011100;
+      VEC_MSLE:  cmp_funct6 = 6'b011101;
+      VEC_MSGTU: cmp_funct6 = 6'b011110;
+      default:   cmp_funct6 = 6'b011111;
+    endcase
+  endfunction
+
+  // Run one compare
+  task automatic run_cmp(input vec_op_e o, input int form, input logic [4:0] s1,
+                         input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                         input logic [31:0] xd, input logic [4:0] im, input logic [2:0] sew,
+                         input logic [2:0] lmul, input logic [7:0] len);
+    int w;
+    logic [31:0] b;
+    logic [2:0] f3;
+    logic [4:0] f2;
+    begin
+      vsew  = sew;
+      vlmul = lmul;
+      vl    = len;
+      xdata = xd;
+      w     = 8 << sew;
+      for (int i = 0; i < int'(len); i++) begin
+        if (vmb || mbit(5'd0, i)) begin
+          if (form == 0) b = grp_get(s1, w, i);
+          else if (form == 2) b = {{27{im[4]}}, im};
+          else b = xd;
+          shadow[d][i] = ref_cmp_bit(o, grp_get(s2, w, i), b, w);
+        end
+      end
+      case (form)
+        0:       f3 = 3'b000;
+        1:       f3 = 3'b100;
+        default: f3 = 3'b011;
+      endcase
+      case (form)
+        0:       f2 = s1;
+        1:       f2 = 5'd1;
+        default: f2 = im;
+      endcase
+      issue(enc(cmp_funct6(o), vmb, s2, f2, f3, d));
+      drain();
+      check_regs($sformatf("cmp op=%0d form=%0d sew=%0d lmul=%0d len=%0d vm=%0b", o, form, sew,
+                           lmul, len, vmb));
+    end
+  endtask
+
+  // Every compare shape
+  task automatic check_compares();
+    vec_op_e list[8];
+    vec_op_e o;
+    int form;
+    logic [2:0] sew;
+    logic [2:0] lmul;
+    logic [7:0] len;
+    logic vmb;
+    begin
+      list = '{VEC_MSEQ, VEC_MSNE, VEC_MSLTU, VEC_MSLT, VEC_MSLEU, VEC_MSLE, VEC_MSGTU, VEC_MSGT};
+      seed_all();
+      for (int i = 0; i < 8; i++) begin
+        run_cmp(list[i], (i >= 6) ? 1 : 0, 5'd4, 5'd8, 5'd20, 1'b1, 32'h5, 5'd5, 3'd0, 3'd0, 8'd8);
+        run_cmp(list[i], ((i == 2) || (i == 3)) ? 1 : 2, 5'd4, 5'd8, 5'd20, 1'b1, 32'h5, 5'd5,
+                3'd1, 3'd0, 8'd4);
+      end
+      for (int i = 0; i < 8; i++) begin
+        for (int k = 0; k < 8; k++) begin
+          o    = list[i];
+          if ((o == VEC_MSGTU) || (o == VEC_MSGT)) form = 1 + int'($urandom % 2);
+          else if ((o == VEC_MSLTU) || (o == VEC_MSLT)) form = int'($urandom % 2);
+          else form = int'($urandom % 3);
+          sew  = 3'($urandom % 3);
+          lmul = 3'($urandom % 3);
+          len  = 8'($urandom % (((128 >> (3 + sew)) << lmul) + 1));
+          vmb  = 1'($urandom);
+          run_cmp(o, form, 5'd4, 5'd8, 5'd20, vmb, $urandom, 5'($urandom), sew, lmul, len);
+        end
+      end
+      run_cmp(VEC_MSEQ, 0, 5'd4, 5'd8, 5'd20, 1'b1, '0, 5'd0, 3'd0, 3'd0, 8'd0);
+      run_cmp(VEC_MSLT, 0, 5'd4, 5'd4, 5'd20, 1'b1, '0, 5'd0, 3'd2, 3'd0, 8'd4);
+      run_cmp(VEC_MSEQ, 0, 5'd4, 5'd8, 5'd4, 1'b1, '0, 5'd0, 3'd0, 3'd0, 8'd16);
+    end
+  endtask
+
+  // One logic form
+  task automatic run_mlogic(input logic [5:0] f6, input logic [4:0] s1, input logic [4:0] s2,
+                            input logic [4:0] d, input logic [7:0] len);
+    logic a;
+    logic b;
+    begin
+      vsew  = 3'd0;
+      vlmul = 3'd0;
+      vl    = len;
+      for (int i = 0; i < int'(len); i++) begin
+        a = mbit(s2, i);
+        b = mbit(s1, i);
+        case (f6)
+          6'b011001: shadow[d][i] = a & b;
+          6'b011101: shadow[d][i] = ~(a & b);
+          6'b011000: shadow[d][i] = a & ~b;
+          6'b011010: shadow[d][i] = a | b;
+          6'b011110: shadow[d][i] = ~(a | b);
+          6'b011100: shadow[d][i] = a | ~b;
+          6'b011011: shadow[d][i] = a ^ b;
+          default:   shadow[d][i] = ~(a ^ b);
+        endcase
+      end
+      issue(enc(f6, 1'b1, s2, s1, 3'b010, d));
+      drain();
+      check_regs("mask logic");
+    end
+  endtask
+
+  // Every logic shape
+  task automatic check_mask_logic();
+    logic [5:0] list[8];
+    begin
+      list = '{6'b011001, 6'b011101, 6'b011000, 6'b011010, 6'b011110, 6'b011100, 6'b011011,
+               6'b011111};
+      seed_all();
+      for (int i = 0; i < 8; i++) begin
+        run_mlogic(list[i], 5'd3, 5'd9, 5'd21, 8'(1 + ($urandom % 128)));
+      end
+      run_mlogic(6'b011001, 5'd3, 5'd9, 5'd21, 8'd0);
+      run_mlogic(6'b011010, 5'd3, 5'd3, 5'd3, 8'd128);
+    end
+  endtask
+
+  // First set bit
+  function automatic int ref_first_bit(input logic [4:0] s2, input logic vmb,
+                                       input logic [7:0] len);
+    begin
+      ref_first_bit = -1;
+      for (int i = int'(len) - 1; i >= 0; i--) begin
+        if ((vmb || mbit(5'd0, i)) && mbit(s2, i)) ref_first_bit = i;
+      end
+    end
+  endfunction
+
+  // One set form
+  task automatic run_mset(input logic [4:0] sel, input logic [4:0] s2, input logic [4:0] d,
+                          input logic vmb, input logic [7:0] len);
+    int f;
+    logic want;
+    begin
+      vsew  = 3'd0;
+      vlmul = 3'd0;
+      vl    = len;
+      f     = ref_first_bit(s2, vmb, len);
+      for (int i = 0; i < int'(len); i++) begin
+        if (vmb || mbit(5'd0, i)) begin
+          case (sel)
+            5'b00001: want = (f < 0) ? 1'b1 : (i < f);
+            5'b00011: want = (f < 0) ? 1'b1 : (i <= f);
+            default:  want = (f >= 0) && (i == f);
+          endcase
+          shadow[d][i] = want;
+        end
+      end
+      issue(enc(6'b010100, vmb, s2, sel, 3'b010, d));
+      drain();
+      check_regs("mask set");
+    end
+  endtask
+
+  // Every set shape
+  task automatic check_mask_set();
+    begin
+      seed_all();
+      for (int k = 0; k < 12; k++) begin
+        run_mset(5'b00001, 5'd5, 5'd22, 1'($urandom), 8'($urandom % 129));
+        run_mset(5'b00011, 5'd5, 5'd23, 1'($urandom), 8'($urandom % 129));
+        run_mset(5'b00010, 5'd5, 5'd24, 1'($urandom), 8'($urandom % 129));
+      end
+      seed_reg(5'd5, '0);
+      run_mset(5'b00001, 5'd5, 5'd22, 1'b1, 8'd64);
+      run_mset(5'b00011, 5'd5, 5'd23, 1'b1, 8'd64);
+      run_mset(5'b00010, 5'd5, 5'd24, 1'b1, 8'd64);
+    end
+  endtask
+
+  // One index form
+  task automatic run_index(input logic is_id, input logic [4:0] s2, input logic [4:0] d,
+                           input logic vmb, input logic [2:0] sew, input logic [2:0] lmul,
+                           input logic [7:0] len);
+    int w;
+    int count;
+    begin
+      vsew  = sew;
+      vlmul = lmul;
+      vl    = len;
+      w     = 8 << sew;
+      count = 0;
+      for (int i = 0; i < int'(len); i++) begin
+        if (vmb || mbit(5'd0, i)) grp_set(d, w, i, is_id ? 32'(i) : 32'(count));
+        if (!is_id && (vmb || mbit(5'd0, i)) && mbit(s2, i)) count = count + 1;
+      end
+      issue(enc(6'b010100, vmb, is_id ? 5'd0 : s2, is_id ? 5'b10001 : 5'b10000, 3'b010, d));
+      drain();
+      check_regs("mask index");
+    end
+  endtask
+
+  // Every index shape
+  task automatic check_mask_index();
+    logic [2:0] sew;
+    logic [2:0] lmul;
+    logic [7:0] len;
+    begin
+      seed_all();
+      for (int k = 0; k < 10; k++) begin
+        sew  = 3'($urandom % 3);
+        lmul = 3'($urandom % 3);
+        len  = 8'($urandom % (((128 >> (3 + sew)) << lmul) + 1));
+        run_index(1'b0, 5'd6, 5'd16, 1'($urandom), sew, lmul, len);
+        run_index(1'b1, 5'd0, 5'd24, 1'($urandom), sew, lmul, len);
+      end
+      run_index(1'b0, 5'd6, 5'd16, 1'b1, 3'd0, 3'd0, 8'd0);
+      run_index(1'b1, 5'd0, 5'd24, 1'b1, 3'd2, 3'd2, 8'd16);
+    end
+  endtask
+
+  // One summary form
+  task automatic run_msum(input logic is_pop, input logic [4:0] s2, input logic vmb,
+                          input logic [7:0] len);
+    int count;
+    logic [31:0] want;
+    begin
+      vsew  = 3'd0;
+      vlmul = 3'd0;
+      vl    = len;
+      count = 0;
+      for (int i = 0; i < int'(len); i++) begin
+        if ((vmb || mbit(5'd0, i)) && mbit(s2, i)) count = count + 1;
+      end
+      want = is_pop ? 32'(count)
+          : ((ref_first_bit(s2, vmb, len) < 0) ? 32'hFFFF_FFFF
+                                               : 32'(ref_first_bit(s2, vmb, len)));
+      issue(enc(6'b010000, vmb, s2, is_pop ? 5'b10000 : 5'b10001, 3'b010, 5'd7));
+      drain();
+      checks = checks + 1;
+      if (xreg_result !== want) begin
+        errors = errors + 1;
+        $display("FAIL mask summary got=%h want=%h at %0t", xreg_result, want, $time);
+      end
+      check_regs("mask summary");
+    end
+  endtask
+
+  // Every summary shape
+  task automatic check_mask_scalar();
+    begin
+      seed_all();
+      for (int k = 0; k < 14; k++) begin
+        run_msum(1'b1, 5'd7, 1'($urandom), 8'($urandom % 129));
+        run_msum(1'b0, 5'd7, 1'($urandom), 8'($urandom % 129));
+      end
+      seed_reg(5'd7, '0);
+      run_msum(1'b1, 5'd7, 1'b1, 8'd128);
+      run_msum(1'b0, 5'd7, 1'b1, 8'd128);
+    end
+  endtask
+
   task automatic verdict();
     $display("vec_unit: %0d checks, %0d errors", checks, errors);
     if (errors != 0) $fatal(1, "vec_unit FAILED");
@@ -1178,6 +1486,11 @@ module vec_unit_tb
     check_mem_rules();
     check_group_rules();
     check_fixed_point();
+    check_compares();
+    check_mask_logic();
+    check_mask_set();
+    check_mask_index();
+    check_mask_scalar();
 
     // Trap drops instruction
     check_mem_cancel();

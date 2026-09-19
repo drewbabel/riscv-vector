@@ -28,6 +28,9 @@ module vec_sequencer_tb ();
   vec_rel_e            s2_rel;
   logic                mul_rate;
   logic                single_write;
+  logic                mask_dest;
+  logic                mask_whole;
+  logic                mask_src;
   logic [  AWIDTH-1:0] raddr1;
   logic [  AWIDTH-1:0] raddr2;
   logic [  AWIDTH-1:0] raddr3;
@@ -68,6 +71,9 @@ module vec_sequencer_tb ();
       .s2_rel      (s2_rel),
       .mul_rate    (mul_rate),
       .single_write(single_write),
+      .mask_dest(mask_dest),
+      .mask_whole(mask_whole),
+      .mask_src(mask_src),
       .raddr1      (raddr1),
       .raddr2      (raddr2),
       .raddr3      (raddr3),
@@ -166,6 +172,9 @@ module vec_sequencer_tb ();
     s2_rel       = VEC_REL_SAME;
     mul_rate     = 1'b0;
     single_write = 1'b0;
+    mask_dest = 1'b0;
+    mask_whole = 1'b0;
+    mask_src = 1'b0;
   endtask
 
   task automatic do_reset();
