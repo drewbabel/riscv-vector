@@ -220,6 +220,18 @@ module vec_mixed_tb ();
     check_lanes("directed nsra");
   endtask
 
+  // Inputs at rest
+  task automatic init_signals();
+    op       = VEC_WADD;
+    src      = VEC_SRC_VV;
+    eew      = VEC_EEW_WIDEN;
+    vsew     = 3'd0;
+    vs2_data = '0;
+    vs1_data = '0;
+    xdata    = '0;
+    simm     = '0;
+  endtask
+
   task automatic verdict();
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
@@ -230,14 +242,7 @@ module vec_mixed_tb ();
     $dumpfile("vec_mixed_tb.vcd");
     $dumpvars(0, vec_mixed_tb);
 
-    op       = VEC_WADD;
-    src      = VEC_SRC_VV;
-    eew      = VEC_EEW_WIDEN;
-    vsew     = 3'd0;
-    vs2_data = '0;
-    vs1_data = '0;
-    xdata    = '0;
-    simm     = '0;
+    init_signals();
 
     check_directed();
     check_widen();
