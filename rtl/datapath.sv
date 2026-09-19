@@ -5,6 +5,8 @@ module datapath
   import opcode_pkg::*;
   import muldiv_pkg::*;
   import bp_pkg::*;
+  import csr_pkg::VxsatAddr;
+  import csr_pkg::VcsrAddr;
 #(
     parameter int XLEN      = 32,
     parameter int VLEN      = 128,
@@ -213,6 +215,12 @@ module datapath
   logic                                  muldiv_hold;
   logic                                  commit_ready;
   logic                                  vec_is_vector;
+  logic [                            1:0] vec_vxrm;
+  logic                                   vec_vxsat;
+  logic                                   vec_csr_we;
+  logic [                           11:0] vec_csr_waddr;
+  logic [                       XLEN-1:0] vec_csr_wdata;
+  logic                                   vec_csr_wait;
   logic                                  vec_hold;
   logic                                  vec_issue_ok;
   logic                                  vec_idle;
@@ -621,6 +629,9 @@ module datapath
   logic [XLEN-1:0] vtype_q;
   logic            exc_vec_encoding;
 
+  assign vec_csr_wait = csr_access_ex && ((instr_ex[31:20] == VxsatAddr)
+      || (instr_ex[31:20] == VcsrAddr));
+
   assign exc_vec_encoding = (((instr_ex[6:0] == OpcodeOpV) && !is_vset) ||
       (instr_ex[6:0] == OpcodeLoadFp) || (instr_ex[6:0] == OpcodeStoreFp)) && !vec_is_vector;
 
@@ -662,7 +673,12 @@ module datapath
       .vl         (vl_q),
       .vsew       (vtype_q[5:3]),
       .vlmul      (vtype_q[2:0]),
-      .vxrm       (2'd0),
+      .csr_we     (vec_csr_we),
+      .csr_waddr  (vec_csr_waddr),
+      .csr_wdata  (vec_csr_wdata),
+      .csr_wait   (vec_csr_wait),
+      .vxrm       (vec_vxrm),
+      .vxsat      (vec_vxsat),
       .mem_rdata  (read_data),
       .mem_ready  (vmem_ready),
       .mem_req    (vmem_req),
@@ -739,7 +755,12 @@ module datapath
       .vtype_d             (vtype_d),
       .is_vec_instr        ((is_vset || vec_is_vector) && commit_valid),
       .vl_q                (vl_q),
-      .vtype_q             (vtype_q)
+      .vtype_q             (vtype_q),
+      .vec_vxrm            (vec_vxrm),
+      .vec_vxsat           (vec_vxsat),
+      .vec_csr_we          (vec_csr_we),
+      .vec_csr_waddr       (vec_csr_waddr),
+      .vec_csr_wdata       (vec_csr_wdata)
   );
 
   always_comb begin

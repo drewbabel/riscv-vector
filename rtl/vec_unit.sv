@@ -2,6 +2,9 @@
 
 module vec_unit
   import vec_pkg::*;
+  import csr_pkg::VxrmAddr;
+  import csr_pkg::VxsatAddr;
+  import csr_pkg::VcsrAddr;
 #(
     parameter  int AWIDTH   = 5,
     parameter  int VLEN     = 128,
@@ -29,7 +32,6 @@ module vec_unit
     input logic [7:0] vl,
     input logic [2:0] vsew,
     input logic [2:0] vlmul,
-    input logic [1:0] vxrm,
 
     // Memory port
     input  logic [31:0] mem_rdata,
@@ -42,6 +44,14 @@ module vec_unit
     // Memory checks
     output logic        mem_misaligned,
     output logic [31:0] mem_bad_addr,
+
+    // Fixed-point control
+    input  logic        csr_we,
+    input  logic [11:0] csr_waddr,
+    input  logic [31:0] csr_wdata,
+    input  logic        csr_wait,
+    output logic [ 1:0] vxrm,
+    output logic        vxsat,
 
     // Scalar result
     output logic        xreg_valid,
@@ -287,6 +297,37 @@ module vec_unit
 
   assign group_legal = emul_legal && align_ok && overlap_ok && mask_ok;
 
+  // Rounding and saturation
+  logic [1:0] vxrm_q;
+  logic       vxsat_q;
+  logic       sat_set;
+
+  // Saturating lane pending
+  assign sat_set = 1'b0;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      vxrm_q  <= 2'd0;
+      vxsat_q <= 1'b0;
+    end else begin
+      if (sat_set) vxsat_q <= 1'b1;
+      if (csr_we) begin
+        case (csr_waddr)
+          VxrmAddr:  vxrm_q <= csr_wdata[1:0];
+          VxsatAddr: vxsat_q <= csr_wdata[0];
+          VcsrAddr: begin
+            vxrm_q  <= csr_wdata[2:1];
+            vxsat_q <= csr_wdata[0];
+          end
+          default: ;
+        endcase
+      end
+    end
+  end
+
+  assign vxrm  = vxrm_q;
+  assign vxsat = vxsat_q;
+
   // Accepted instruction
   logic op_ready;
   logic accept_now;
@@ -340,7 +381,7 @@ module vec_unit
       .vl(issue_vl),
       .vsew(issue_vsew),
       .vlmul(vlmul),
-      .vxrm(vxrm),
+      .vxrm(vxrm_q),
       .seq_busy(seq_busy || m_busy),
       .seq_done(seq_done || m_done),
       .seq_start(seq_start),
@@ -552,7 +593,7 @@ module vec_unit
 
   assign xreg_valid  = dec_writes_xreg && is_vector;
   assign xreg_result = xres_q;
-  assign vec_hold    = issue_hold;
+  assign vec_hold    = issue_hold || (csr_wait && !vec_idle);
 
 `ifdef RISCV_FORMAL
   // Retirement export
