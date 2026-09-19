@@ -18,6 +18,8 @@ module vec_issue_tb
   logic cancel;
   vec_op_e op;
   vec_src_e src;
+  vec_eew_e eew;
+  logic writes_xreg;
   logic [AWIDTH-1:0] vs1;
   logic [AWIDTH-1:0] vs2;
   logic [AWIDTH-1:0] vd;
@@ -36,6 +38,7 @@ module vec_issue_tb
   logic seq_start;
   vec_op_e seq_op;
   vec_src_e seq_src;
+  vec_eew_e seq_eew;
   logic [AWIDTH-1:0] seq_vs1;
   logic [AWIDTH-1:0] seq_vs2;
   logic [AWIDTH-1:0] seq_vd;
@@ -67,6 +70,8 @@ module vec_issue_tb
       .cancel(cancel),
       .op(op),
       .src(src),
+      .eew(eew),
+      .writes_xreg(writes_xreg),
       .vs1(vs1),
       .vs2(vs2),
       .vd(vd),
@@ -84,6 +89,7 @@ module vec_issue_tb
       .seq_start(seq_start),
       .seq_op(seq_op),
       .seq_src(seq_src),
+      .seq_eew(seq_eew),
       .seq_vs1(seq_vs1),
       .seq_vs2(seq_vs2),
       .seq_vd(seq_vd),
@@ -144,6 +150,7 @@ module vec_issue_tb
   logic [2:0] sb_vsew[SbDepth];
   logic [2:0] sb_vlmul[SbDepth];
   logic [1:0] sb_vxrm[SbDepth];
+  vec_eew_e sb_eew[SbDepth];
 
   int sb_head = 0;
   int sb_tail = 0;
@@ -173,6 +180,7 @@ module vec_issue_tb
     sb_vsew[sb_tail]     = vsew;
     sb_vlmul[sb_tail]    = vlmul;
     sb_vxrm[sb_tail]     = vxrm;
+    sb_eew[sb_tail]      = eew;
     sb_tail              = (sb_tail + 1) % SbDepth;
     accepted             = accepted + 1;
   endtask
@@ -196,6 +204,7 @@ module vec_issue_tb
       note("vsew", 32'(sb_vsew[sb_head]), 32'(seq_vsew));
       note("vlmul", 32'(sb_vlmul[sb_head]), 32'(seq_vlmul));
       note("vxrm", 32'(sb_vxrm[sb_head]), 32'(seq_vxrm));
+      note("eew", 32'(sb_eew[sb_head]), 32'(seq_eew));
       sb_head  = (sb_head + 1) % SbDepth;
       launched = launched + 1;
     end
@@ -230,7 +239,7 @@ module vec_issue_tb
       $display("FAIL idle while running at %0t", $time);
     end
     checks = checks + 1;
-    if (vec_hold && vec_idle) begin
+    if (vec_hold && vec_idle && !writes_xreg) begin
       errors = errors + 1;
       $display("FAIL hold while idle at %0t", $time);
     end
@@ -246,7 +255,7 @@ module vec_issue_tb
       check_invariants();
       check_pending();
       if (seq_done) void'(inflight.pop_front());
-      if (instr_valid && !vec_hold && !cancel) begin
+      if (dut.accept) begin
         sb_push();
         inflight.push_back(int'(op));
       end
@@ -262,6 +271,8 @@ module vec_issue_tb
     xstride     = '0;
     op          = VEC_ADD;
     src         = VEC_SRC_VV;
+    eew         = VEC_EEW_SAME;
+    writes_xreg = 1'b0;
     vs1         = '0;
     vs2         = '0;
     vd          = '0;
@@ -301,6 +312,7 @@ module vec_issue_tb
     simm        = im;
     xdata       = xd;
     xstride     = $urandom;
+    eew         = vec_eew_e'($urandom % 4);
     instr_valid = 1'b1;
     #1;
     while (vec_hold) @(negedge clk);
@@ -451,6 +463,54 @@ module vec_issue_tb
     settle();
   endtask
 
+  // Scalar result waits
+  task automatic check_xreg_wait();
+    int guard;
+    int acc0;
+    settle();
+    @(negedge clk);
+    op = VEC_MV_X_S;
+    src = VEC_SRC_VV;
+    eew = VEC_EEW_SAME;
+    writes_xreg = 1'b1;
+    vs1 = 5'd0;
+    vs2 = 5'd3;
+    vd = 5'd1;
+    vm = 1'b1;
+    reads_vd = 1'b0;
+    vl = 8'd4;
+    instr_valid = 1'b1;
+    #1;
+    while (vec_hold) @(negedge clk);
+    acc0 = accepted;
+    @(posedge clk);
+    @(negedge clk);
+    checks = checks + 1;
+    if (!vec_hold) begin
+      errors = errors + 1;
+      $display("FAIL no wait after accept at %0t", $time);
+    end
+    guard = 0;
+    while (vec_hold && guard < 50) begin
+      @(negedge clk);
+      guard = guard + 1;
+    end
+    instr_valid = 1'b0;
+    writes_xreg = 1'b0;
+    op = VEC_ADD;
+    checks = checks + 1;
+    if (vec_hold) begin
+      errors = errors + 1;
+      $display("FAIL wait never released at %0t", $time);
+    end
+    checks = checks + 1;
+    if (accepted != acc0 + 1) begin
+      errors = errors + 1;
+      $display("FAIL accepted %0d during wait at %0t", accepted - acc0, $time);
+    end
+    settle();
+  endtask
+
   task automatic verdict();
     checks = checks + 1;
     if (accepted != launched) begin
@@ -483,6 +543,9 @@ module vec_issue_tb
 
     // Memory flags set
     check_flags_on_entry();
+
+    // Scalar result waits
+    check_xreg_wait();
 
     // Random traffic
     soak(400);
