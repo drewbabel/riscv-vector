@@ -1,12 +1,15 @@
 `default_nettype none
 
-module vec_sequencer #(
+module vec_sequencer
+  import vec_pkg::*;
+#(
     parameter int AWIDTH = 5,
     parameter int VLEN = 128,
     localparam int MaxElems = VLEN / 8
 ) (
     input  logic                clk,
     input  logic                rst_n,
+    input  logic                core_en,
     input  logic                start,
     input  logic [         4:0] vs1,
     input  logic [         4:0] vs2,
@@ -17,76 +20,129 @@ module vec_sequencer #(
     input  logic [         2:0] vlmul,
     input  logic                vm,
     input  logic [MaxElems-1:0] mask_bits,
-    input  logic [         1:0] pass_log2,
-    output logic [  AWIDTH-1:0] raddr1,
-    output logic [  AWIDTH-1:0] raddr2,
-    output logic [  AWIDTH-1:0] raddr3,
-    output logic [  AWIDTH-1:0] waddr,
-    output logic [    VLEN-1:0] wstrb,
-    output logic                wen,
+
+    // Element geometry
+    input vec_rel_e d_rel,
+    input vec_rel_e s1_rel,
+    input vec_rel_e s2_rel,
+    input logic     mul_rate,
+    input logic     single_write,
+
+    // Register ports
+    output logic [AWIDTH-1:0] raddr1,
+    output logic [AWIDTH-1:0] raddr2,
+    output logic [AWIDTH-1:0] raddr3,
+    output logic [AWIDTH-1:0] waddr,
+    output logic [  VLEN-1:0] wstrb,
+    output logic              wen,
+
+    // Element slices
+    output logic [         6:0] s1_off,
+    output logic [         6:0] s2_off,
+    output logic [         6:0] d_off,
     output logic [         7:0] elem_base,
-    output logic                busy,
-    output logic                done
+    output logic [         4:0] elem_count,
+    output logic [MaxElems-1:0] elem_active,
+
+    output logic last,
+    output logic busy,
+    output logic done
 );
 
-  // Counters
-  logic [3:0] reg_idx;
-  logic [3:0] pass_idx;
+  // Element widths
+  logic [2:0] lsew;
+  logic [2:0] ld;
+  logic [2:0] ls1;
+  logic [2:0] ls2;
+  logic [2:0] lmax;
+  logic [2:0] ln;
 
-  logic [4:0] regs_per_group;
-  logic [5:0] bits_per_elem;
-  logic [4:0] elems_per_reg;
-  logic [4:0] passes_per_reg;
-  logic [4:0] elems_per_pass;
-  logic [7:0] group_base;
+  assign lsew = vsew + 3'd3;
 
-  logic last_pass;
-  logic last_reg;
+  assign ld  = vec_rel_log2(d_rel, lsew);
+  assign ls1 = vec_rel_log2(s1_rel, lsew);
+  assign ls2 = vec_rel_log2(s2_rel, lsew);
 
-  logic [7:0] idx;
-  logic [4:0] pos;
-  logic [9:0] base_bit;
-  logic [6:0] bit_sel;
+  // Widest port
+  always_comb begin
+    if (single_write) begin
+      lmax = ls2;
+    end else begin
+      lmax = ld;
+      if (ls1 > lmax) lmax = ls1;
+      if (ls2 > lmax) lmax = ls2;
+    end
+  end
+
+  // Elements per phase
+  always_comb begin
+    ln = 3'd7 - lmax;
+    if (mul_rate && (ln > 3'd2)) ln = 3'd2;
+  end
+
+  assign elem_count = 5'(5'd1 << ln);
 
   // Group geometry
+  logic [4:0] regs_per_group;
+  logic [7:0] total_elems;
+
   assign regs_per_group = vlmul[2] ? 5'd1 : 5'(5'd1 << vlmul[1:0]);
-  assign bits_per_elem = 6'(6'd8 << vsew);
-  assign elems_per_reg = 5'(5'd16 >> vsew);
-  assign passes_per_reg = 5'(5'd1 << pass_log2);
-  assign elems_per_pass = elems_per_reg >> pass_log2;
+  assign total_elems = 8'(regs_per_group) << (3'd7 - lsew);
 
-  assign group_base = 8'(reg_idx) * 8'(elems_per_reg);
-  assign elem_base = group_base + 8'(pass_idx) * 8'(elems_per_pass);
+  // Element counter
+  logic [7:0] elem_q;
+  logic [7:0] elem_next;
 
-  assign last_pass = (pass_idx == 4'(passes_per_reg - 5'd1));
-  assign last_reg = (reg_idx == 4'(regs_per_group - 5'd1));
+  assign elem_base = elem_q;
+  assign elem_next = elem_q + 8'(elem_count);
+  assign last = (elem_next >= total_elems);
 
-  // Port addresses
-  assign raddr1 = vs1 + AWIDTH'(reg_idx);
-  assign raddr2 = vs2 + AWIDTH'(reg_idx);
-  assign raddr3 = reads_vd ? (vd + AWIDTH'(reg_idx)) : '0;
-  assign waddr = vd + AWIDTH'(reg_idx);
+  // Port offsets
+  logic [12:0] prod1;
+  logic [12:0] prod2;
+  logic [12:0] prodd;
+
+  assign prod1 = single_write ? 13'd0 : (13'(elem_base) << ls1);
+  assign prod2 = 13'(elem_base) << ls2;
+  assign prodd = single_write ? 13'd0 : (13'(elem_base) << ld);
+
+  assign s1_off = prod1[6:0];
+  assign s2_off = prod2[6:0];
+  assign d_off  = prodd[6:0];
+
+  assign raddr1 = vs1 + AWIDTH'(prod1[12:7]);
+  assign raddr2 = vs2 + AWIDTH'(prod2[12:7]);
+  assign raddr3 = reads_vd ? (vd + AWIDTH'(prodd[12:7])) : '0;
+  assign waddr = vd + AWIDTH'(prodd[12:7]);
   assign wen = busy && (wstrb != '0);
 
+  // Destination bits
+  logic [5:0] dbits;
+  assign dbits = 6'(6'd1 << ld);
+
+  // Live elements
+  always_comb begin
+    for (int e = 0; e < MaxElems; e++) begin
+      elem_active[e] = (5'(e) < elem_count) && ((elem_base + 8'(e)) < vl) && (vm || mask_bits[e]);
+    end
+  end
+
+  // One element wide
+  logic [VLEN-1:0] unit_mask;
+  assign unit_mask = VLEN'({32{1'b1}} >> (6'd32 - dbits));
+
   // Tail plus mask
+  logic [8:0] base_bit;
   always_comb begin
     wstrb = '0;
-    idx = 8'd0;
-    pos = 5'd0;
-    base_bit = 10'd0;
-    bit_sel = 7'd0;
-    for (int e = 0; e < MaxElems; e++) begin
-      if (5'(e) < elems_per_pass) begin
-        idx = elem_base + 8'(e);
-        pos = 5'(pass_idx) * elems_per_pass + 5'(e);
-        base_bit = 10'(pos) * 10'(bits_per_elem);
-        if ((idx < vl) && (vm || mask_bits[e])) begin
-          for (int b = 0; b < 32; b++) begin
-            if (6'(b) < bits_per_elem) begin
-              bit_sel = 7'(base_bit + 10'(b));
-              wstrb[bit_sel] = 1'b1;
-            end
-          end
+    base_bit = 9'd0;
+    if (single_write) begin
+      if (last) wstrb = unit_mask;
+    end else begin
+      for (int e = 0; e < MaxElems; e++) begin
+        if (elem_active[e]) begin
+          base_bit = 9'(d_off) + 9'(e) * 9'(dbits);
+          wstrb = wstrb | (unit_mask << base_bit);
         end
       end
     end
@@ -95,30 +151,23 @@ module vec_sequencer #(
   // Walk the group
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      reg_idx  <= 4'd0;
-      pass_idx <= 4'd0;
-      busy     <= 1'b0;
-      done     <= 1'b0;
-    end else begin
+      elem_q <= 8'd0;
+      busy   <= 1'b0;
+      done   <= 1'b0;
+    end else if (core_en) begin
       done <= 1'b0;
       if (!busy) begin
         if (start) begin
-          reg_idx  <= 4'd0;
-          pass_idx <= 4'd0;
+          elem_q <= 8'd0;
           if (vl == 8'd0) done <= 1'b1;
           else busy <= 1'b1;
         end
       end else begin
-        if (last_pass) begin
-          pass_idx <= 4'd0;
-          if (last_reg) begin
-            busy <= 1'b0;
-            done <= 1'b1;
-          end else begin
-            reg_idx <= reg_idx + 4'd1;
-          end
+        if (last) begin
+          busy <= 1'b0;
+          done <= 1'b1;
         end else begin
-          pass_idx <= pass_idx + 4'd1;
+          elem_q <= elem_next;
         end
       end
     end
