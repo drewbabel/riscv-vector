@@ -33,6 +33,8 @@ module vec_unit_tb
   logic store_pending;
   logic mem_misaligned;
   logic [31:0] mem_bad_addr;
+  logic xreg_valid;
+  logic [31:0] xreg_result;
 
   logic [VLEN-1:0] shadow[Depth];
 
@@ -74,6 +76,8 @@ module vec_unit_tb
       .mem_wstrb(mem_wstrb),
       .mem_misaligned(mem_misaligned),
       .mem_bad_addr(mem_bad_addr),
+      .xreg_valid(xreg_valid),
+      .xreg_result(xreg_result),
       .is_vector(is_vector),
       .vec_hold(vec_hold),
       .vec_idle(vec_idle),
@@ -696,6 +700,341 @@ module vec_unit_tb
     end
   endtask
 
+
+  // Group element access
+  function automatic logic [31:0] grp_get(input logic [4:0] base, input int w, input int i);
+    int roff;
+    int pos;
+    roff = (i * w) / VLEN;
+    pos  = ((i * w) % VLEN) / w;
+    return get_elem(shadow[(32'(base)+roff)%Depth], w, pos);
+  endfunction
+
+  task automatic grp_set(input logic [4:0] base, input int w, input int i,
+                         input logic [31:0] val);
+    int roff;
+    int pos;
+    roff = (i * w) / VLEN;
+    pos  = ((i * w) % VLEN) / w;
+    shadow[(32'(base)+roff)%Depth] = set_elem(shadow[(32'(base)+roff)%Depth], w, pos, val);
+  endtask
+
+  function automatic int group_elems(input int sew, input int regs);
+    return regs * (VLEN / sew);
+  endfunction
+
+  // Widening model
+  task automatic ref_widen(input vec_op_e o, input int form, input logic [4:0] s1,
+                           input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                           input logic [31:0] xd, input int sew, input int regs, input int len,
+                           input logic wv);
+    int dw;
+    logic [31:0] a;
+    logic [31:0] b;
+    logic sgn;
+    dw  = sew * 2;
+    sgn = (o == VEC_WADD) || (o == VEC_WSUB);
+    for (int i = 0; i < group_elems(sew, regs); i++) begin
+      if ((i < len) && (vmb || shadow[0][i])) begin
+        if (wv) a = grp_get(s2, dw, i);
+        else a = sgn ? sext(grp_get(s2, sew, i), sew) : grp_get(s2, sew, i);
+        b = (form == 0) ? grp_get(s1, sew, i) : (xd & 32'((32'h1 << sew) - 32'h1));
+        if (sgn) b = sext(b, sew);
+        grp_set(d, dw, i, ((o == VEC_WSUBU) || (o == VEC_WSUB)) ? (a - b) : (a + b));
+      end
+    end
+  endtask
+
+  // Narrowing model
+  task automatic ref_narrow(input vec_op_e o, input int form, input logic [4:0] s1,
+                            input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                            input logic [31:0] xd, input logic [4:0] im, input int sew,
+                            input int regs, input int len);
+    logic [31:0] w;
+    logic [31:0] r;
+    int sh;
+    for (int i = 0; i < group_elems(sew, regs); i++) begin
+      if ((i < len) && (vmb || shadow[0][i])) begin
+        w  = grp_get(s2, sew * 2, i);
+        sh = (form == 0) ? int'(grp_get(s1, sew, i)) : ((form == 1) ? int'(xd[5:0]) : int'(im));
+        sh = sh % (sew * 2);
+        r  = (o == VEC_NSRA) ? 32'($signed(sext(w, sew * 2)) >>> sh) : (w >> sh);
+        grp_set(d, sew, i, r);
+      end
+    end
+  endtask
+
+  // Extension model
+  task automatic ref_extend(input vec_op_e o, input logic [4:0] s2, input logic [4:0] d,
+                            input logic vmb, input int sew, input int regs, input int len,
+                            input int factor);
+    int sw;
+    logic [31:0] a;
+    logic sgn;
+    sw  = sew / factor;
+    sgn = (o == VEC_SEXT2) || (o == VEC_SEXT4);
+    for (int i = 0; i < group_elems(sew, regs); i++) begin
+      if ((i < len) && (vmb || shadow[0][i])) begin
+        a = grp_get(s2, sw, i);
+        grp_set(d, sew, i, sgn ? sext(a, sw) : a);
+      end
+    end
+  endtask
+
+  // Reduction model
+  function automatic logic [31:0] ref_fold(input vec_op_e o, input logic [31:0] x,
+                                           input logic [31:0] y);
+    case (o)
+      VEC_REDSUM, VEC_WREDSUM, VEC_WREDSUMU: return x + y;
+      VEC_REDAND: return x & y;
+      VEC_REDOR: return x | y;
+      VEC_REDXOR: return x ^ y;
+      VEC_REDMINU: return (x < y) ? x : y;
+      VEC_REDMIN: return ($signed(x) < $signed(y)) ? x : y;
+      VEC_REDMAXU: return (x > y) ? x : y;
+      VEC_REDMAX: return ($signed(x) > $signed(y)) ? x : y;
+      default: return x;
+    endcase
+  endfunction
+
+  task automatic ref_reduce(input vec_op_e o, input logic [4:0] s1, input logic [4:0] s2,
+                            input logic [4:0] d, input logic vmb, input int sew, input int regs,
+                            input int len, input logic wide);
+    int accw;
+    logic [31:0] acc;
+    logic [31:0] v;
+    logic sgn;
+    accw = wide ? sew * 2 : sew;
+    sgn  = (o == VEC_REDMIN) || (o == VEC_REDMAX) || (o == VEC_WREDSUM);
+    if (len == 0) return;
+    acc = grp_get(s1, accw, 0);
+    if (sgn) acc = sext(acc, accw);
+    for (int i = 0; i < group_elems(sew, regs); i++) begin
+      if ((i < len) && (vmb || shadow[0][i])) begin
+        v   = grp_get(s2, sew, i);
+        if (sgn) v = sext(v, sew);
+        acc = ref_fold(o, acc, v);
+      end
+    end
+    grp_set(d, accw, 0, acc);
+  endtask
+
+  // Mixed width runs
+  task automatic run_widen(input vec_op_e o, input int form, input logic [4:0] s1,
+                           input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                           input logic [31:0] xd, input logic [2:0] sew, input logic [2:0] lmul,
+                           input logic [7:0] len, input logic wv);
+    logic [5:0] f6;
+    int regs;
+    regs  = lmul[2] ? 1 : (1 << lmul[1:0]);
+    vsew  = sew;
+    vlmul = lmul;
+    vl    = len;
+    xdata = xd;
+    case (o)
+      VEC_WADDU: f6 = wv ? 6'b110100 : 6'b110000;
+      VEC_WADD:  f6 = wv ? 6'b110101 : 6'b110001;
+      VEC_WSUBU: f6 = wv ? 6'b110110 : 6'b110010;
+      default:   f6 = wv ? 6'b110111 : 6'b110011;
+    endcase
+    ref_widen(o, form, s1, s2, d, vmb, xd, 8 << sew, regs, int'(len), wv);
+    issue(enc(f6, vmb, s2, s1, (form == 0) ? 3'b010 : 3'b110, d));
+    drain();
+    check_regs("widen");
+  endtask
+
+  task automatic run_narrow(input vec_op_e o, input int form, input logic [4:0] s1,
+                            input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                            input logic [31:0] xd, input logic [4:0] im, input logic [2:0] sew,
+                            input logic [2:0] lmul, input logic [7:0] len);
+    logic [5:0] f6;
+    logic [2:0] f3;
+    logic [4:0] sf;
+    int regs;
+    regs  = lmul[2] ? 1 : (1 << lmul[1:0]);
+    vsew  = sew;
+    vlmul = lmul;
+    vl    = len;
+    xdata = xd;
+    f6    = (o == VEC_NSRA) ? 6'b101101 : 6'b101100;
+    case (form)
+      0: begin
+        f3 = 3'b000;
+        sf = s1;
+      end
+      1: begin
+        f3 = 3'b100;
+        sf = 5'd1;
+      end
+      default: begin
+        f3 = 3'b011;
+        sf = im;
+      end
+    endcase
+    ref_narrow(o, form, s1, s2, d, vmb, xd, im, 8 << sew, regs, int'(len));
+    issue(enc(f6, vmb, s2, sf, f3, d));
+    drain();
+    check_regs("narrow");
+  endtask
+
+  task automatic run_extend(input vec_op_e o, input logic [4:0] s2, input logic [4:0] d,
+                            input logic vmb, input logic [2:0] sew, input logic [2:0] lmul,
+                            input logic [7:0] len);
+    logic [4:0] sel;
+    int regs;
+    int factor;
+    regs   = lmul[2] ? 1 : (1 << lmul[1:0]);
+    vsew   = sew;
+    vlmul  = lmul;
+    vl     = len;
+    factor = ((o == VEC_ZEXT4) || (o == VEC_SEXT4)) ? 4 : 2;
+    case (o)
+      VEC_ZEXT2: sel = 5'b00110;
+      VEC_SEXT2: sel = 5'b00111;
+      VEC_ZEXT4: sel = 5'b00100;
+      default:   sel = 5'b00101;
+    endcase
+    ref_extend(o, s2, d, vmb, 8 << sew, regs, int'(len), factor);
+    issue(enc(6'b010010, vmb, s2, sel, 3'b010, d));
+    drain();
+    check_regs("extend");
+  endtask
+
+  task automatic run_reduce(input vec_op_e o, input logic [4:0] s1, input logic [4:0] s2,
+                            input logic [4:0] d, input logic vmb, input logic [2:0] sew,
+                            input logic [2:0] lmul, input logic [7:0] len);
+    logic [5:0] f6;
+    logic [2:0] f3;
+    logic wide;
+    int regs;
+    regs  = lmul[2] ? 1 : (1 << lmul[1:0]);
+    vsew  = sew;
+    vlmul = lmul;
+    vl    = len;
+    wide  = (o == VEC_WREDSUM) || (o == VEC_WREDSUMU);
+    f3    = wide ? 3'b000 : 3'b010;
+    case (o)
+      VEC_REDSUM:   f6 = 6'b000000;
+      VEC_REDAND:   f6 = 6'b000001;
+      VEC_REDOR:    f6 = 6'b000010;
+      VEC_REDXOR:   f6 = 6'b000011;
+      VEC_REDMINU:  f6 = 6'b000100;
+      VEC_REDMIN:   f6 = 6'b000101;
+      VEC_REDMAXU:  f6 = 6'b000110;
+      VEC_REDMAX:   f6 = 6'b000111;
+      VEC_WREDSUMU: f6 = 6'b110000;
+      default:      f6 = 6'b110001;
+    endcase
+    ref_reduce(o, s1, s2, d, vmb, 8 << sew, regs, int'(len), wide);
+    issue(enc(f6, vmb, s2, s1, f3, d));
+    drain();
+    check_regs("reduce");
+  endtask
+
+  // Scalar moves
+  task automatic run_move_sx(input logic [4:0] d, input logic [31:0] xd, input logic [2:0] sew,
+                             input logic [7:0] len);
+    vsew  = sew;
+    vlmul = 3'd0;
+    vl    = len;
+    xdata = xd;
+    if (len != 8'd0) grp_set(d, 8 << sew, 0, xd);
+    issue(enc(6'b010000, 1'b1, 5'b00000, 5'd3, 3'b110, d));
+    drain();
+    check_regs("move sx");
+  endtask
+
+  task automatic run_move_xs(input logic [4:0] s2, input logic [2:0] sew, input logic [7:0] len);
+    logic [31:0] want;
+    vsew  = sew;
+    vlmul = 3'd0;
+    vl    = len;
+    want  = sext(get_elem(shadow[s2], 8 << sew, 0), 8 << sew);
+    issue(enc(6'b010000, 1'b1, s2, 5'b00000, 3'b010, 5'd7));
+    drain();
+    check_regs("move xs");
+    checks = checks + 1;
+    if (xreg_result !== want) begin
+      errors = errors + 1;
+      $display("FAIL move xs got=%h want=%h at %0t", xreg_result, want, $time);
+    end
+  endtask
+
+  task automatic check_widening();
+    seed_all();
+    run_widen(VEC_WADDU, 0, 5'd1, 5'd4, 5'd16, 1'b1, '0, 3'd0, 3'd0, 8'd16, 1'b0);
+    run_widen(VEC_WADD, 0, 5'd1, 5'd4, 5'd16, 1'b1, '0, 3'd0, 3'd0, 8'd16, 1'b0);
+    run_widen(VEC_WSUBU, 0, 5'd1, 5'd4, 5'd16, 1'b1, '0, 3'd1, 3'd0, 8'd8, 1'b0);
+    run_widen(VEC_WSUB, 0, 5'd1, 5'd4, 5'd16, 1'b1, '0, 3'd1, 3'd0, 8'd8, 1'b0);
+    run_widen(VEC_WADD, 1, 5'd1, 5'd4, 5'd16, 1'b1, 32'h0000_00a5, 3'd0, 3'd0, 8'd16, 1'b0);
+    run_widen(VEC_WADDU, 0, 5'd2, 5'd6, 5'd20, 1'b1, '0, 3'd0, 3'd1, 8'd32, 1'b0);
+    run_widen(VEC_WSUB, 0, 5'd2, 5'd6, 5'd20, 1'b1, '0, 3'd1, 3'd1, 8'd16, 1'b0);
+    run_widen(VEC_WADDU, 0, 5'd1, 5'd16, 5'd24, 1'b1, '0, 3'd0, 3'd0, 8'd16, 1'b1);
+    run_widen(VEC_WSUB, 0, 5'd1, 5'd16, 5'd24, 1'b1, '0, 3'd1, 3'd0, 8'd8, 1'b1);
+    run_widen(VEC_WADD, 0, 5'd1, 5'd4, 5'd16, 1'b0, '0, 3'd0, 3'd0, 8'd16, 1'b0);
+    run_widen(VEC_WADD, 0, 5'd1, 5'd4, 5'd16, 1'b1, '0, 3'd0, 3'd0, 8'd5, 1'b0);
+  endtask
+
+  task automatic check_narrowing();
+    seed_all();
+    run_narrow(VEC_NSRL, 0, 5'd1, 5'd16, 5'd8, 1'b1, '0, 5'd0, 3'd0, 3'd0, 8'd16);
+    run_narrow(VEC_NSRA, 0, 5'd1, 5'd16, 5'd8, 1'b1, '0, 5'd0, 3'd0, 3'd0, 8'd16);
+    run_narrow(VEC_NSRL, 1, 5'd1, 5'd16, 5'd8, 1'b1, 32'd5, 5'd0, 3'd1, 3'd0, 8'd8);
+    run_narrow(VEC_NSRA, 2, 5'd1, 5'd16, 5'd8, 1'b1, '0, 5'd9, 3'd1, 3'd0, 8'd8);
+    run_narrow(VEC_NSRL, 0, 5'd2, 5'd16, 5'd8, 1'b1, '0, 5'd0, 3'd0, 3'd1, 8'd32);
+    run_narrow(VEC_NSRA, 0, 5'd1, 5'd16, 5'd8, 1'b0, '0, 5'd0, 3'd0, 3'd0, 8'd16);
+    run_narrow(VEC_NSRL, 0, 5'd1, 5'd16, 5'd8, 1'b1, '0, 5'd0, 3'd0, 3'd0, 8'd7);
+  endtask
+
+  task automatic check_extensions();
+    seed_all();
+    run_extend(VEC_ZEXT2, 5'd4, 5'd16, 1'b1, 3'd1, 3'd0, 8'd8);
+    run_extend(VEC_SEXT2, 5'd4, 5'd16, 1'b1, 3'd1, 3'd0, 8'd8);
+    run_extend(VEC_ZEXT2, 5'd4, 5'd16, 1'b1, 3'd2, 3'd0, 8'd4);
+    run_extend(VEC_SEXT2, 5'd4, 5'd16, 1'b1, 3'd2, 3'd0, 8'd4);
+    run_extend(VEC_ZEXT4, 5'd4, 5'd16, 1'b1, 3'd2, 3'd0, 8'd4);
+    run_extend(VEC_SEXT4, 5'd4, 5'd16, 1'b1, 3'd2, 3'd0, 8'd4);
+    run_extend(VEC_SEXT2, 5'd4, 5'd18, 1'b1, 3'd2, 3'd1, 8'd8);
+    run_extend(VEC_SEXT2, 5'd4, 5'd16, 1'b0, 3'd2, 3'd0, 8'd4);
+  endtask
+
+  task automatic check_reductions();
+    seed_all();
+    seed_reg(5'd1, {4{32'hFFFF_FFFF}});
+    seed_reg(5'd2, {4{32'hA5A5_A5A5}});
+    run_reduce(VEC_REDSUM, 5'd2, 5'd1, 5'd18, 1'b1, 3'd2, 3'd0, 8'd4);
+    run_reduce(VEC_REDAND, 5'd2, 5'd1, 5'd19, 1'b1, 3'd2, 3'd0, 8'd4);
+    run_reduce(VEC_REDOR, 5'd2, 5'd1, 5'd20, 1'b1, 3'd2, 3'd0, 8'd4);
+    run_reduce(VEC_REDXOR, 5'd2, 5'd1, 5'd21, 1'b1, 3'd2, 3'd0, 8'd4);
+    seed_all();
+    run_reduce(VEC_REDSUM, 5'd1, 5'd4, 5'd16, 1'b1, 3'd2, 3'd0, 8'd4);
+    run_reduce(VEC_REDAND, 5'd1, 5'd4, 5'd16, 1'b1, 3'd2, 3'd0, 8'd4);
+    run_reduce(VEC_REDOR, 5'd1, 5'd4, 5'd16, 1'b1, 3'd1, 3'd0, 8'd8);
+    run_reduce(VEC_REDXOR, 5'd1, 5'd4, 5'd16, 1'b1, 3'd0, 3'd0, 8'd16);
+    run_reduce(VEC_REDMINU, 5'd1, 5'd4, 5'd16, 1'b1, 3'd2, 3'd0, 8'd4);
+    run_reduce(VEC_REDMIN, 5'd1, 5'd4, 5'd16, 1'b1, 3'd2, 3'd0, 8'd4);
+    run_reduce(VEC_REDMAXU, 5'd1, 5'd4, 5'd16, 1'b1, 3'd1, 3'd0, 8'd8);
+    run_reduce(VEC_REDMAX, 5'd1, 5'd4, 5'd16, 1'b1, 3'd0, 3'd0, 8'd16);
+    run_reduce(VEC_REDSUM, 5'd1, 5'd4, 5'd16, 1'b1, 3'd2, 3'd2, 8'd16);
+    run_reduce(VEC_REDSUM, 5'd1, 5'd4, 5'd16, 1'b0, 3'd2, 3'd0, 8'd4);
+    run_reduce(VEC_REDSUM, 5'd1, 5'd4, 5'd16, 1'b1, 3'd2, 3'd0, 8'd0);
+    run_reduce(VEC_WREDSUMU, 5'd1, 5'd4, 5'd16, 1'b1, 3'd1, 3'd0, 8'd8);
+    run_reduce(VEC_WREDSUM, 5'd1, 5'd4, 5'd16, 1'b1, 3'd1, 3'd0, 8'd8);
+    run_reduce(VEC_WREDSUM, 5'd1, 5'd4, 5'd16, 1'b1, 3'd0, 3'd1, 8'd32);
+  endtask
+
+  task automatic check_scalar_moves();
+    seed_all();
+    run_move_sx(5'd9, 32'hdead_beef, 3'd2, 8'd4);
+    run_move_sx(5'd9, 32'h0000_00a5, 3'd0, 8'd4);
+    run_move_sx(5'd9, 32'hffff_8001, 3'd1, 8'd8);
+    run_move_sx(5'd9, 32'h1234_5678, 3'd2, 8'd0);
+    run_move_xs(5'd4, 3'd2, 8'd4);
+    run_move_xs(5'd4, 3'd1, 8'd8);
+    run_move_xs(5'd4, 3'd0, 8'd16);
+    run_move_xs(5'd4, 3'd2, 8'd0);
+  endtask
+
   task automatic verdict();
     $display("vec_unit: %0d checks, %0d errors", checks, errors);
     if (errors != 0) $fatal(1, "vec_unit FAILED");
@@ -749,6 +1088,21 @@ module vec_unit_tb
 
     // Random moves
     soak_mem(300);
+
+    // Widening forms
+    check_widening();
+
+    // Narrowing shifts
+    check_narrowing();
+
+    // Extension forms
+    check_extensions();
+
+    // Reduction forms
+    check_reductions();
+
+    // Scalar moves
+    check_scalar_moves();
 
     verdict();
   end
