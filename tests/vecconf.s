@@ -27,4 +27,22 @@ _start:
         vsetvli t0, a0, e8, m1, ta, ma
         csrr    t5, vstart
         csrr    t1, vl
+        li      t4, 2
+        csrw    vxrm, t4
+        csrr    t5, vxrm
+        csrr    t6, vcsr
+        csrwi   vxsat, 1
+        csrr    t5, vxsat
+        csrr    t6, vcsr
+        csrsi   vcsr, 4
+        csrr    t5, vxrm
+        csrr    t6, vxsat
+        csrci   vcsr, 1
+        csrr    t6, vcsr
+        csrrw   t5, vxrm, x0
+        csrr    t6, vcsr
+        li      a0, 4
+        vsetvli t0, a0, e16, m4, ta, ma
+        vadd.vv v8, v16, v24
+        csrr    t5, vcsr
 Ldone:  beq     x0, x0, Ldone
