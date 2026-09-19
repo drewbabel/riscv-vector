@@ -349,8 +349,8 @@ module vec_unit_tb
       vsew  = 3'd0;
       vlmul = 3'd3;
       vl    = 8'd70;
-      ref_apply(VEC_ADD, 0, 5'd3, 5'd11, 5'd19, 1'b1, '0, 5'd0, 8, 8, 70);
-      issue(enc(6'b000000, 1'b1, 5'd11, 5'd3, 3'b000, 5'd19));
+      ref_apply(VEC_ADD, 0, 5'd8, 5'd16, 5'd24, 1'b1, '0, 5'd0, 8, 8, 70);
+      issue(enc(6'b000000, 1'b1, 5'd16, 5'd8, 3'b000, 5'd24));
       vsew  = 3'd2;
       vlmul = 3'd0;
       vl    = 8'd1;
@@ -465,7 +465,7 @@ module vec_unit_tb
         len  = 8'($urandom % ((128 >> sew) * (1 << lmul) + 1));
         vmb  = 1'($urandom);
         if (o == VEC_MERGE) vmb = 1'b0;
-        run_one(o, form, 5'd2, 5'd10, 5'd18, vmb, $urandom, 5'($urandom), sew, lmul, len);
+        run_one(o, form, 5'd4, 5'd8, 5'd16, vmb, $urandom, 5'($urandom), sew, lmul, len);
       end
     end
   endtask
@@ -602,6 +602,46 @@ module vec_unit_tb
     end
   endtask
 
+  // Reserved register numbers
+  task automatic check_group_rules();
+    begin
+      vill  = 1'b0;
+      vsew  = 3'd0;
+      vl    = 8'd8;
+      vlmul = 3'd2;
+      instr = enc(6'b000000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd1);
+      #1 note("base off the multiple", 32'(is_vector), 32'd0);
+      instr = enc(6'b000000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd4);
+      #1 note("base on the multiple", 32'(is_vector), 32'd1);
+      instr = enc(6'b000000, 1'b1, 5'd6, 5'd4, 3'b010, 5'd1);
+      #1 note("reduction source off", 32'(is_vector), 32'd0);
+      instr = enc(6'b000000, 1'b1, 5'd4, 5'd4, 3'b010, 5'd1);
+      #1 note("reduction source on", 32'(is_vector), 32'd1);
+      vlmul = 3'd0;
+      instr = enc(6'b110000, 1'b1, 5'd2, 5'd1, 3'b010, 5'd2);
+      #1 note("wide over the low half", 32'(is_vector), 32'd0);
+      instr = enc(6'b110000, 1'b1, 5'd3, 5'd1, 3'b010, 5'd2);
+      #1 note("wide over the high half", 32'(is_vector), 32'd1);
+      instr = enc(6'b110000, 1'b1, 5'd6, 5'd1, 3'b010, 5'd2);
+      #1 note("wide clear of the source", 32'(is_vector), 32'd1);
+      instr = enc(6'b101100, 1'b1, 5'd2, 5'd1, 3'b000, 5'd3);
+      #1 note("narrow over the high half", 32'(is_vector), 32'd0);
+      instr = enc(6'b101100, 1'b1, 5'd2, 5'd1, 3'b000, 5'd2);
+      #1 note("narrow over the low half", 32'(is_vector), 32'd1);
+      instr = enc(6'b110001, 1'b1, 5'd2, 5'd1, 3'b000, 5'd2);
+      #1 note("reduction over its source", 32'(is_vector), 32'd1);
+      instr = enc(6'b000000, 1'b0, 5'd8, 5'd4, 3'b000, 5'd0);
+      #1 note("masked onto the mask", 32'(is_vector), 32'd0);
+      instr = enc(6'b000000, 1'b0, 5'd8, 5'd4, 3'b000, 5'd1);
+      #1 note("masked clear of the mask", 32'(is_vector), 32'd1);
+      vlmul = 3'd3;
+      instr = enc(6'b110000, 1'b1, 5'd8, 5'd16, 3'b010, 5'd0);
+      #1 note("multiplier past eight", 32'(is_vector), 32'd0);
+      vlmul = 3'd0;
+      instr = 32'd0;
+    end
+  endtask
+
   // Trap drops instruction
   task automatic check_mem_cancel();
     begin
@@ -656,8 +696,8 @@ module vec_unit_tb
       run_mem(1'b0, 2'd0, 1'b1, 1'b0, 1'b1, 5'd10, 32'd33, '0, 3'd2, 3'd0, 8'd1);
       run_mem(1'b1, 2'd0, 1'b1, 1'b0, 1'b1, 5'd11, 32'd200, '0, 3'd1, 3'd0, 8'd0);
       run_mem(1'b0, 2'd2, 1'b1, 1'b0, 1'b1, 5'd12, 32'd16, '0, 3'd0, 3'd0, 8'd3);
-      run_mem(1'b0, 2'd1, 1'b0, 1'b0, 1'b1, 5'd13, 32'd40, '0, 3'd0, 3'd0, 8'd12);
-      run_mem(1'b1, 2'd0, 1'b0, 1'b0, 1'b1, 5'd20, 32'd0, '0, 3'd0, 3'd3, 8'd100);
+      run_mem(1'b0, 2'd1, 1'b0, 1'b0, 1'b1, 5'd14, 32'd40, '0, 3'd0, 3'd0, 8'd12);
+      run_mem(1'b1, 2'd0, 1'b0, 1'b0, 1'b1, 5'd16, 32'd0, '0, 3'd0, 3'd3, 8'd100);
       run_mem(1'b0, 2'd0, 1'b0, 1'b0, 1'b1, 5'd24, 32'd0, '0, 3'd0, 3'd0, 8'd0);
     end
   endtask
@@ -674,6 +714,7 @@ module vec_unit_tb
     logic [4:0] d;
     logic [7:0] len;
     int emul;
+    int nregs;
     int vlmax;
     begin
       seed_all();
@@ -691,7 +732,10 @@ module vec_unit_tb
         end
         vlmax     = (VLEN << lmul) >> (3 + sew);
         len       = 8'($urandom % ((vlmax > 255 ? 255 : vlmax) + 1));
-        d         = (!vmb && !store) ? 5'd23 - 5'($urandom % 20) : 5'($urandom);
+        nregs     = (emul <= 0) ? 1 : (1 << emul);
+        d         = ((!vmb && !store) ? 5'd23 - 5'($urandom % 20) : 5'($urandom))
+            & ~5'(nregs - 1);
+        if (!vmb && !store && (d == 5'd0)) d = 5'(nregs);
         ready_pct = (($urandom % 2) == 0) ? 100 : 40;
         run_mem(store, w, whole, strided, vmb, d, 32'($urandom % Bytes) & ~((32'd1 << w) - 1),
                 32'($signed(32'($urandom % 13)) - 6) << w, sew, lmul, len);
@@ -1076,6 +1120,7 @@ module vec_unit_tb
 
     // Legality and alignment
     check_mem_rules();
+    check_group_rules();
 
     // Trap drops instruction
     check_mem_cancel();
