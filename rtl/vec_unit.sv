@@ -199,12 +199,100 @@ module vec_unit
       && (((issue_vl != 8'd0) && base_off) || ((issue_vl > 8'd1) && stride_off));
   assign mem_bad_addr = base_off ? xdata : (xdata + issue_stride);
 
+  // Register count of a group
+  function automatic logic [5:0] group_regs(input logic signed [3:0] emul);
+    if (emul <= 4'sd0) group_regs = 6'd1;
+    else group_regs = 6'(6'd1 << emul[2:0]);
+  endfunction
+
+  // Multiplier in range
+  function automatic logic width_in_range(input logic signed [3:0] emul, input logic used);
+    width_in_range = !used || ((emul >= -4'sd3) && (emul <= 4'sd3));
+  endfunction
+
+  // Permitted overlap
+  function automatic logic pair_ok(input logic [5:0] bd, input logic [5:0] nd,
+                                   input logic [2:0] wd, input logic [5:0] bs,
+                                   input logic [5:0] ns, input logic [2:0] ws,
+                                   input logic src_whole);
+    logic hit;
+    begin
+      hit = (bd < (bs + ns)) && (bs < (bd + nd));
+      if (!hit) pair_ok = 1'b1;
+      else if (wd == ws) pair_ok = 1'b1;
+      else if (wd < ws) pair_ok = (bd == bs);
+      else pair_ok = src_whole && (bs == ((bd + nd) - ns));
+    end
+  endfunction
+
+  // Group legality
+  logic               dec_store;
+  logic               dec_ext;
+  logic               has_vd;
+  logic               uses_vs1;
+  logic               uses_vs2;
+  logic signed [ 3:0] lmul_log2;
+  logic signed [ 3:0] d_delta;
+  logic signed [ 3:0] s1_delta;
+  logic signed [ 3:0] s2_delta;
+  logic signed [ 3:0] d_emul;
+  logic signed [ 3:0] s1_emul;
+  logic signed [ 3:0] s2_emul;
+  logic        [ 5:0] d_regs;
+  logic        [ 5:0] s1_regs;
+  logic        [ 5:0] s2_regs;
+  logic               emul_legal;
+  logic               align_ok;
+  logic               overlap_ok;
+  logic               mask_ok;
+  logic               group_legal;
+
+  assign dec_store = (dec_op == VEC_STORE);
+  assign has_vd = (dec_cls != VEC_CLS_XS);
+  assign dec_ext = (dec_op == VEC_ZEXT2) || (dec_op == VEC_ZEXT4) || (dec_op == VEC_SEXT2)
+      || (dec_op == VEC_SEXT4);
+  assign uses_vs1 = !dec_mem && !dec_ext && (dec_cls != VEC_CLS_XS) && (dec_cls != VEC_CLS_SX)
+      && (dec_src == VEC_SRC_VV);
+  assign uses_vs2 = !dec_mem && (dec_cls != VEC_CLS_SX);
+
+  assign lmul_log2 = 4'($signed(vlmul));
+  assign d_delta = 4'($signed({1'b0, dec_ld})) - 4'($signed({1'b0, lsew}));
+  assign s1_delta = 4'($signed({1'b0, dec_ls1})) - 4'($signed({1'b0, lsew}));
+  assign s2_delta = 4'($signed({1'b0, dec_ls2})) - 4'($signed({1'b0, lsew}));
+
+  assign d_emul = dec_mem ? (dec_whole ? 4'sd0 : emul_log2)
+      : (dec_geom_s.single_write ? 4'sd0 : (lmul_log2 + d_delta));
+  assign s1_emul = dec_geom_s.single_write ? 4'sd0 : (lmul_log2 + s1_delta);
+  assign s2_emul = (dec_cls == VEC_CLS_XS) ? 4'sd0 : (lmul_log2 + s2_delta);
+
+  assign d_regs = group_regs(d_emul);
+  assign s1_regs = uses_vs1 ? group_regs(s1_emul) : 6'd1;
+  assign s2_regs = uses_vs2 ? group_regs(s2_emul) : 6'd1;
+
+  assign emul_legal = width_in_range(d_emul, has_vd) && width_in_range(s1_emul, uses_vs1)
+      && width_in_range(s2_emul, uses_vs2);
+
+  assign align_ok = (!has_vd || ((6'(dec_vd) & (d_regs - 6'd1)) == 6'd0))
+      && (!uses_vs1 || ((6'(dec_vs1) & (s1_regs - 6'd1)) == 6'd0))
+      && (!uses_vs2 || ((6'(dec_vs2) & (s2_regs - 6'd1)) == 6'd0));
+
+  assign overlap_ok = dec_mem || !has_vd || dec_geom_s.single_write
+      || ((!uses_vs1 || pair_ok(6'(dec_vd), d_regs, dec_ld, 6'(dec_vs1), s1_regs, dec_ls1,
+                                s1_emul >= 4'sd0))
+      && (!uses_vs2 || pair_ok(6'(dec_vd), d_regs, dec_ld, 6'(dec_vs2), s2_regs, dec_ls2,
+                               s2_emul >= 4'sd0)));
+
+  assign mask_ok = dec_vm || dec_store || !has_vd || dec_geom_s.single_write
+      || (6'(dec_vd) >= d_regs);
+
+  assign group_legal = emul_legal && align_ok && overlap_ok && mask_ok;
+
   // Accepted instruction
   logic op_ready;
   logic accept_now;
 
   // Multiply lane pending
-  assign op_ready = (dec_cls != VEC_CLS_NONE) && (dec_cls != VEC_CLS_MUL)
+  assign op_ready = (dec_cls != VEC_CLS_NONE) && (dec_cls != VEC_CLS_MUL) && group_legal
       && (dec_mem || (width_legal && scalar_legal));
   assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
