@@ -22,7 +22,7 @@ sv2v -D RISCV_FORMAL "$ROOT"/rtl/*.sv > "$DST/$CORE.v"
 cd "$DST"
 python3 "$RVF/checks/genchecks.py" >&2
 if [ "${RVFI_SMT:-0}" != "1" ]; then
-  ls checks/*.sby | grep -v cover.sby | xargs perl -i -pe 's/smtbmc yices/btor btormc/'
+  ls checks/*.sby | xargs perl -i -pe 's/smtbmc yices/btor btormc/'
 fi
 
 # a failing check must fail the run
