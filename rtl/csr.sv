@@ -68,7 +68,14 @@ module csr
     input  logic [XLEN-1:0] vtype_d,
     input  logic            is_vec_instr,
     output logic [     7:0] vl_q,
-    output logic [XLEN-1:0] vtype_q
+    output logic [XLEN-1:0] vtype_q,
+
+    // Fixed-point control
+    input  logic [     1:0] vec_vxrm,
+    input  logic            vec_vxsat,
+    output logic            vec_csr_we,
+    output logic [    11:0] vec_csr_waddr,
+    output logic [XLEN-1:0] vec_csr_wdata
 );
 
   logic [XLEN-1:0] mstatus;
@@ -131,6 +138,10 @@ module csr
                    || (csr_addr == VtypeAddr)  || (csr_addr == VlenbAddr)
                    || (csr_addr == VxsatAddr)  || (csr_addr == VxrmAddr)
                    || (csr_addr == VcsrAddr);
+  assign vec_csr_we = csr_write_en && ((csr_addr == VxsatAddr) || (csr_addr == VxrmAddr)
+      || (csr_addr == VcsrAddr));
+  assign vec_csr_waddr = csr_addr;
+  assign vec_csr_wdata = csr_wdata;
   assign exc_ro_write = csr_access && (csr_addr[11:10] == 2'b11) && csr_write;
   assign exc_vs_off = (is_vec_instr || (csr_access && vec_csr_addr)) &&
     (mstatus[MstatusVsLo+1:MstatusVsLo] == VsOff);
@@ -162,6 +173,9 @@ module csr
       VtypeAddr: csr_rdata = vtype_ill ? {1'b1, {XLEN - 1{1'b0}}} : {{XLEN - 8{1'b0}}, vtype_bits};
       VlenbAddr: csr_rdata = XLEN'(VLEN / 8);
       VstartAddr: csr_rdata = {{XLEN - 7{1'b0}}, vstart};
+      VxsatAddr: csr_rdata = {{XLEN - 1{1'b0}}, vec_vxsat};
+      VxrmAddr: csr_rdata = {{XLEN - 2{1'b0}}, vec_vxrm};
+      VcsrAddr: csr_rdata = {{XLEN - 3{1'b0}}, vec_vxrm, vec_vxsat};
       default: csr_rdata = '0;
     endcase
   end

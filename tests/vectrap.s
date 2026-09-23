@@ -41,6 +41,32 @@ T6:     .word   0x02845127
 R6:     vle32.v v3, (s0)
         lw      t2, 0(s0)
 
+        # Reserved register numbers
+        li      a0, 8
+        vsetvli t0, a0, e8, m4, tu, mu
+        jal     ra, T8
+        j       R8
+T8:     .word   0x028200d7
+R8:     vsetvli t0, a0, e8, m1, tu, mu
+        jal     ra, T9
+        j       R9
+T9:     .word   0xc220a157
+R9:     jal     ra, T10
+        j       R10
+T10:    .word   0x00820057
+R10:    jal     ra, T11
+        j       R11
+T11:    .word   0xc620a157
+R11:    jal     ra, T12
+        j       R12
+T12:    .word   0xc6208157
+R12:    vsetvli t0, a0, e8, m4, tu, mu
+        jal     ra, T13
+        j       R13
+T13:    .word   0x026120d7
+R13:    vsetvli t0, a0, e8, m1, tu, mu
+        lw      t2, 8(s0)
+
         # Vector state off
         li      t0, 0x600
         csrc    mstatus, t0

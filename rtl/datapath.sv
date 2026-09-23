@@ -5,6 +5,8 @@ module datapath
   import opcode_pkg::*;
   import muldiv_pkg::*;
   import bp_pkg::*;
+  import csr_pkg::VxsatAddr;
+  import csr_pkg::VcsrAddr;
 #(
     parameter int XLEN      = 32,
     parameter int VLEN      = 128,
@@ -43,8 +45,7 @@ module datapath
     output logic [     6:0] dbg_vstart,
     output logic [     7:0] dbg_vec_tag,
     output logic            dbg_vec_retire,
-    output logic [     4:0] dbg_vec_vd,
-    output logic [     3:0] dbg_vec_regs,
+    output logic [    31:0] dbg_vec_wregs,
     output logic            dbg_vec_idle,
     output logic            dbg_ex_commit,
     output logic [XLEN-1:0] dbg_ex_insn,
@@ -214,12 +215,20 @@ module datapath
   logic                                  muldiv_hold;
   logic                                  commit_ready;
   logic                                  vec_is_vector;
+  logic [                            1:0] vec_vxrm;
+  logic                                   vec_vxsat;
+  logic                                   vec_csr_we;
+  logic [                           11:0] vec_csr_waddr;
+  logic [                       XLEN-1:0] vec_csr_wdata;
+  logic                                   vec_csr_wait;
   logic                                  vec_hold;
   logic                                  vec_issue_ok;
   logic                                  vec_idle;
   logic                                  vec_load_pending;
   logic                                  vec_store_pending;
   logic                                  vec_misaligned;
+  logic                                  vec_xreg_valid;
+  logic                   [    XLEN-1:0] vec_xreg_result;
   logic                                  vmem_hold;
   logic                                  is_fence_ex;
   logic                   [    XLEN-1:0] vec_bad_addr;
@@ -620,6 +629,9 @@ module datapath
   logic [XLEN-1:0] vtype_q;
   logic            exc_vec_encoding;
 
+  assign vec_csr_wait = csr_access_ex && ((instr_ex[31:20] == VxsatAddr)
+      || (instr_ex[31:20] == VcsrAddr));
+
   assign exc_vec_encoding = (((instr_ex[6:0] == OpcodeOpV) && !is_vset) ||
       (instr_ex[6:0] == OpcodeLoadFp) || (instr_ex[6:0] == OpcodeStoreFp)) && !vec_is_vector;
 
@@ -646,8 +658,7 @@ module datapath
 `ifdef RISCV_FORMAL
       .dbg_vec_tag   (dbg_vec_tag),
       .dbg_vec_retire(dbg_vec_retire),
-      .dbg_vec_vd    (dbg_vec_vd),
-      .dbg_vec_regs  (dbg_vec_regs),
+      .dbg_vec_wregs (dbg_vec_wregs),
       .dbg_vec_idle  (dbg_vec_idle),
 `endif
       .clk        (clk),
@@ -662,7 +673,12 @@ module datapath
       .vl         (vl_q),
       .vsew       (vtype_q[5:3]),
       .vlmul      (vtype_q[2:0]),
-      .vxrm       (2'd0),
+      .csr_we     (vec_csr_we),
+      .csr_waddr  (vec_csr_waddr),
+      .csr_wdata  (vec_csr_wdata),
+      .csr_wait   (vec_csr_wait),
+      .vxrm       (vec_vxrm),
+      .vxsat      (vec_vxsat),
       .mem_rdata  (read_data),
       .mem_ready  (vmem_ready),
       .mem_req    (vmem_req),
@@ -671,6 +687,8 @@ module datapath
       .mem_wstrb  (vmem_wstrb),
       .mem_misaligned(vec_misaligned),
       .mem_bad_addr(vec_bad_addr),
+      .xreg_valid (vec_xreg_valid),
+      .xreg_result(vec_xreg_result),
       .is_vector  (vec_is_vector),
       .vec_hold   (vec_hold),
       .vec_idle   (vec_idle),
@@ -737,11 +755,17 @@ module datapath
       .vtype_d             (vtype_d),
       .is_vec_instr        ((is_vset || vec_is_vector) && commit_valid),
       .vl_q                (vl_q),
-      .vtype_q             (vtype_q)
+      .vtype_q             (vtype_q),
+      .vec_vxrm            (vec_vxrm),
+      .vec_vxsat           (vec_vxsat),
+      .vec_csr_we          (vec_csr_we),
+      .vec_csr_waddr       (vec_csr_waddr),
+      .vec_csr_wdata       (vec_csr_wdata)
   );
 
   always_comb begin
     if (is_muldiv_ex) result_ex = muldiv_result;
+    else if (vec_xreg_valid) result_ex = vec_xreg_result;
     else if (is_vset) result_ex = {{XLEN - 8{1'b0}}, vl_d};
     else if (csr_access_ex) result_ex = csr_rdata;
     else result_ex = alu_result;

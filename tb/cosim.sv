@@ -66,15 +66,13 @@ module cosim ();
 
   logic [     7:0] r_vtag;
   logic            r_vretire;
-  logic [     4:0] r_vvd;
-  logic [     3:0] r_vregs;
+  logic [    31:0] r_vwregs;
   logic            r_vidle;
   logic [Vlen-1:0] vpeek     [Vregs];
 
   assign r_vtag = dut.riscv_pipelined_inst.dbg_vec_tag;
   assign r_vretire = dut.riscv_pipelined_inst.dbg_vec_retire;
-  assign r_vvd = dut.riscv_pipelined_inst.dbg_vec_vd;
-  assign r_vregs = dut.riscv_pipelined_inst.dbg_vec_regs;
+  assign r_vwregs = dut.riscv_pipelined_inst.dbg_vec_wregs;
   assign r_vidle = dut.riscv_pipelined_inst.dbg_vec_idle;
 
   for (genvar b = 0; b < Vlen; b++) begin : g_vtap
@@ -131,11 +129,9 @@ module cosim ();
 
   // Vector group written
   task automatic emit_vcommit();
-    int base;
     begin
-      base = int'(r_vvd);
-      for (int g = 0; g < int'(r_vregs); g++)
-      $display("VCOMMIT %0d %0d %032x", r_vtag, (base + g) % Vregs, vpeek[(base+g)%Vregs]);
+      for (int g = 0; g < Vregs; g++)
+      if (r_vwregs[g]) $display("VCOMMIT %0d %0d %032x", r_vtag, g, vpeek[g]);
     end
   endtask
 
