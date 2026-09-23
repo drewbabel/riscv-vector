@@ -25,7 +25,9 @@
     "editor.tabSize": 4,
     "editor.insertSpaces": true,
     "editor.detectIndentation": false,
-    "editor.rulers": [80]
+    "editor.rulers": [
+      80
+    ]
   },
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff",
@@ -33,10 +35,26 @@
     "editor.tabSize": 4,
     "editor.insertSpaces": true,
     "editor.detectIndentation": false,
-    "editor.rulers": [80]
+    "editor.rulers": [
+      80
+    ]
   },
   "C_Cpp.formatting": "clangFormat",
   "C_Cpp.clang_format_fallbackStyle": "{ BasedOnStyle: LLVM, IndentWidth: 4, ColumnLimit: 80 }",
   "C_Cpp.default.cStandard": "c11",
-  "ruff.lineLength": 80
+  "ruff.lineLength": 80,
+  "verilog.languageServer.server": "verible-verilog-ls",
+  "verilog.languageServer.path": "verible-verilog-ls",
+  "verilog.lint.slang.enabled": false,
+  "verilog.lint.iverilog.enabled": true,
+  "verilog.lint.iverilog.path": "iverilog",
+  "verilog.lint.iverilog.args": "-g2012 -y . -y rtl -y ../rtl -y ../../rtl -Y .v -Y .sv",
+  "verilog.lint.iverilog.runAtFileLocation": true,
+  "verilog.lint.verilator.enabled": true,
+  "verilog.lint.verilator.path": "verilator",
+  "verilog.lint.verilator.args": "-Wno-TIMESCALEMOD -y . -y rtl -y ../rtl -y ../../rtl +libext+.v+.sv",
+  "verilog.lint.verilator.runAtFileLocation": true,
+  "verilog.svFormat.verible.path": "verible-verilog-format",
+  "verilog.verilogFormat.veribleFormatter.path": "verible-verilog-format",
+  "editor.semanticHighlighting.enabled": true
 }

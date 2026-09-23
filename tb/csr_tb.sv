@@ -38,6 +38,11 @@ module csr_tb;
   logic [     7:0] vl_d;
   logic [Xlen-1:0] vtype_d;
   logic            is_vec_instr;
+  logic [     1:0] vec_vxrm;
+  logic            vec_vxsat;
+  logic            vec_csr_we;
+  logic [    11:0] vec_csr_waddr;
+  logic [Xlen-1:0] vec_csr_wdata;
   logic [     7:0] vl_q;
   logic [Xlen-1:0] vtype_q;
 
@@ -81,7 +86,12 @@ module csr_tb;
       .vtype_d             (vtype_d),
       .is_vec_instr        (is_vec_instr),
       .vl_q                (vl_q),
-      .vtype_q             (vtype_q)
+      .vtype_q             (vtype_q),
+      .vec_vxrm            (vec_vxrm),
+      .vec_vxsat           (vec_vxsat),
+      .vec_csr_we          (vec_csr_we),
+      .vec_csr_waddr       (vec_csr_waddr),
+      .vec_csr_wdata       (vec_csr_wdata)
   );
 
   task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
@@ -106,6 +116,8 @@ module csr_tb;
     ext_irq      = 0;
     is_vset      = 0;
     is_vec_instr = 0;
+    vec_vxrm = 2'd0;
+    vec_vxsat = 1'b0;
     vl_d         = 0;
     vtype_d      = 0;
     {exc_illegal, exc_ecall, exc_ebreak} = 0;
@@ -345,6 +357,42 @@ module csr_tb;
     csr_trap("vlenb_seti_zero_no_trap", Funct3Csrrsi, VlenbAddr, 32'h0, 1'b0);
   endtask
 
+  // Fixed-point registers
+  task automatic test_fixed_point();
+    vec_vxrm  = 2'd2;
+    vec_vxsat = 1'b1;
+    csr_peek(VxrmAddr);
+    check("vxrm_reads_the_unit", csr_rdata, 32'd2);
+    csr_peek(VxsatAddr);
+    check("vxsat_reads_the_unit", csr_rdata, 32'd1);
+    csr_peek(VcsrAddr);
+    check("vcsr_mirrors_both", csr_rdata, 32'd5);
+
+    csr_drive(Funct3Csrrw, VxrmAddr, 32'd1);
+    #1;
+    check("vxrm_write_forwards", Xlen'(vec_csr_we), 32'd1);
+    check("vxrm_write_address", Xlen'(vec_csr_waddr), Xlen'(VxrmAddr));
+    check("vxrm_write_data", vec_csr_wdata, 32'd1);
+    csr_commit();
+
+    csr_drive(Funct3Csrrc, VcsrAddr, 32'd1);
+    #1;
+    check("vcsr_clear_forwards", Xlen'(vec_csr_we), 32'd1);
+    check("vcsr_clear_data", vec_csr_wdata, 32'd4);
+    csr_commit();
+
+    csr_drive(Funct3Csrrsi, VxsatAddr, 32'd0);
+    #1;
+    check("vxsat_read_only_access", Xlen'(vec_csr_we), 32'd0);
+    csr_commit();
+
+    csr_peek(MstatusAddr);
+    check("fixed_point_write_dirties", Xlen'(csr_rdata[MstatusVsLo+1:MstatusVsLo]),
+          Xlen'(VsDirty));
+    vec_vxrm  = 2'd0;
+    vec_vxsat = 1'b0;
+  endtask
+
   task automatic test_vs_off();
     set_vs(VsOff);
 
@@ -376,6 +424,7 @@ module csr_tb;
     test_config();
     test_mstatus();
     test_readonly();
+    test_fixed_point();
     test_vs_off();
     verdict();
   end

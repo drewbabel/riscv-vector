@@ -428,7 +428,9 @@ def gen_vec(seed):
     for _ in range(rng.randint(16, 36)):
         size = VSIZE[sew]
         kind = rng.choice(["vle", "vse", "vle", "vse", "vlse", "vsse", "whole", "sw", "lw",
-                           "sb", "lb", "vset", "fence"])
+                           "sb", "lb", "vset", "fence", "wide", "widew", "narrow", "ext",
+                           "red", "wred", "movsx", "movxs", "cmp", "cmpgt", "mlogic", "mset",
+                           "miota", "mpop", "vlm"])
         mask = ", v0.t" if rng.random() < 0.3 else ""
         match kind:
             case "vle" | "vse":
@@ -453,6 +455,135 @@ def gen_vec(seed):
                 body.append(f"sb x{rng.randint(1, 31)}, {rng.randint(0, 255)}(x{BASE_REG})")
             case "lb":
                 body.append(f"lbu x{rng.choice([12, 13, 14])}, {rng.randint(0, 255)}(x{BASE_REG})")
+            case "wide":
+                if sew < 32:
+                    op = rng.choice(["vwaddu", "vwadd", "vwsubu", "vwsub"])
+                    form = rng.choice([".vv", ".vx"])
+                    src = (f"v{rng.randint(1, 15)}" if form == ".vv"
+                           else f"x{rng.choice([12, 13, 14])}")
+                    body.append(f"{op}{form} v{rng.randrange(16, 31, 2)}, "
+                                f"v{rng.randint(1, 15)}, {src}{mask}")
+            case "widew":
+                if sew < 32:
+                    op = rng.choice(["vwaddu", "vwadd", "vwsubu", "vwsub"])
+                    form = rng.choice([".wv", ".wx"])
+                    src = (f"v{rng.randint(1, 15)}" if form == ".wv"
+                           else f"x{rng.choice([12, 13, 14])}")
+                    body.append(f"{op}{form} v{rng.randrange(16, 31, 2)}, "
+                                f"v{rng.randrange(16, 31, 2)}, {src}{mask}")
+            case "narrow":
+                if sew < 32:
+                    op = rng.choice(["vnsrl", "vnsra"])
+                    form = rng.choice([".wv", ".wx", ".wi"])
+                    src = {".wv": f"v{rng.randint(1, 15)}",
+                           ".wx": f"x{rng.choice([12, 13, 14])}",
+                           ".wi": f"{rng.randint(0, 31)}"}[form]
+                    body.append(f"{op}{form} v{rng.randint(1, 15)}, "
+                                f"v{rng.randrange(16, 31, 2)}, {src}{mask}")
+            case "ext":
+                if sew > 8:
+                    ops = ["vzext.vf2", "vsext.vf2"]
+                    if sew == 32:
+                        ops += ["vzext.vf4", "vsext.vf4"]
+                    body.append(f"{rng.choice(ops)} v{rng.randint(16, 31)}, "
+                                f"v{rng.randint(1, 15)}{mask}")
+            case "red":
+                op = rng.choice(["vredsum", "vredand", "vredor", "vredxor", "vredminu",
+                                 "vredmin", "vredmaxu", "vredmax"])
+                body.append(f"{op}.vs v{rng.randint(16, 31)}, v{rng.randint(1, 15)}, "
+                            f"v{rng.randint(1, 15)}{mask}")
+            case "wred":
+                if sew < 32:
+                    op = rng.choice(["vwredsum", "vwredsumu"])
+                    body.append(f"{op}.vs v{rng.randint(16, 31)}, v{rng.randint(1, 15)}, "
+                                f"v{rng.randint(1, 15)}{mask}")
+            case "cmp":
+                op = rng.choice(["vmseq", "vmsne", "vmsltu", "vmslt", "vmsleu", "vmsle"])
+                form = rng.choice([".vv", ".vx", ".vi"])
+                src = {".vv": f"v{rng.randint(1, 15)}",
+                       ".vx": f"x{rng.choice([12, 13, 14])}",
+                       ".vi": f"{rng.randint(-15, 15)}"}[form]
+                body.append(f"{op}{form} v{rng.randint(16, 31)}, "
+                            f"v{rng.randint(1, 15)}, {src}{mask}")
+            case "cmpgt":
+                op = rng.choice(["vmsgtu", "vmsgt"])
+                form = rng.choice([".vx", ".vi"])
+                src = (f"x{rng.choice([12, 13, 14])}" if form == ".vx"
+                       else f"{rng.randint(-15, 15)}")
+                body.append(f"{op}{form} v{rng.randint(16, 31)}, "
+                            f"v{rng.randint(1, 15)}, {src}{mask}")
+            case "mlogic":
+                op = rng.choice(["vmand", "vmnand", "vmandn", "vmor", "vmnor", "vmorn", "vmxor",
+                                 "vmxnor"])
+                body.append(f"{op}.mm v{rng.randint(16, 31)}, v{rng.randint(1, 15)}, "
+                            f"v{rng.randint(1, 15)}")
+            case "mset":
+                op = rng.choice(["vmsbf", "vmsif", "vmsof"])
+                body.append(f"{op}.m v{rng.randint(16, 31)}, v{rng.randint(1, 15)}{mask}")
+            case "miota":
+                if rng.random() < 0.5:
+                    body.append(f"viota.m v{rng.randint(16, 31)}, v{rng.randint(1, 15)}{mask}")
+                else:
+                    body.append(f"vid.v v{rng.randint(16, 31)}{mask}")
+            case "mpop":
+                op = rng.choice(["vcpop", "vfirst"])
+                body.append(f"{op}.m x{rng.choice([12, 13, 14])}, v{rng.randint(1, 15)}{mask}")
+            case "vlm":
+                body.append(f"addi x{VBASE}, x{BASE_REG}, {rng.randrange(0, 241, 4)}")
+                if rng.random() < 0.5:
+                    body.append(f"vlm.v v{rng.randint(16, 31)}, (x{VBASE})")
+                else:
+                    body.append(f"vsm.v v{rng.randint(1, 15)}, (x{VBASE})")
+            case "movsx":
+                body.append(f"vmv.s.x v{rng.randint(16, 31)}, x{rng.choice([12, 13, 14])}")
+            case "movxs":
+                body.append(f"vmv.x.s x{rng.choice([12, 13, 14])}, v{rng.randint(1, 15)}")
+            case "wide":
+                if sew < 32:
+                    op = rng.choice(["vwaddu", "vwadd", "vwsubu", "vwsub"])
+                    form = rng.choice([".vv", ".vx"])
+                    src = (f"v{rng.randint(1, 15)}" if form == ".vv"
+                           else f"x{rng.choice([12, 13, 14])}")
+                    body.append(f"{op}{form} v{rng.randrange(16, 31, 2)}, "
+                                f"v{rng.randint(1, 15)}, {src}{mask}")
+            case "widew":
+                if sew < 32:
+                    op = rng.choice(["vwaddu", "vwadd", "vwsubu", "vwsub"])
+                    form = rng.choice([".wv", ".wx"])
+                    src = (f"v{rng.randint(1, 15)}" if form == ".wv"
+                           else f"x{rng.choice([12, 13, 14])}")
+                    body.append(f"{op}{form} v{rng.randrange(16, 31, 2)}, "
+                                f"v{rng.randrange(16, 31, 2)}, {src}{mask}")
+            case "narrow":
+                if sew < 32:
+                    op = rng.choice(["vnsrl", "vnsra"])
+                    form = rng.choice([".wv", ".wx", ".wi"])
+                    src = {".wv": f"v{rng.randint(1, 15)}",
+                           ".wx": f"x{rng.choice([12, 13, 14])}",
+                           ".wi": f"{rng.randint(0, 31)}"}[form]
+                    body.append(f"{op}{form} v{rng.randint(1, 15)}, "
+                                f"v{rng.randrange(16, 31, 2)}, {src}{mask}")
+            case "ext":
+                if sew > 8:
+                    ops = ["vzext.vf2", "vsext.vf2"]
+                    if sew == 32:
+                        ops += ["vzext.vf4", "vsext.vf4"]
+                    body.append(f"{rng.choice(ops)} v{rng.randint(16, 31)}, "
+                                f"v{rng.randint(1, 15)}{mask}")
+            case "red":
+                op = rng.choice(["vredsum", "vredand", "vredor", "vredxor", "vredminu",
+                                 "vredmin", "vredmaxu", "vredmax"])
+                body.append(f"{op}.vs v{rng.randint(16, 31)}, v{rng.randint(1, 15)}, "
+                            f"v{rng.randint(1, 15)}{mask}")
+            case "wred":
+                if sew < 32:
+                    op = rng.choice(["vwredsum", "vwredsumu"])
+                    body.append(f"{op}.vs v{rng.randint(16, 31)}, v{rng.randint(1, 15)}, "
+                                f"v{rng.randint(1, 15)}{mask}")
+            case "movsx":
+                body.append(f"vmv.s.x v{rng.randint(16, 31)}, x{rng.choice([12, 13, 14])}")
+            case "movxs":
+                body.append(f"vmv.x.s x{rng.choice([12, 13, 14])}, v{rng.randint(1, 15)}")
             case "vset":
                 vset()
             case "fence":

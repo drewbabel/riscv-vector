@@ -75,7 +75,7 @@ build/pipeline_rvfi.ron: $(PIPE_LAYOUT)
 formal:
 	@test -n "$(MOD)" || { echo "usage: make formal MOD=<module>  (e.g. MOD=alu)"; exit 1; }
 	@mkdir -p build
-	sv2v -E Assert -D RISCV_FORMAL $(RTL) formal/$(MOD)_formal.sv > build/$(MOD)_formal.v
+	sv2v -E Assert -D RISCV_FORMAL -D RISCV_FORMAL_ABSTRACT_XRES $(RTL) formal/$(MOD)_formal.sv > build/$(MOD)_formal.v
 	@sby -f $(FORMAL) $(TASK) 2>&1 | tee build/$(MOD)_sby.log; rc=$${PIPESTATUS[0]}; \
 	  grep -oE '$(MOD)_formal\.v:[0-9]+' build/$(MOD)_sby.log | sort -u | while read -r hit; do \
 	    ln=$${hit##*:}; \

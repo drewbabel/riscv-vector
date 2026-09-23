@@ -37,6 +37,9 @@ module control_decoder
   localparam logic [1:0] SrcAPc = 2'd1;
   localparam logic [1:0] SrcAZero = 2'd2;
 
+  localparam logic [2:0] Funct3Opmvv = 3'b010;
+  localparam logic [5:0] Funct6Vwxunary = 6'b010000;
+
   // result_src 0=alu 1=mem 2=pc+4
   localparam logic [1:0] ResAlu = 2'd0;
   localparam logic [1:0] ResMem = 2'd1;
@@ -150,9 +153,9 @@ module control_decoder
       end
 
       OpcodeOpV: begin
-        if (funct3 == Funct3Opcfg) begin
-          reg_write = 1'b1;
-        end
+        // Scalar result forms
+        if (funct3 == Funct3Opcfg) reg_write = 1'b1;
+        else if ((funct3 == Funct3Opmvv) && (funct12[11:6] == Funct6Vwxunary)) reg_write = 1'b1;
       end
 
       default: ;  // Illegal opcode nop

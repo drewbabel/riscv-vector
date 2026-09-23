@@ -22,6 +22,7 @@ module vec_decode
     // Memory forms
     output logic [1:0] mem_width,
     output logic       mem_whole,
+    output logic       mem_mask,
     output logic       mem_strided
 );
 
@@ -67,6 +68,7 @@ module vec_decode
     writes_mask = 1'b0;
     mem_width = 2'd0;
     mem_whole = 1'b0;
+    mem_mask = 1'b0;
     mem_strided = 1'b0;
     width_ok = 1'b0;
     mem_op = VEC_LOAD;
@@ -88,6 +90,10 @@ module vec_decode
             if ((vs2 == 5'b01000) && vm && (is_load || funct3 == 3'b000)) begin
               op = mem_op;
               mem_whole = 1'b1;
+            end
+            if ((vs2 == 5'b01011) && vm && (funct3 == 3'b000)) begin
+              op = mem_op;
+              mem_mask = 1'b1;
             end
           end
           2'b10: begin

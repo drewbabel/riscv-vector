@@ -42,3 +42,4 @@ scratch/
 
 !.vscode/settings.json
 !.vscode/extensions.json
+!.devcontainer/devcontainer.json
