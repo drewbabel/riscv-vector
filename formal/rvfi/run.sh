@@ -17,7 +17,7 @@ cp "$HERE/rvfi_wrapper.sv" "$DST/wrapper.sv"
 cp "$HERE/checks.cfg" "$DST/checks.cfg"
 
 # every module in rtl
-sv2v -D RISCV_FORMAL "$ROOT"/rtl/*.sv > "$DST/$CORE.v"
+sv2v -D RISCV_FORMAL -D RISCV_FORMAL_ABSTRACT_XRES "$ROOT"/rtl/*.sv > "$DST/$CORE.v"
 
 cd "$DST"
 python3 "$RVF/checks/genchecks.py" >&2

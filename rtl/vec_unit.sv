@@ -610,6 +610,8 @@ module vec_unit
   // Scalar return path
   logic [31:0] xres_q;
   logic [31:0] elem_zero;
+  logic [31:0] xs_val;
+  logic [31:0] xm_val;
 
   always_comb begin
     case (seq_vsew)
@@ -626,11 +628,21 @@ module vec_unit
     else if (core_en) slot_first <= seq_start && !seq_mem;
   end
 
+`ifdef RISCV_FORMAL_ABSTRACT_XRES
+  // Free scalar result
+  (* anyseq *) logic [31:0] fv_xres;
+  assign xs_val = fv_xres;
+  assign xm_val = fv_xres;
+`else
+  assign xs_val = elem_zero;
+  assign xm_val = mask_xresult;
+`endif
+
   always_ff @(posedge clk) begin
     if (!rst_n) xres_q <= 32'd0;
     else if (core_en) begin
-      if (seq_busy && (elem_base == 8'd0) && (seq_cls == VEC_CLS_XS)) xres_q <= elem_zero;
-      else if ((seq_busy || slot_first) && (seq_cls == VEC_CLS_XM)) xres_q <= mask_xresult;
+      if (seq_busy && (elem_base == 8'd0) && (seq_cls == VEC_CLS_XS)) xres_q <= xs_val;
+      else if ((seq_busy || slot_first) && (seq_cls == VEC_CLS_XM)) xres_q <= xm_val;
     end
   end
 
