@@ -1,0 +1,94 @@
+name: Review
+
+env:
+  OSS_CAD_SUITE: '2026-07-24'
+  VERIBLE: 'v0.0-4283-ga1b0580b'
+  PKGS: >-
+    rtl/alu_pkg.sv rtl/csr_pkg.sv rtl/opcode_pkg.sv rtl/muldiv_pkg.sv rtl/bp_pkg.sv
+    rtl/cache_pkg.sv rtl/vec_pkg.sv
+  CLANG_STYLE: '{BasedOnStyle: LLVM, IndentWidth: 4, ColumnLimit: 80}'
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    env:
+      REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - uses: reviewdog/action-setup@v1
+      - name: Install Verible, ruff and clang-format
+        run: |
+          curl -fsSL "https://github.com/chipsalliance/verible/releases/download/$VERIBLE/verible-$VERIBLE-linux-static-x86_64.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/verible-$VERIBLE/bin" >> "$GITHUB_PATH"
+          pip install --quiet ruff
+          sudo apt-get install -y -qq clang-format
+      - name: List changed files
+        run: |
+          git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}...HEAD" > "$RUNNER_TEMP/changed"
+          grep -E '\.s?v$' "$RUNNER_TEMP/changed" > "$RUNNER_TEMP/sv" || true
+          grep -E '\.py$' "$RUNNER_TEMP/changed" > "$RUNNER_TEMP/py" || true
+          grep -E '\.(c|h)$' "$RUNNER_TEMP/changed" > "$RUNNER_TEMP/c" || true
+          grep -vE '\.(s?v|py|c|h|md)$|^Makefile$|\.mk$|\.(bin|hex|pdf|png|svg|zip)$' "$RUNNER_TEMP/changed" > "$RUNNER_TEMP/text" || true
+      - name: Verible lint
+        run: |
+          while read -r f; do verible-verilog-lint "$f" || true; done < "$RUNNER_TEMP/sv" \
+            | reviewdog -efm='%f:%l:%c-%*[0-9]: %m' -efm='%f:%l:%c: %m' \
+                -name=verible-lint -reporter=github-pr-review -filter-mode=added -fail-level=none
+      - name: Verilator lint
+        run: |
+          while read -r f; do
+            top=$(basename "$f" | sed 's/\.s\?v$//')
+            pkgs=$(echo $PKGS | tr ' ' '\n' | grep -vx "$f" | tr '\n' ' ')
+            opts="--top-module $top"
+            case "$f" in tb/*) opts="$opts --timing" ;; *_pkg.sv) opts="" ;; esac
+            verilator --lint-only -Wno-TIMESCALEMOD $opts -y rtl +libext+.v+.sv \
+              $pkgs "$f" 2>&1 || true
+          done < "$RUNNER_TEMP/sv" \
+            | reviewdog -efm='%%%tarning-%*[A-Z0-9_]: %f:%l:%c: %m' -efm='%%%trror-%*[A-Z0-9_]: %f:%l:%c: %m' \
+                -efm='%%%trror: %f:%l:%c: %m' -efm='%-G%.%#' \
+                -name=verilator -reporter=github-pr-review -filter-mode=added -fail-level=none
+      - name: iverilog lint
+        run: |
+          while read -r f; do
+            pkgs=$(echo $PKGS | tr ' ' '\n' | grep -vx "$f" | tr '\n' ' ')
+            iverilog -g2012 -y rtl -Y .sv -o /dev/null $pkgs "$f" 2>&1 || true
+          done < "$RUNNER_TEMP/sv" \
+            | reviewdog -efm='%f:%l: %trror: %m' -efm='%f:%l: %tarning: %m' -efm='%-G%.%#' \
+                -name=iverilog -reporter=github-pr-review -filter-mode=added -fail-level=none
+      - name: Ruff lint
+        run: |
+          if [ -s "$RUNNER_TEMP/py" ]; then
+            ruff check --output-format=concise --line-length 80 $(cat "$RUNNER_TEMP/py") || true
+          fi | reviewdog -efm='%f:%l:%c: %m' -efm='%-G%.%#' \
+                -name=ruff -reporter=github-pr-review -filter-mode=added -fail-level=none
+      - name: Apply formatters
+        run: |
+          [ -s "$RUNNER_TEMP/sv" ] && verible-verilog-format --inplace $(cat "$RUNNER_TEMP/sv") || true
+          [ -s "$RUNNER_TEMP/py" ] && ruff format --line-length 80 $(cat "$RUNNER_TEMP/py") || true
+          [ -s "$RUNNER_TEMP/c" ] && clang-format -i -style="$CLANG_STYLE" $(cat "$RUNNER_TEMP/c") || true
+          while read -r f; do
+            sed -i 's/[ \t]*$//' "$f"
+            [ -n "$(tail -c1 "$f")" ] && echo >> "$f"
+          done < "$RUNNER_TEMP/text"
+      - uses: reviewdog/action-suggester@v1
+        with:
+          tool_name: format
+          filter_mode: added
+          fail_level: none
