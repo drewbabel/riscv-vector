@@ -48,7 +48,7 @@ jobs:
           grep -vE '\.(s?v|py|c|h|md)$|^Makefile$|\.mk$|\.(bin|hex|pdf|png|svg|zip)$' "$RUNNER_TEMP/changed" > "$RUNNER_TEMP/text" || true
       - name: Verible lint
         run: |
-          while read -r f; do verible-verilog-lint "$f" || true; done < "$RUNNER_TEMP/sv" \
+          while read -r f; do verible-verilog-lint "$f" 2>&1 || true; done < "$RUNNER_TEMP/sv" \
             | reviewdog -efm='%f:%l:%c-%*[0-9]: %m' -efm='%f:%l:%c: %m' \
                 -name=verible-lint -reporter=github-pr-review -filter-mode=added -fail-level=none
       - name: Verilator lint
