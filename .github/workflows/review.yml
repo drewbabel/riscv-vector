@@ -85,7 +85,7 @@ jobs:
           [ -s "$RUNNER_TEMP/c" ] && clang-format -i -style="$CLANG_STYLE" $(cat "$RUNNER_TEMP/c") || true
           while read -r f; do
             sed -i 's/[ \t]*$//' "$f"
-            [ -n "$(tail -c1 "$f")" ] && echo >> "$f"
+            if [ -n "$(tail -c1 "$f")" ]; then echo >> "$f"; fi
           done < "$RUNNER_TEMP/text"
       - uses: reviewdog/action-suggester@v1
         with:
