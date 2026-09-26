@@ -82,6 +82,10 @@ module board_top
   logic            dc_ready;
   logic [XLEN-1:0] dc_rdata;
 
+  logic [ LineBits-1:0] dc_line;
+  logic [ LineBits-1:0] dc_wdata;
+  logic [LineBytes-1:0] dc_wstrb;
+
   logic                ic_mem_valid;
   logic [    XLEN-1:0] ic_mem_addr;
   logic [LineBits-1:0] ic_mem_rdata;
@@ -454,6 +458,11 @@ module board_top
         .miss_count(ic_misses)
     );
 
+    // Word into line
+    assign dc_wdata = {LineWords{store_data}};
+    assign dc_wstrb = LineBytes'(store_wstrb) << (4 * mem_addr[2+:BlkOffLen]);
+    assign dc_rdata = dc_line[mem_addr[2+:BlkOffLen]*XLEN+:XLEN];
+
     dcache #(
         .XLEN(XLEN)
     ) dcache_inst (
@@ -463,9 +472,9 @@ module board_top
         .cpu_valid (dmem_req && !periph_sel),
         .cpu_rw    (|store_wstrb),
         .cpu_addr  (mem_addr),
-        .cpu_wdata (store_data),
-        .cpu_wstrb (store_wstrb),
-        .cpu_rdata (dc_rdata),
+        .cpu_wdata (dc_wdata),
+        .cpu_wstrb (dc_wstrb),
+        .cpu_rdata (dc_line),
         .cpu_ready (dc_ready),
         .mem_valid (dc_mem_valid),
         .mem_rw    (dc_mem_rw),
