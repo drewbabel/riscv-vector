@@ -5,6 +5,7 @@ package cache_pkg;
   // Line geometry
   parameter int LineWords = 4;
   parameter int LineBits = 32 * LineWords;
+  parameter int LineBytes = 4 * LineWords;
   parameter int BlkOffLen = $clog2(LineWords);
   parameter int IdxLsb = 2 + BlkOffLen;
 
