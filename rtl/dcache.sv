@@ -93,6 +93,9 @@ module dcache
   logic [ LineBits-1:0]             line_write;
   logic                             fill;
   logic                             write_hit;
+  logic                             full_store;
+  logic                             install;
+  logic [ DcWaySel-1:0]             touch_way;
   logic                             init_done;
 
   assign addr_tag = req_addr[XLEN-1 : XLEN-DcTagLen];
@@ -129,10 +132,13 @@ module dcache
     for (int w = 0; w < DcWays; w++) if (way_hit[w]) hit_way = DcWaySel'(w);
   end
 
-  assign write_hit   = (state == COMPARE) && hit && req_rw;
+  assign write_hit = (state == COMPARE) && hit && req_rw;
+  assign full_store = &req_wstrb && req_rw;
+  assign install = full_store &&
+      (((state == COMPARE) && !hit && !victim_dirty) || ((state == WRITE_BACK) && mem_ready));
 
   // Bit 0 old half, 1 old of 01, 2 old of 23
-  assign plru_tree   = plru_mem[addr_idx];
+  assign plru_tree = plru_mem[addr_idx];
   assign plru_way[1] = plru_tree[0];
   assign plru_way[0] = plru_tree[0] ? plru_tree[2] : plru_tree[1];
 
@@ -166,17 +172,20 @@ module dcache
       INIT: if (init_done) next_state = IDLE;
       IDLE: if (cpu_valid) next_state = COMPARE;
       COMPARE: begin
-        if (hit) next_state = IDLE;
+        if (hit || install) next_state = IDLE;
         else if (victim_dirty) next_state = WRITE_BACK;
         else next_state = ALLOCATE;
       end
-      WRITE_BACK: if (mem_ready) next_state = ALLOCATE;
+      WRITE_BACK: begin
+        if (install) next_state = IDLE;
+        else if (mem_ready) next_state = ALLOCATE;
+      end
       ALLOCATE: if (mem_ready) next_state = COMPARE;
       default: ;
     endcase
   end
 
-  assign cpu_ready = (state == COMPARE) && hit;
+  assign cpu_ready = ((state == COMPARE) && hit) || install;
 
   // Line memory request
   assign mem_valid = (state == WRITE_BACK) || (state == ALLOCATE);
@@ -228,6 +237,10 @@ module dcache
         data_we[w]   = 1'b1;
         tag_wdata[w] = {1'b1, 1'b0, addr_tag};
       end else if (write_hit && (hit_way == DcWaySel'(w))) begin
+        tag_we[w]    = 1'b1;
+        data_we[w]   = 1'b1;
+        tag_wdata[w] = {1'b1, 1'b1, addr_tag};
+      end else if (install && (victim_way == DcWaySel'(w))) begin
         tag_we[w]    = 1'b1;
         data_we[w]   = 1'b1;
         tag_wdata[w] = {1'b1, 1'b1, addr_tag};
@@ -284,19 +297,22 @@ module dcache
     end
   end
 
+  // Hit or installed way
+  assign touch_way = install ? victim_way : hit_way;
+
   // Touch points away
   always_comb begin
     plru_next = plru_tree;
-    plru_next[0] = ~hit_way[1];
-    if (hit_way[1]) plru_next[2] = ~hit_way[0];
-    else plru_next[1] = ~hit_way[0];
+    plru_next[0] = ~touch_way[1];
+    if (touch_way[1]) plru_next[2] = ~touch_way[0];
+    else plru_next[1] = ~touch_way[0];
   end
 
   // Update on hit
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       plru_mem <= '0;
-    end else if (core_en && (state == COMPARE) && hit) begin
+    end else if (core_en && (((state == COMPARE) && hit) || install)) begin
       plru_mem[addr_idx] <= plru_next;
     end
   end
