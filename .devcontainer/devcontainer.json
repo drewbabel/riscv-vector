@@ -11,7 +11,14 @@
         "ms-vscode.cpptools",
         "charliermarsh.ruff",
         "editorconfig.editorconfig"
-      ]
+      ],
+      "settings": {
+        "verilog.languageServer.server": "verible-verilog-ls",
+        "verilog.languageServer.path": "/usr/local/bin/verible-verilog-ls",
+        "verilog.languageServer.args": [
+          "--try_wrap_long_lines"
+        ]
+      }
     }
   }
 }
