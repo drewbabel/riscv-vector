@@ -11,14 +11,14 @@ module vec_unit
     localparam int MaxElems = VLEN / 8
 ) (
 `ifdef RISCV_FORMAL
-    output logic [       7:0] dbg_vec_tag,
-    output logic              dbg_vec_retire,
-    output logic [      31:0] dbg_vec_wregs,
-    output logic              dbg_vec_idle,
+    output logic [ 7:0] dbg_vec_tag,
+    output logic        dbg_vec_retire,
+    output logic [31:0] dbg_vec_wregs,
+    output logic        dbg_vec_idle,
 `endif
-    input logic clk,
-    input logic rst_n,
-    input logic core_en,
+    input  logic        clk,
+    input  logic        rst_n,
+    input  logic        core_en,
 
     // Execute stage
     input logic [31:0] instr,
@@ -34,11 +34,11 @@ module vec_unit
     input logic [2:0] vlmul,
 
     // Memory port
-    input  logic [    VLEN-1:0] mem_rdata,
-    input  logic                mem_ready,
-    output logic                mem_req,
-    output logic [        31:0] mem_addr,
-    output logic [    VLEN-1:0] mem_wdata,
+    input  logic [  VLEN-1:0] mem_rdata,
+    input  logic              mem_ready,
+    output logic              mem_req,
+    output logic [      31:0] mem_addr,
+    output logic [  VLEN-1:0] mem_wdata,
     output logic [VLEN/8-1:0] mem_wstrb,
 
     // Memory checks
@@ -66,91 +66,91 @@ module vec_unit
 );
 
   // Decoded fields
-  logic                    dec_valid;
-  vec_op_e                 dec_op;
-  vec_src_e                dec_src;
-  vec_eew_e                dec_eew;
-  logic                    dec_vm;
-  logic     [  AWIDTH-1:0] dec_vs1;
-  logic     [  AWIDTH-1:0] dec_vs2;
-  logic     [  AWIDTH-1:0] dec_vd;
-  logic     [         4:0] dec_simm;
-  logic                    dec_reads_vd;
-  logic                    dec_reads_xreg;
-  logic                    dec_writes_xreg;
-  logic                    dec_writes_mask;
-  logic     [         1:0] dec_width;
-  logic                    dec_whole;
-  logic                    dec_mask_ls;
-  logic                    dec_strided;
+  logic                     dec_valid;
+  vec_op_e                  dec_op;
+  vec_src_e                 dec_src;
+  vec_eew_e                 dec_eew;
+  logic                     dec_vm;
+  logic      [  AWIDTH-1:0] dec_vs1;
+  logic      [  AWIDTH-1:0] dec_vs2;
+  logic      [  AWIDTH-1:0] dec_vd;
+  logic      [         4:0] dec_simm;
+  logic                     dec_reads_vd;
+  logic                     dec_reads_xreg;
+  logic                     dec_writes_xreg;
+  logic                     dec_writes_mask;
+  logic      [         1:0] dec_width;
+  logic                     dec_whole;
+  logic                     dec_mask_ls;
+  logic                     dec_strided;
 
   // Issued instruction
-  vec_op_e                 seq_op;
-  vec_src_e                seq_src;
-  vec_eew_e                seq_eew;
-  logic                    seq_start;
-  logic     [  AWIDTH-1:0] seq_vs1;
-  logic     [  AWIDTH-1:0] seq_vs2;
-  logic     [  AWIDTH-1:0] seq_vd;
-  logic                    seq_vm;
-  logic                    seq_reads_vd;
-  logic     [         4:0] seq_simm;
-  logic     [        31:0] seq_xdata;
-  logic     [        31:0] seq_xstride;
-  logic     [         7:0] seq_vl;
-  logic     [         2:0] seq_vsew;
-  logic     [         2:0] seq_vlmul;
-  logic     [         1:0] seq_vxrm;
+  vec_op_e                  seq_op;
+  vec_src_e                 seq_src;
+  vec_eew_e                 seq_eew;
+  logic                     seq_start;
+  logic      [  AWIDTH-1:0] seq_vs1;
+  logic      [  AWIDTH-1:0] seq_vs2;
+  logic      [  AWIDTH-1:0] seq_vd;
+  logic                     seq_vm;
+  logic                     seq_reads_vd;
+  logic      [         4:0] seq_simm;
+  logic      [        31:0] seq_xdata;
+  logic      [        31:0] seq_xstride;
+  logic      [         7:0] seq_vl;
+  logic      [         2:0] seq_vsew;
+  logic      [         2:0] seq_vlmul;
+  logic      [         1:0] seq_vxrm;
 
   // Sequencer outputs
-  logic     [  AWIDTH-1:0] raddr1;
-  logic     [  AWIDTH-1:0] raddr2;
-  logic     [  AWIDTH-1:0] raddr3;
-  logic     [  AWIDTH-1:0] waddr;
-  logic     [    VLEN-1:0] wstrb;
-  logic                    wen;
-  logic     [         6:0] s1_off;
-  logic     [         6:0] s2_off;
-  logic     [         6:0] d_off;
-  logic     [         7:0] elem_base;
-  logic     [         4:0] elem_count;
-  logic     [MaxElems-1:0] elem_active;
-  logic                    seq_last;
-  logic                    seq_busy;
-  logic                    seq_done;
+  logic      [  AWIDTH-1:0] raddr1;
+  logic      [  AWIDTH-1:0] raddr2;
+  logic      [  AWIDTH-1:0] raddr3;
+  logic      [  AWIDTH-1:0] waddr;
+  logic      [    VLEN-1:0] wstrb;
+  logic                     wen;
+  logic      [         6:0] s1_off;
+  logic      [         6:0] s2_off;
+  logic      [         6:0] d_off;
+  logic      [         7:0] elem_base;
+  logic      [         4:0] elem_count;
+  logic      [MaxElems-1:0] elem_active;
+  logic                     seq_last;
+  logic                     seq_busy;
+  logic                     seq_done;
 
   // Register file data
-  logic     [    VLEN-1:0] rdata1;
-  logic     [    VLEN-1:0] rdata2;
-  logic     [    VLEN-1:0] rdata3;
-  logic     [    VLEN-1:0] rdata0;
+  logic      [    VLEN-1:0] rdata1;
+  logic      [    VLEN-1:0] rdata2;
+  logic      [    VLEN-1:0] rdata3;
+  logic      [    VLEN-1:0] rdata0;
 
   // Lane results
-  logic     [    VLEN-1:0] alu_result;
-  logic     [    VLEN-1:0] mixed_result;
-  logic     [    VLEN-1:0] red_result;
-  logic     [    VLEN-1:0] mask_result;
-  logic     [        31:0] mask_xresult;
-  logic     [    VLEN-1:0] raw_result;
-  logic     [    VLEN-1:0] wdata;
+  logic      [    VLEN-1:0] alu_result;
+  logic      [    VLEN-1:0] mixed_result;
+  logic      [    VLEN-1:0] red_result;
+  logic      [    VLEN-1:0] mask_result;
+  logic      [        31:0] mask_xresult;
+  logic      [    VLEN-1:0] raw_result;
+  logic      [    VLEN-1:0] wdata;
 
   // Memory sequencer
-  logic                    seq_mem;
-  logic     [  AWIDTH-1:0] m_raddr;
-  logic                    m_wen;
-  logic     [    VLEN-1:0] m_wstrb;
-  logic     [    VLEN-1:0] m_wdata;
-  logic                    m_busy;
-  logic                    m_done;
+  logic                     seq_mem;
+  logic      [  AWIDTH-1:0] m_raddr;
+  logic                     m_wen;
+  logic      [    VLEN-1:0] m_wstrb;
+  logic      [    VLEN-1:0] m_wdata;
+  logic                     m_busy;
+  logic                     m_done;
 
-  logic     [MaxElems-1:0] mask_bits;
-  logic                    issue_hold;
+  logic      [MaxElems-1:0] mask_bits;
+  logic                     issue_hold;
 
   // Instruction classes
-  vec_cls_e                dec_cls;
-  vec_cls_e                seq_cls;
-  vec_geom_t               dec_geom_s;
-  vec_geom_t               seq_geom_s;
+  vec_cls_e                 dec_cls;
+  vec_cls_e                 seq_cls;
+  vec_geom_t                dec_geom_s;
+  vec_geom_t                seq_geom_s;
 
   assign dec_cls = vec_class(dec_op);
   assign seq_cls = vec_class(seq_op);
@@ -177,13 +177,13 @@ module vec_unit
   assign dec_ld = vec_rel_log2(dec_geom_s.d, lsew);
   assign dec_ls1 = vec_rel_log2(dec_geom_s.s1, lsew);
   assign dec_ls2 = vec_rel_log2(dec_geom_s.s2, lsew);
-  assign width_legal = (dec_ld >= 3'd3) && (dec_ld <= 3'd5) && (dec_ls1 >= 3'd3)
-      && (dec_ls1 <= 3'd5) && (dec_ls2 >= 3'd3) && (dec_ls2 <= 3'd5);
+  assign width_legal = (dec_ld >= 3'd3) && (dec_ld <= 3'd5) && (dec_ls1 >= 3'd3) &&
+      (dec_ls1 <= 3'd5) && (dec_ls2 >= 3'd3) && (dec_ls2 <= 3'd5);
 
   // Scalar forms
   logic scalar_legal;
-  assign scalar_legal = ((dec_cls != VEC_CLS_XS) && (dec_cls != VEC_CLS_SX)
-      && (dec_cls != VEC_CLS_MLOG)) || dec_vm;
+  assign scalar_legal = ((dec_cls != VEC_CLS_XS) && (dec_cls != VEC_CLS_SX) &&
+                         (dec_cls != VEC_CLS_MLOG)) || dec_vm;
 
   // Memory snapshot
   logic               dec_mem;
@@ -197,22 +197,20 @@ module vec_unit
 
   assign dec_mem = (dec_cls == VEC_CLS_MEM);
   assign emul_log2 = 4'($signed(vlmul)) + $signed({2'b00, dec_width}) - $signed({1'b0, vsew});
-  assign emul_ok = !dec_mem || dec_whole || dec_mask_ls
-      || (emul_log2 >= -4'sd3 && emul_log2 <= 4'sd3);
+  assign
+      emul_ok = !dec_mem || dec_whole || dec_mask_ls || (emul_log2 >= -4'sd3 && emul_log2 <= 4'sd3);
 
-  assign issue_vl = (dec_mem && dec_whole) ? 8'(VLEN >> (3 + dec_width))
-      : ((dec_mem && dec_mask_ls) ? 8'((vl + 8'd7) >> 3)
-      : ((dec_cls == VEC_CLS_XS) ? 8'd1 : vl));
+  assign issue_vl = (dec_mem && dec_whole) ? 8'(VLEN >> (3 + dec_width)) :
+      ((dec_mem && dec_mask_ls) ? 8'((vl + 8'd7) >> 3) : ((dec_cls == VEC_CLS_XS) ? 8'd1 : vl));
   assign issue_vsew = dec_mem ? {1'b0, dec_width} : vsew;
   assign issue_stride = dec_strided ? xstride : (32'd1 << dec_width);
 
   // Alignment check
-  assign base_off = (dec_width == 2'd2) ? (xdata[1:0] != 2'b00)
-      : ((dec_width == 2'd1) && xdata[0]);
-  assign stride_off = (dec_width == 2'd2) ? (issue_stride[1:0] != 2'b00)
-      : ((dec_width == 2'd1) && issue_stride[0]);
-  assign mem_misaligned = dec_mem && is_vector
-      && (((issue_vl != 8'd0) && base_off) || ((issue_vl > 8'd1) && stride_off));
+  assign base_off = (dec_width == 2'd2) ? (xdata[1:0] != 2'b00) : ((dec_width == 2'd1) && xdata[0]);
+  assign stride_off = (dec_width == 2'd2) ?
+      (issue_stride[1:0] != 2'b00) : ((dec_width == 2'd1) && issue_stride[0]);
+  assign mem_misaligned = dec_mem && is_vector &&
+      (((issue_vl != 8'd0) && base_off) || ((issue_vl > 8'd1) && stride_off));
   assign mem_bad_addr = base_off ? xdata : (xdata + issue_stride);
 
   // Register count of a group
@@ -227,9 +225,8 @@ module vec_unit
   endfunction
 
   // Permitted overlap
-  function automatic logic pair_ok(input logic [5:0] bd, input logic [5:0] nd,
-                                   input logic [2:0] wd, input logic [5:0] bs,
-                                   input logic [5:0] ns, input logic [2:0] ws,
+  function automatic logic pair_ok(input logic [5:0] bd, input logic [5:0] nd, input logic [2:0] wd,
+                                   input logic [5:0] bs, input logic [5:0] ns, input logic [2:0] ws,
                                    input logic src_whole);
     logic hit;
     begin
@@ -242,34 +239,34 @@ module vec_unit
   endfunction
 
   // Group legality
-  logic               dec_store;
-  logic               dec_ext;
-  logic               has_vd;
-  logic               uses_vs1;
-  logic               uses_vs2;
-  logic signed [ 3:0] lmul_log2;
-  logic signed [ 3:0] d_delta;
-  logic signed [ 3:0] s1_delta;
-  logic signed [ 3:0] s2_delta;
-  logic signed [ 3:0] d_emul;
-  logic signed [ 3:0] s1_emul;
-  logic signed [ 3:0] s2_emul;
-  logic        [ 5:0] d_regs;
-  logic        [ 5:0] s1_regs;
-  logic        [ 5:0] s2_regs;
-  logic               emul_legal;
-  logic               align_ok;
-  logic               overlap_ok;
-  logic               mask_ok;
-  logic               group_legal;
+  logic              dec_store;
+  logic              dec_ext;
+  logic              has_vd;
+  logic              uses_vs1;
+  logic              uses_vs2;
+  logic signed [3:0] lmul_log2;
+  logic signed [3:0] d_delta;
+  logic signed [3:0] s1_delta;
+  logic signed [3:0] s2_delta;
+  logic signed [3:0] d_emul;
+  logic signed [3:0] s1_emul;
+  logic signed [3:0] s2_emul;
+  logic        [5:0] d_regs;
+  logic        [5:0] s1_regs;
+  logic        [5:0] s2_regs;
+  logic              emul_legal;
+  logic              align_ok;
+  logic              overlap_ok;
+  logic              mask_ok;
+  logic              group_legal;
 
   assign dec_store = (dec_op == VEC_STORE);
   assign has_vd = (dec_cls != VEC_CLS_XS) && (dec_cls != VEC_CLS_XM);
-  assign dec_ext = (dec_op == VEC_ZEXT2) || (dec_op == VEC_ZEXT4) || (dec_op == VEC_SEXT2)
-      || (dec_op == VEC_SEXT4);
-  assign uses_vs1 = !dec_mem && !dec_ext && (dec_cls != VEC_CLS_XS) && (dec_cls != VEC_CLS_SX)
-      && (dec_cls != VEC_CLS_XM) && (dec_cls != VEC_CLS_MSET) && (dec_cls != VEC_CLS_IOTA)
-      && (dec_src == VEC_SRC_VV);
+  assign dec_ext = (dec_op == VEC_ZEXT2) || (dec_op == VEC_ZEXT4) || (dec_op == VEC_SEXT2) ||
+      (dec_op == VEC_SEXT4);
+  assign uses_vs1 = !dec_mem && !dec_ext && (dec_cls != VEC_CLS_XS) && (dec_cls != VEC_CLS_SX) &&
+      (dec_cls != VEC_CLS_XM) && (dec_cls != VEC_CLS_MSET) && (dec_cls != VEC_CLS_IOTA) &&
+      (dec_src == VEC_SRC_VV);
   assign uses_vs2 = !dec_mem && (dec_cls != VEC_CLS_SX);
 
   assign lmul_log2 = 4'($signed(vlmul));
@@ -277,33 +274,38 @@ module vec_unit
   assign s1_delta = 4'($signed({1'b0, dec_ls1})) - 4'($signed({1'b0, lsew}));
   assign s2_delta = 4'($signed({1'b0, dec_ls2})) - 4'($signed({1'b0, lsew}));
 
-  assign d_emul = dec_mem ? ((dec_whole || dec_mask_ls) ? 4'sd0 : emul_log2)
-      : ((dec_geom_s.single_write || dec_geom_s.mask_dest) ? 4'sd0 : (lmul_log2 + d_delta));
-  assign s1_emul = (dec_geom_s.single_write || dec_geom_s.mask_src) ? 4'sd0
-      : (lmul_log2 + s1_delta);
-  assign s2_emul = ((dec_cls == VEC_CLS_XS) || dec_geom_s.mask_src) ? 4'sd0
-      : (lmul_log2 + s2_delta);
+  assign d_emul = dec_mem ? ((dec_whole || dec_mask_ls) ? 4'sd0 : emul_log2) :
+      ((dec_geom_s.single_write || dec_geom_s.mask_dest) ? 4'sd0 : (lmul_log2 + d_delta));
+  assign
+      s1_emul = (dec_geom_s.single_write || dec_geom_s.mask_src) ? 4'sd0 : (lmul_log2 + s1_delta);
+  assign
+      s2_emul = ((dec_cls == VEC_CLS_XS) || dec_geom_s.mask_src) ? 4'sd0 : (lmul_log2 + s2_delta);
 
   assign d_regs = group_regs(d_emul);
   assign s1_regs = uses_vs1 ? group_regs(s1_emul) : 6'd1;
   assign s2_regs = uses_vs2 ? group_regs(s2_emul) : 6'd1;
 
-  assign emul_legal = width_in_range(d_emul, has_vd) && width_in_range(s1_emul, uses_vs1)
-      && width_in_range(s2_emul, uses_vs2);
+  assign emul_legal = width_in_range(
+      d_emul, has_vd
+  ) && width_in_range(
+      s1_emul, uses_vs1
+  ) && width_in_range(
+      s2_emul, uses_vs2
+  );
 
-  assign align_ok = (!has_vd || ((6'(dec_vd) & (d_regs - 6'd1)) == 6'd0))
-      && (!uses_vs1 || ((6'(dec_vs1) & (s1_regs - 6'd1)) == 6'd0))
-      && (!uses_vs2 || ((6'(dec_vs2) & (s2_regs - 6'd1)) == 6'd0));
+  assign align_ok = (!has_vd || ((6'(dec_vd) & (d_regs - 6'd1)) == 6'd0)) &&
+      (!uses_vs1 || ((6'(dec_vs1) & (s1_regs - 6'd1)) == 6'd0)) &&
+      (!uses_vs2 || ((6'(dec_vs2) & (s2_regs - 6'd1)) == 6'd0));
 
-  assign overlap_ok = dec_mem || !has_vd || dec_geom_s.single_write || dec_geom_s.mask_dest
-      || ((!uses_vs1 || pair_ok(6'(dec_vd), d_regs, dec_ld, 6'(dec_vs1), s1_regs, dec_ls1,
-                                s1_emul >= 4'sd0))
-      && (!uses_vs2 || pair_ok(6'(dec_vd), d_regs, dec_ld, 6'(dec_vs2), s2_regs, dec_ls2,
-                               s2_emul >= 4'sd0)));
+  assign overlap_ok = dec_mem || !has_vd || dec_geom_s.single_write || dec_geom_s.mask_dest ||
+      ((!uses_vs1 || pair_ok(
+      6'(dec_vd), d_regs, dec_ld, 6'(dec_vs1), s1_regs, dec_ls1, s1_emul >= 4'sd0
+  )) && (!uses_vs2 || pair_ok(
+      6'(dec_vd), d_regs, dec_ld, 6'(dec_vs2), s2_regs, dec_ls2, s2_emul >= 4'sd0
+  )));
 
-  assign mask_ok = dec_vm || dec_store || !has_vd || dec_geom_s.single_write
-      || dec_writes_mask
-      || (6'(dec_vd) >= d_regs);
+  assign mask_ok = dec_vm || dec_store || !has_vd || dec_geom_s.single_write || dec_writes_mask ||
+      (6'(dec_vd) >= d_regs);
 
   assign group_legal = emul_legal && align_ok && overlap_ok && mask_ok;
 
@@ -329,7 +331,7 @@ module vec_unit
             vxrm_q  <= csr_wdata[2:1];
             vxsat_q <= csr_wdata[0];
           end
-          default: ;
+          default:   ;
         endcase
       end
     end
@@ -343,8 +345,8 @@ module vec_unit
   logic accept_now;
 
   // Multiply lane pending
-  assign op_ready = (dec_cls != VEC_CLS_NONE) && (dec_cls != VEC_CLS_MUL) && group_legal
-      && (dec_mem || (width_legal && scalar_legal));
+  assign op_ready = (dec_cls != VEC_CLS_NONE) && (dec_cls != VEC_CLS_MUL) && group_legal &&
+      (dec_mem || (width_legal && scalar_legal));
   assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 
@@ -597,11 +599,11 @@ module vec_unit
   // Result select
   always_comb begin
     case (seq_cls)
-      VEC_CLS_MIXED: raw_result = mixed_result;
-      VEC_CLS_RED:   raw_result = red_result;
-      VEC_CLS_SX:    raw_result = VLEN'(seq_xdata);
+      VEC_CLS_MIXED:                                         raw_result = mixed_result;
+      VEC_CLS_RED:                                           raw_result = red_result;
+      VEC_CLS_SX:                                            raw_result = VLEN'(seq_xdata);
       VEC_CLS_CMP, VEC_CLS_MLOG, VEC_CLS_MSET, VEC_CLS_IOTA: raw_result = mask_result;
-      default:       raw_result = alu_result;
+      default:                                               raw_result = alu_result;
     endcase
   end
 

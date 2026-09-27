@@ -42,82 +42,82 @@ module board_top
   localparam int AppAddrWidth = 29;
   localparam int MaskBits = LineBits / 8;
 
-  logic            rst_n;
-  logic [XLEN-1:0] instr;
-  logic [XLEN-1:0] pc;
-  logic [XLEN-1:0] mem_addr;
-  logic [     3:0] store_wstrb;
-  logic [XLEN-1:0] store_data;
+  logic                    rst_n;
+  logic [        XLEN-1:0] instr;
+  logic [        XLEN-1:0] pc;
+  logic [        XLEN-1:0] mem_addr;
+  logic [             3:0] store_wstrb;
+  logic [        XLEN-1:0] store_data;
 
-  logic [XLEN-1:0] read_data;
-  logic [XLEN-1:0] clint_rdata;
-  logic [XLEN-1:0] gpio_rdata;
-  logic [XLEN-1:0] uart_rdata;
-  logic            clint_sel;
-  logic            gpio_sel;
-  logic            uart_sel;
-  logic            tx_ready;
-  logic            timer_irq;
-  logic            ext_irq;
-  logic            tx_valid;
-  logic [     7:0] tx_byte;
-  logic [     7:0] led_raw;
+  logic [        XLEN-1:0] read_data;
+  logic [        XLEN-1:0] clint_rdata;
+  logic [        XLEN-1:0] gpio_rdata;
+  logic [        XLEN-1:0] uart_rdata;
+  logic                    clint_sel;
+  logic                    gpio_sel;
+  logic                    uart_sel;
+  logic                    tx_ready;
+  logic                    timer_irq;
+  logic                    ext_irq;
+  logic                    tx_valid;
+  logic [             7:0] tx_byte;
+  logic [             7:0] led_raw;
 
-  logic            core_rst_n;
-  logic            loading;
-  logic            boot_we;
-  logic [XLEN-1:0] boot_waddr;
-  logic [XLEN-1:0] boot_wdata;
-  logic [     7:0] rx_byte;
-  logic            rx_valid_w;
+  logic                    core_rst_n;
+  logic                    loading;
+  logic                    boot_we;
+  logic [        XLEN-1:0] boot_waddr;
+  logic [        XLEN-1:0] boot_wdata;
+  logic [             7:0] rx_byte;
+  logic                    rx_valid_w;
 
-  logic [XLEN-1:0] pmu_rdata;
-  logic            pmu_sel;
-  logic            periph_sel;
+  logic [        XLEN-1:0] pmu_rdata;
+  logic                    pmu_sel;
+  logic                    periph_sel;
 
-  logic            imem_ready;
-  logic            imem_req;
-  logic            dmem_ready;
-  logic            dmem_req;
-  logic            dc_ready;
-  logic [XLEN-1:0] dc_rdata;
+  logic                    imem_ready;
+  logic                    imem_req;
+  logic                    dmem_ready;
+  logic                    dmem_req;
+  logic                    dc_ready;
+  logic [        XLEN-1:0] dc_rdata;
 
-  logic [ LineBits-1:0] dc_line;
-  logic [ LineBits-1:0] dc_wdata;
-  logic [LineBytes-1:0] dc_wstrb;
-  logic [ LineBits-1:0] core_rdata;
+  logic [    LineBits-1:0] dc_line;
+  logic [    LineBits-1:0] dc_wdata;
+  logic [   LineBytes-1:0] dc_wstrb;
+  logic [    LineBits-1:0] core_rdata;
 
-  logic                ic_mem_valid;
-  logic [    XLEN-1:0] ic_mem_addr;
-  logic [LineBits-1:0] ic_mem_rdata;
-  logic                ic_mem_ready;
+  logic                    ic_mem_valid;
+  logic [        XLEN-1:0] ic_mem_addr;
+  logic [    LineBits-1:0] ic_mem_rdata;
+  logic                    ic_mem_ready;
 
-  logic                dc_mem_valid;
-  logic                dc_mem_rw;
-  logic [    XLEN-1:0] dc_mem_addr;
-  logic [LineBits-1:0] dc_mem_wdata;
-  logic [LineBytes-1:0] dc_mem_wstrb;
-  logic [LineBits-1:0] dc_mem_rdata;
-  logic                dc_mem_ready;
+  logic                    dc_mem_valid;
+  logic                    dc_mem_rw;
+  logic [        XLEN-1:0] dc_mem_addr;
+  logic [    LineBits-1:0] dc_mem_wdata;
+  logic [   LineBytes-1:0] dc_mem_wstrb;
+  logic [    LineBits-1:0] dc_mem_rdata;
+  logic                    dc_mem_ready;
 
-  logic         [31:0] ic_hits;
-  logic         [31:0] ic_misses;
-  logic         [31:0] dc_hits;
-  logic         [31:0] dc_misses;
+  logic [            31:0] ic_hits;
+  logic [            31:0] ic_misses;
+  logic [            31:0] dc_hits;
+  logic [            31:0] dc_misses;
 
   // Controller clocks
-  logic                pll_fb;
-  logic                pll_locked;
-  logic                sys_clk_pll;
-  logic                ref_clk_pll;
-  logic                mig_sys_clk;
-  logic                mig_ref_clk;
-  logic                mig_rst_n;
+  logic                    pll_fb;
+  logic                    pll_locked;
+  logic                    sys_clk_pll;
+  logic                    ref_clk_pll;
+  logic                    mig_sys_clk;
+  logic                    mig_ref_clk;
+  logic                    mig_rst_n;
 
   // Controller application
-  logic                core_clk;
-  logic                ui_rst;
-  logic                calib_done;
+  logic                    core_clk;
+  logic                    ui_rst;
+  logic                    calib_done;
 
   logic [AppAddrWidth-1:0] app_addr;
   logic [             2:0] app_cmd;
@@ -390,7 +390,7 @@ module board_top
     );
 
     // Line into word
-    assign store_data  = dc_wdata[mem_addr[2+:BlkOffLen]*XLEN+:XLEN];
+    assign store_data = dc_wdata[mem_addr[2+:BlkOffLen]*XLEN+:XLEN];
     assign store_wstrb = dc_wstrb[mem_addr[2+:BlkOffLen]*4+:4];
 
     // Fetch never pauses
@@ -398,7 +398,7 @@ module board_top
   end
 
   // Word views of line
-  assign dc_rdata = dc_line[mem_addr[2+:BlkOffLen]*XLEN+:XLEN];
+  assign dc_rdata   = dc_line[mem_addr[2+:BlkOffLen]*XLEN+:XLEN];
   assign core_rdata = periph_sel ? {LineWords{read_data}} : dc_line;
 
   // Bare word paths

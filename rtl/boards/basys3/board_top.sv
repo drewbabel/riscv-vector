@@ -18,71 +18,71 @@ module board_top
 );
 
   localparam logic [7:0] ClintTag = 8'h02;
-  localparam logic [7:0] GpioTag = 8'h03;
-  localparam logic [7:0] UartTag = 8'h04;
-  localparam logic [7:0] PmuTag = 8'h05;
+  localparam logic [7:0] GpioTag  = 8'h03;
+  localparam logic [7:0] UartTag  = 8'h04;
+  localparam logic [7:0] PmuTag   = 8'h05;
 
-  logic            rst_n;
-  logic [XLEN-1:0] instr;
-  logic [XLEN-1:0] pc;
-  logic [XLEN-1:0] mem_addr;
-  logic [     3:0] store_wstrb;
-  logic [XLEN-1:0] store_data;
+  logic                 rst_n;
+  logic [     XLEN-1:0] instr;
+  logic [     XLEN-1:0] pc;
+  logic [     XLEN-1:0] mem_addr;
+  logic [          3:0] store_wstrb;
+  logic [     XLEN-1:0] store_data;
 
-  logic [XLEN-1:0] read_data;
-  logic [XLEN-1:0] clint_rdata;
-  logic [XLEN-1:0] gpio_rdata;
-  logic [XLEN-1:0] uart_rdata;
-  logic            clint_sel;
-  logic            gpio_sel;
-  logic            uart_sel;
-  logic            tx_ready;
-  logic            timer_irq;
-  logic            ext_irq;
-  logic            tx_valid;
-  logic [     7:0] tx_byte;
-  logic [    15:0] led_raw;
+  logic [     XLEN-1:0] read_data;
+  logic [     XLEN-1:0] clint_rdata;
+  logic [     XLEN-1:0] gpio_rdata;
+  logic [     XLEN-1:0] uart_rdata;
+  logic                 clint_sel;
+  logic                 gpio_sel;
+  logic                 uart_sel;
+  logic                 tx_ready;
+  logic                 timer_irq;
+  logic                 ext_irq;
+  logic                 tx_valid;
+  logic [          7:0] tx_byte;
+  logic [         15:0] led_raw;
 
-  logic            core_rst_n;
-  logic            loading;
-  logic            boot_we;
-  logic [XLEN-1:0] boot_waddr;
-  logic [XLEN-1:0] boot_wdata;
-  logic [     7:0] rx_byte;
-  logic            rx_valid_w;
+  logic                 core_rst_n;
+  logic                 loading;
+  logic                 boot_we;
+  logic [     XLEN-1:0] boot_waddr;
+  logic [     XLEN-1:0] boot_wdata;
+  logic [          7:0] rx_byte;
+  logic                 rx_valid_w;
 
 
-  logic [XLEN-1:0] pmu_rdata;
-  logic            pmu_sel;
-  logic            periph_sel;
+  logic [     XLEN-1:0] pmu_rdata;
+  logic                 pmu_sel;
+  logic                 periph_sel;
 
-  logic            imem_ready;
-  logic            dmem_ready;
-  logic            dmem_req;
-  logic            dc_ready;
-  logic [XLEN-1:0] dc_rdata;
+  logic                 imem_ready;
+  logic                 dmem_ready;
+  logic                 dmem_req;
+  logic                 dc_ready;
+  logic [     XLEN-1:0] dc_rdata;
 
   logic [ LineBits-1:0] dc_line;
   logic [ LineBits-1:0] dc_wdata;
   logic [LineBytes-1:0] dc_wstrb;
   logic [ LineBits-1:0] core_rdata;
 
-  logic                ic_mem_valid;
-  logic [    XLEN-1:0] ic_mem_addr;
-  logic [LineBits-1:0] ic_mem_rdata;
-  logic                ic_mem_ready;
+  logic                 ic_mem_valid;
+  logic [     XLEN-1:0] ic_mem_addr;
+  logic [ LineBits-1:0] ic_mem_rdata;
+  logic                 ic_mem_ready;
 
-  logic                dc_mem_valid;
-  logic                dc_mem_rw;
-  logic [    XLEN-1:0] dc_mem_addr;
-  logic [LineBits-1:0] dc_mem_wdata;
-  logic [LineBits-1:0] dc_mem_rdata;
-  logic                dc_mem_ready;
+  logic                 dc_mem_valid;
+  logic                 dc_mem_rw;
+  logic [     XLEN-1:0] dc_mem_addr;
+  logic [ LineBits-1:0] dc_mem_wdata;
+  logic [ LineBits-1:0] dc_mem_rdata;
+  logic                 dc_mem_ready;
 
-  logic [31:0] ic_hits;
-  logic [31:0] ic_misses;
-  logic [31:0] dc_hits;
-  logic [31:0] dc_misses;
+  logic [         31:0] ic_hits;
+  logic [         31:0] ic_misses;
+  logic [         31:0] dc_hits;
+  logic [         31:0] dc_misses;
 
   localparam int CoreClkHz = BoardClkHz / ClkDiv;
   logic core_en;

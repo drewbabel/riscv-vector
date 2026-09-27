@@ -43,7 +43,7 @@ module vec_mem #(
     output logic done
 );
 
-  localparam logic [2:0] OffW3 = 3'(OffW);
+  localparam logic [2:0] OffW3  = 3'(OffW);
   localparam logic [7:0] Bytes8 = 8'(Bytes);
 
   logic [      7:0] elem;
@@ -90,7 +90,7 @@ module vec_mem #(
   assign in_beat = Bytes'(((33'd1 << beat_bytes) - 33'd1) << reg_off);
   always_comb begin
     for (int j = 0; j < Bytes; j++) begin
-      byte_live[j] = vm || v0[7'((reg_idx << (OffW3 - 3'(width))) + (8'(j) >> width))];
+      byte_live[j] = vm || v0[7'((reg_idx<<(OffW3-3'(width)))+(8'(j)>>width))];
     end
   end
   assign reg_mask = in_beat & byte_live;

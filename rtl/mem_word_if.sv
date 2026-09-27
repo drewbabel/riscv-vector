@@ -13,22 +13,22 @@ module mem_word_if
     input logic rst_n,
 
     // Core
-    input  logic            cpu_valid,
-    input  logic            cpu_rw,
-    input  logic [XLEN-1:0] cpu_addr,
+    input  logic                cpu_valid,
+    input  logic                cpu_rw,
+    input  logic [    XLEN-1:0] cpu_addr,
     input  logic [   CPU_W-1:0] cpu_wdata,
     input  logic [CpuBytes-1:0] cpu_wstrb,
     output logic [   CPU_W-1:0] cpu_rdata,
-    output logic            cpu_ready,
+    output logic                cpu_ready,
 
     // Memory
-    output logic                mem_valid,
-    output logic                mem_rw,
-    output logic [    XLEN-1:0] mem_addr,
-    output logic [LineBits-1:0] mem_wdata,
+    output logic                 mem_valid,
+    output logic                 mem_rw,
+    output logic [     XLEN-1:0] mem_addr,
+    output logic [ LineBits-1:0] mem_wdata,
     output logic [LineBytes-1:0] mem_wstrb,
-    input  logic [LineBits-1:0] mem_rdata,
-    input  logic                mem_ready,
+    input  logic [ LineBits-1:0] mem_rdata,
+    input  logic                 mem_ready,
 
     // Counters
     output logic [31:0] hit_count,
@@ -45,28 +45,28 @@ module mem_word_if
   logic [     XLEN-1:0] req_addr;
   logic [    CPU_W-1:0] req_wdata;
   logic [ CpuBytes-1:0] req_wstrb;
-  logic [ BlkOffLen:0] lane;
+  logic [  BlkOffLen:0] lane;
   logic                 req_rw;
   logic [BlkOffLen-1:0] req_word;
   logic                 done;
 
-  assign req_word   = req_addr[IdxLsb-1 : 2];
-  assign done       = (state == ACCESS) && mem_ready;
+  assign req_word  = req_addr[IdxLsb-1 : 2];
+  assign done      = (state == ACCESS) && mem_ready;
 
   // Response cycle only
-  assign cpu_ready  = done;
-  assign lane       = (CPU_W == LineBits) ? '0 : {1'b0, req_word};
-  assign cpu_rdata  = CPU_W'(mem_rdata >> (lane * CPU_W));
+  assign cpu_ready = done;
+  assign lane      = (CPU_W == LineBits) ? '0 : {1'b0, req_word};
+  assign cpu_rdata = CPU_W'(mem_rdata >> (lane * CPU_W));
 
-  assign mem_valid  = (state == ACCESS);
-  assign mem_rw     = RW && req_rw;
+  assign mem_valid = (state == ACCESS);
+  assign mem_rw    = RW && req_rw;
   // Arbiter selects lanes
-  assign mem_addr   = req_addr;
-  assign mem_wdata  = {(LineBits / CPU_W) {req_wdata}};
-  assign mem_wstrb  = RW ? LineBytes'(req_wstrb) << (lane * CpuBytes) : '0;
+  assign mem_addr  = req_addr;
+  assign mem_wdata = {(LineBits / CPU_W) {req_wdata}};
+  assign mem_wstrb = RW ? LineBytes'(req_wstrb) << (lane * CpuBytes) : '0;
 
   // No line reuse
-  assign hit_count  = '0;
+  assign hit_count = '0;
 
   always_comb begin
     next_state = state;

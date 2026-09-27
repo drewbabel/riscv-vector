@@ -10,25 +10,25 @@ module dmem_arb #(
     input logic core_en,
 
     // Scalar side
-    input  logic            s_req,
-    input  logic [XLEN-1:0] s_addr,
+    input  logic              s_req,
+    input  logic [  XLEN-1:0] s_addr,
     input  logic [DATA_W-1:0] s_wdata,
     input  logic [ StrbW-1:0] s_wstrb,
-    output logic            s_ready,
+    output logic              s_ready,
 
     // Vector side
-    input  logic            v_req,
-    input  logic [XLEN-1:0] v_addr,
+    input  logic              v_req,
+    input  logic [  XLEN-1:0] v_addr,
     input  logic [DATA_W-1:0] v_wdata,
     input  logic [ StrbW-1:0] v_wstrb,
-    output logic            v_ready,
+    output logic              v_ready,
 
     // Shared port
-    output logic            req,
-    output logic [XLEN-1:0] addr,
+    output logic              req,
+    output logic [  XLEN-1:0] addr,
     output logic [DATA_W-1:0] wdata,
     output logic [ StrbW-1:0] wstrb,
-    input  logic            ready
+    input  logic              ready
 );
 
   logic [1:0] grant;

@@ -15,9 +15,9 @@ module top
 );
 
   logic [XLEN-1:0] instr;
-  logic [ LineBits-1:0] read_data;
+  logic [LineBits-1:0] read_data;
   logic [LineBytes-1:0] store_wstrb;
-  logic [ LineBits-1:0] store_data;
+  logic [LineBits-1:0] store_data;
   logic [XLEN-1:0] mem_addr;
 
   riscv_pipelined #(
@@ -30,9 +30,9 @@ module top
       .read_data  (read_data),
       .timer_irq  (1'b0),
       .ext_irq    (1'b0),
-      .imem_ready(1'b1),
-      .dmem_ready(1'b1),
-      .dmem_req(),
+      .imem_ready (1'b1),
+      .dmem_ready (1'b1),
+      .dmem_req   (),
       .pc         (pc),
       .mem_write  (mem_write),
       .alu_result (alu_result),
