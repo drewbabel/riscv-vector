@@ -1,9 +1,14 @@
 `default_nettype none
 
 module vec_mem #(
-    parameter int AWIDTH = 5,
-    parameter int VLEN   = 128
+    parameter  int AWIDTH = 5,
+    parameter  int VLEN   = 128,
+    localparam int Bytes  = VLEN / 8,
+    localparam int OffW   = $clog2(Bytes)
 ) (
+`ifdef RISCV_FORMAL
+    output logic [7:0] dbg_elem,
+`endif
     input logic clk,
     input logic rst_n,
     input logic core_en,
@@ -27,68 +32,84 @@ module vec_mem #(
     output logic [  VLEN-1:0] wdata,
 
     // Memory port
-    input  logic [31:0] mem_rdata,
-    input  logic        mem_ready,
-    output logic        mem_req,
-    output logic [31:0] mem_addr,
-    output logic [31:0] mem_wdata,
-    output logic [ 3:0] mem_wstrb,
+    input  logic [ VLEN-1:0] mem_rdata,
+    input  logic             mem_ready,
+    output logic             mem_req,
+    output logic [     31:0] mem_addr,
+    output logic [ VLEN-1:0] mem_wdata,
+    output logic [Bytes-1:0] mem_wstrb,
 
     output logic busy,
     output logic done
 );
 
-  logic [ 7:0] elem;
-  logic [31:0] addr;
+  localparam logic [2:0] OffW3 = 3'(OffW);
+  localparam logic [7:0] Bytes8 = 8'(Bytes);
 
-  logic [ 3:0] reg_idx;
-  logic [ 6:0] bit_pos;
-  logic [ 4:0] byte_shift;
-  logic [31:0] elem_mask;
-  logic [ 3:0] byte_mask;
-  logic [31:0] elem_out;
-  logic [31:0] elem_in;
-  logic        live;
+  logic [      7:0] elem;
+  logic [     31:0] addr;
 
-  // Element geometry
-  assign reg_idx = 4'(elem >> (3'd4 - 3'(width)));
-  assign bit_pos = 7'(elem << (3'd3 + 3'(width)));
-  assign byte_shift = {addr[1:0], 3'b000};
+  logic             unit;
+  logic [ OffW-1:0] reg_off;
+  logic [ OffW-1:0] line_off;
+  logic [ OffW-1:0] shift;
+  logic [      7:0] reg_idx;
+  logic [      7:0] left;
+  logic [      7:0] fit_line;
+  logic [      7:0] fit_reg;
+  logic [      7:0] n;
+  logic [      7:0] beat_bytes;
+  logic [Bytes-1:0] in_beat;
+  logic [Bytes-1:0] byte_live;
+  logic [Bytes-1:0] reg_mask;
+  logic [      7:0] next_elem;
 
+  // Beat geometry
+  assign unit = (stride == (32'd1 << width));
+  assign reg_idx = elem >> (OffW3 - 3'(width));
+  assign reg_off = OffW'(elem << width);
+  assign line_off = addr[OffW-1:0];
+  assign shift = line_off - reg_off;
+
+  // Elements this beat
+  assign left = count - elem;
+  assign fit_line = (Bytes8 - 8'(line_off)) >> width;
+  assign fit_reg = (Bytes8 - 8'(reg_off)) >> width;
   always_comb begin
-    case (width)
-      2'd0: begin
-        elem_mask = 32'h0000_00FF;
-        byte_mask = 4'b0001;
-      end
-      2'd1: begin
-        elem_mask = 32'h0000_FFFF;
-        byte_mask = 4'b0011;
-      end
-      default: begin
-        elem_mask = 32'hFFFF_FFFF;
-        byte_mask = 4'b1111;
-      end
-    endcase
+    n = 8'd1;
+    if (unit) begin
+      n = left;
+      if (fit_line < n) n = fit_line;
+      if (fit_reg < n) n = fit_reg;
+    end
   end
+  assign beat_bytes = n << width;
+  assign next_elem = elem + n;
 
-  assign live = vm || v0[elem[6:0]];
+  // Register bytes moved
+  assign in_beat = Bytes'(((33'd1 << beat_bytes) - 33'd1) << reg_off);
+  always_comb begin
+    for (int j = 0; j < Bytes; j++) begin
+      byte_live[j] = vm || v0[7'((reg_idx << (OffW3 - 3'(width))) + (8'(j) >> width))];
+    end
+  end
+  assign reg_mask = in_beat & byte_live;
 
   // Store beat
   assign raddr = vd + AWIDTH'(reg_idx);
-  assign elem_out = 32'(rdata >> bit_pos);
   assign mem_req = busy;
-  assign mem_addr = {addr[31:2], 2'b00};
-  assign mem_wdata = load ? 32'h0 : (elem_out << byte_shift);
-  assign mem_wstrb = (load || !live) ? 4'h0 : 4'(byte_mask << addr[1:0]);
+  assign mem_addr = addr;
+  assign mem_wdata = (rdata << (8 * shift)) | (rdata >> (8 * (Bytes8 - 8'(shift))));
+  assign mem_wstrb = load ? '0 : Bytes'({reg_mask, reg_mask} >> (Bytes8 - 8'(shift)));
 
   // Load beat
-  assign elem_in = (mem_rdata >> byte_shift) & elem_mask;
-  assign wen = busy && load && live && mem_ready;
-  assign wstrb = VLEN'(elem_mask) << bit_pos;
-  assign wdata = VLEN'(elem_in) << bit_pos;
+  assign wdata = (mem_rdata >> (8 * shift)) | (mem_rdata << (8 * (Bytes8 - 8'(shift))));
+  always_comb begin
+    for (int j = 0; j < Bytes; j++) wstrb[j*8+:8] = {8{reg_mask[j]}};
+  end
+  assign wen = busy && load && mem_ready && (|reg_mask);
 
-  // Walk the elements
+  // Walk the beats
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       elem <= 8'd0;
@@ -105,15 +126,19 @@ module vec_mem #(
           else busy <= 1'b1;
         end
       end else if (mem_ready) begin
-        elem <= elem + 8'd1;
-        addr <= addr + stride;
-        if (elem == count - 8'd1) begin
+        elem <= next_elem;
+        addr <= addr + (unit ? 32'(beat_bytes) : stride);
+        if (next_elem == count) begin
           busy <= 1'b0;
           done <= 1'b1;
         end
       end
     end
   end
+
+`ifdef RISCV_FORMAL
+  assign dbg_elem = elem;
+`endif
 
 endmodule
 

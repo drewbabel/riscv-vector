@@ -34,12 +34,12 @@ module vec_unit
     input logic [2:0] vlmul,
 
     // Memory port
-    input  logic [31:0] mem_rdata,
-    input  logic        mem_ready,
-    output logic        mem_req,
-    output logic [31:0] mem_addr,
-    output logic [31:0] mem_wdata,
-    output logic [ 3:0] mem_wstrb,
+    input  logic [    VLEN-1:0] mem_rdata,
+    input  logic                mem_ready,
+    output logic                mem_req,
+    output logic [        31:0] mem_addr,
+    output logic [    VLEN-1:0] mem_wdata,
+    output logic [VLEN/8-1:0] mem_wstrb,
 
     // Memory checks
     output logic        mem_misaligned,
