@@ -468,6 +468,9 @@ module vec_unit
       .AWIDTH(AWIDTH),
       .VLEN  (VLEN)
   ) u_mem (
+`ifdef RISCV_FORMAL
+      .dbg_elem(),
+`endif
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en),
