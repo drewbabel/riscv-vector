@@ -54,10 +54,11 @@ jobs:
       - name: Verilator lint
         run: |
           while read -r f; do
+            case "$f" in formal/rvfi/*) continue ;; esac
             top=$(basename "$f" | sed 's/\.s\?v$//')
             pkgs=$(echo $PKGS | tr ' ' '\n' | grep -vx "$f" | tr '\n' ' ')
             opts="--top-module $top"
-            case "$f" in tb/*) opts="$opts --timing" ;; *_pkg.sv) opts="" ;; esac
+            case "$f" in tb/cosim.sv) opts="$opts --timing -DRISCV_FORMAL" ;; tb/*) opts="$opts --timing" ;; formal/*) opts="$opts -DRISCV_FORMAL" ;; *_pkg.sv) opts="" ;; esac
             verilator --lint-only -Wno-TIMESCALEMOD $opts -y rtl +libext+.v+.sv \
               $pkgs "$f" 2>&1 || true
           done < "$RUNNER_TEMP/sv" \
@@ -66,9 +67,14 @@ jobs:
                 -name=verilator -reporter=github-pr-review -filter-mode=added -fail-level=none
       - name: iverilog lint
         run: |
+          rtl=$(ls rtl/*.sv rtl/boards/basys3/*.sv rtl/single_cycle/*.sv | grep -v '_pkg\.sv$')
           while read -r f; do
+            case "$f" in formal/rvfi/*|rtl/boards/nexys_video/*) continue ;; esac
             pkgs=$(echo $PKGS | tr ' ' '\n' | grep -vx "$f" | tr '\n' ' ')
-            iverilog -g2012 -y rtl -Y .sv -o /dev/null $pkgs "$f" 2>&1 || true
+            others=$(echo "$rtl" | grep -vx "$f" | tr '\n' ' ')
+            defs=""
+            case "$f" in formal/*|tb/cosim.sv) defs="-DRISCV_FORMAL" ;; esac
+            iverilog -g2012 $defs -o /dev/null $pkgs $others "$f" 2>&1 || true
           done < "$RUNNER_TEMP/sv" \
             | reviewdog -efm='%f:%l: %trror: %m' -efm='%f:%l: %tarning: %m' -efm='%-G%.%#' \
                 -name=iverilog -reporter=github-pr-review -filter-mode=added -fail-level=none
@@ -80,7 +86,7 @@ jobs:
                 -name=ruff -reporter=github-pr-review -filter-mode=added -fail-level=none
       - name: Apply formatters
         run: |
-          [ -s "$RUNNER_TEMP/sv" ] && verible-verilog-format --inplace $(cat "$RUNNER_TEMP/sv") || true
+          [ -s "$RUNNER_TEMP/sv" ] && verible-verilog-format --inplace --try_wrap_long_lines $(cat "$RUNNER_TEMP/sv") || true
           [ -s "$RUNNER_TEMP/py" ] && ruff format --line-length 80 $(cat "$RUNNER_TEMP/py") || true
           [ -s "$RUNNER_TEMP/c" ] && clang-format -i -style="$CLANG_STYLE" $(cat "$RUNNER_TEMP/c") || true
           while read -r f; do
