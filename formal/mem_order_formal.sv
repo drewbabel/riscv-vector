@@ -4,32 +4,32 @@ module mem_order_formal ();
 
   localparam int Xlen = 32;
 
-  logic            clk;
+  logic                            clk;
 
   // Free core inputs
-  (* anyseq *)logic [Xlen-1:0] instr;
-  (* anyseq *)logic [   127:0] read_data;
-  (* anyseq *)logic            imem_ready;
-  (* anyseq *)logic            dmem_ready;
+  (* anyseq *)logic [                Xlen-1:0] instr;
+  (* anyseq *)logic [ cache_pkg::LineBits-1:0] read_data;
+  (* anyseq *)logic                            imem_ready;
+  (* anyseq *)logic                            dmem_ready;
 
-  logic            dmem_req;
-  logic [Xlen-1:0] pc;
-  logic            mem_write;
-  logic [Xlen-1:0] alu_result;
-  logic [Xlen-1:0] write_data;
-  logic [    15:0] store_wstrb;
-  logic [   127:0] store_data;
-  logic [Xlen-1:0] mem_addr;
+  logic                            dmem_req;
+  logic [                Xlen-1:0] pc;
+  logic                            mem_write;
+  logic [                Xlen-1:0] alu_result;
+  logic [                Xlen-1:0] write_data;
+  logic [cache_pkg::LineBytes-1:0] store_wstrb;
+  logic [ cache_pkg::LineBits-1:0] store_data;
+  logic [                Xlen-1:0] mem_addr;
 
-  logic            ex_commit;
-  logic [Xlen-1:0] ex_insn;
-  logic            s_take;
-  logic            v_take;
-  logic            v_retire;
+  logic                            ex_commit;
+  logic [                Xlen-1:0] ex_insn;
+  logic                            s_take;
+  logic                            v_take;
+  logic                            v_retire;
 
-  logic            rst_n;
-  logic [     1:0] t = 2'd0;
-  logic            f_past_valid = 1'b0;
+  logic                            rst_n;
+  logic [                     1:0] t = 2'd0;
+  logic                            f_past_valid = 1'b0;
 
   initial assume (t == 2'd0);
   always @(posedge clk) begin

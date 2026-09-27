@@ -21,7 +21,7 @@ module mem_arb_formal
   (* anyseq *)logic                dc_req_rw;
   (* anyseq *)logic [    Xlen-1:0] dc_req_addr;
   (* anyseq *)logic [LineBits-1:0] dc_req_wdata;
-  (* anyseq *)logic [        15:0] dc_req_wstrb;
+  (* anyseq *)logic [   MaskW-1:0] dc_req_wstrb;
   (* anyseq *)logic                boot_we;
   (* anyseq *)logic [    Xlen-1:0] boot_addr;
   (* anyseq *)logic [    Xlen-1:0] boot_wdata;
