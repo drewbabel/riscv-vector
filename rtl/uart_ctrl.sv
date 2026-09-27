@@ -3,24 +3,24 @@
 module uart_ctrl #(
     parameter int XLEN = 32
 ) (
-    input logic clk,
-    input logic core_en,
-    input logic rst_n,
+    input wire  clk,
+    input wire  core_en,
+    input wire  rst_n,
 
     // Bus
-    input  logic            sel,
-    input  logic            req,
-    input  logic [     3:0] wstrb,
-    input  logic [XLEN-1:0] addr,
-    input  logic [XLEN-1:0] wdata,
+    input  wire             sel,
+    input  wire             req,
+    input  wire  [     3:0] wstrb,
+    input  wire  [XLEN-1:0] addr,
+    input  wire  [XLEN-1:0] wdata,
     output logic [XLEN-1:0] rdata,
 
     // Receiver
-    input logic       rx_valid,
-    input logic [7:0] rx_data,
+    input wire        rx_valid,
+    input wire  [7:0] rx_data,
 
     // Transmitter
-    input  logic       tx_ready,
+    input  wire        tx_ready,
     output logic       tx_valid,
     output logic [7:0] tx_data,
 

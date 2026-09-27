@@ -7,13 +7,13 @@ module bram_sdp #(
     localparam int AddrW = $clog2(Depth),
     localparam int Lanes = (Width + 7) / 8
 ) (
-    input  logic             clk,
-    input  logic             we,
-    input  logic [Lanes-1:0] wlane,  // Lane strobes
-    input  logic [AddrW-1:0] widx,
-    input  logic [Width-1:0] wdata,
-    input  logic             re,
-    input  logic [AddrW-1:0] ridx,
+    input  wire              clk,
+    input  wire              we,
+    input  wire  [Lanes-1:0] wlane,  // Lane strobes
+    input  wire  [AddrW-1:0] widx,
+    input  wire  [Width-1:0] wdata,
+    input  wire              re,
+    input  wire  [AddrW-1:0] ridx,
     output logic [Width-1:0] rdata
 );
 

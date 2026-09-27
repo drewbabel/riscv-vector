@@ -6,8 +6,8 @@ module top
     parameter int XLEN  = 32,
     parameter int DEPTH = 64
 ) (
-    input  logic            clk,
-    input  logic            rst_n,
+    input  wire             clk,
+    input  wire             rst_n,
     output logic [XLEN-1:0] pc,
     output logic [XLEN-1:0] alu_result,
     output logic [XLEN-1:0] write_data,

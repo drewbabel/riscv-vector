@@ -5,9 +5,9 @@ module alu
 #(
     parameter int XLEN = 32
 ) (
-    input logic [XLEN-1:0] a,
-    input logic [XLEN-1:0] b,
-    input alu_pkg::alu_op_e alu_op,
+    input wire [XLEN-1:0] a,
+    input wire [XLEN-1:0] b,
+    input wire alu_pkg::alu_op_e alu_op,
     output logic [XLEN-1:0] result,
     output logic zero,
     output logic lt,

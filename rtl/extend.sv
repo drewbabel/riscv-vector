@@ -3,8 +3,8 @@
 module extend #(
     parameter int XLEN = 32
 ) (
-    input  logic [    31:0] instr,
-    input  logic [     2:0] imm_src,
+    input  wire  [    31:0] instr,
+    input  wire  [     2:0] imm_src,
     output logic [XLEN-1:0] imm_ext
 );
 

@@ -5,13 +5,13 @@ module muldiv
 #(
     parameter int XLEN = 32
 ) (
-    input  logic                              clk,
-    input  logic                              core_en,
-    input  logic                              rst_n,
-    input  logic                              start,
-    input  muldiv_pkg::muldiv_op_e            op,
-    input  logic                   [XLEN-1:0] a,        // forwarded rs1
-    input  logic                   [XLEN-1:0] b,        // forwarded rs2
+    input  wire                               clk,
+    input  wire                               core_en,
+    input  wire                               rst_n,
+    input  wire                               start,
+    input  wire muldiv_pkg::muldiv_op_e            op,
+    input  wire                    [XLEN-1:0] a,        // forwarded rs1
+    input  wire                    [XLEN-1:0] b,        // forwarded rs2
     output logic                   [XLEN-1:0] result,
     output logic                              busy,     // stall driver
     output logic                              done      // result valid

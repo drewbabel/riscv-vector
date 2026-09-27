@@ -5,14 +5,14 @@ module sc_core_top
 #(
     parameter int XLEN = 32
 ) (
-    input  logic            clk,
-    input  logic            core_en,
-    input  logic            rst_n,
-    input  logic [XLEN-1:0] instr,
-    input  logic [XLEN-1:0] read_data,
-    input  logic            timer_irq,
-    input  logic            imem_ready,
-    input  logic            dmem_ready,
+    input  wire             clk,
+    input  wire             core_en,
+    input  wire             rst_n,
+    input  wire  [XLEN-1:0] instr,
+    input  wire  [XLEN-1:0] read_data,
+    input  wire             timer_irq,
+    input  wire             imem_ready,
+    input  wire             dmem_ready,
     output logic            imem_req,
     output logic            dmem_req,
     output logic [XLEN-1:0] pc,

@@ -5,10 +5,10 @@ module control_unit
   import csr_pkg::*;
   import muldiv_pkg::*;
 (
-    input  logic             [ 6:0] op,
-    input  logic             [ 2:0] funct3,
-    input  logic             [11:0] funct12,
-    input  logic                    funct7b5,
+    input  wire              [ 6:0] op,
+    input  wire              [ 2:0] funct3,
+    input  wire              [11:0] funct12,
+    input  wire                     funct7b5,
     output logic                    reg_write,
     output logic             [ 2:0] imm_src,
     output logic             [ 1:0] alu_a_src,

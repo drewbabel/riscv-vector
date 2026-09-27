@@ -6,21 +6,21 @@ module btb
     parameter  int XLEN   = 32,
     localparam int TagLen = XLEN - 2 - BtbIdxLen
 ) (
-    input logic clk,
-    input logic core_en,
-    input logic rst_n,
+    input wire clk,
+    input wire core_en,
+    input wire rst_n,
 
     // IF lookup
-    input  logic [XLEN-1:0] lookup_pc,
+    input  wire  [XLEN-1:0] lookup_pc,
     output logic            hit,
     output logic [XLEN-1:0] target,
     output logic            is_cond,
 
     // EX update
-    input logic            update_valid,
-    input logic [XLEN-1:0] update_pc,
-    input logic [XLEN-1:0] update_target,
-    input logic            update_is_cond
+    input wire            update_valid,
+    input wire [XLEN-1:0] update_pc,
+    input wire [XLEN-1:0] update_target,
+    input wire            update_is_cond
 );
 
   logic              valid[BtbDepth];

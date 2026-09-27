@@ -24,34 +24,34 @@ module csr
     output logic            dbg_vtype_ill,
     output logic [     6:0] dbg_vstart,
 `endif
-    input logic clk,
-    input logic core_en,
-    input logic cycle_en,
-    input logic rst_n,
+    input wire  clk,
+    input wire  core_en,
+    input wire  cycle_en,
+    input wire  rst_n,
 
     // Zicsr access
-    input logic            csr_access,
-    input logic [    11:0] csr_addr,
-    input logic [     2:0] funct3,
-    input logic [XLEN-1:0] rs1_data,
-    input logic [     4:0] zimm,
+    input wire             csr_access,
+    input wire  [    11:0] csr_addr,
+    input wire  [     2:0] funct3,
+    input wire  [XLEN-1:0] rs1_data,
+    input wire  [     4:0] zimm,
 
     // Trapped-instruction context
-    input logic [XLEN-1:0] pc,
-    input logic [XLEN-1:0] bad_addr,
+    input wire  [XLEN-1:0] pc,
+    input wire  [XLEN-1:0] bad_addr,
 
     // Exception sources
-    input logic exc_illegal,
-    input logic exc_ecall,
-    input logic exc_ebreak,
-    input logic exc_instr_misaligned,
-    input logic exc_load_misaligned,
-    input logic exc_store_misaligned,
+    input wire  exc_illegal,
+    input wire  exc_ecall,
+    input wire  exc_ebreak,
+    input wire  exc_instr_misaligned,
+    input wire  exc_load_misaligned,
+    input wire  exc_store_misaligned,
 
     // Interrupts
-    input logic is_mret,
-    input logic timer_irq,
-    input logic ext_irq,
+    input wire  is_mret,
+    input wire  timer_irq,
+    input wire  ext_irq,
 
     // Zicsr read value to writeback mux
     output logic [XLEN-1:0] csr_rdata,
@@ -63,16 +63,16 @@ module csr
     output logic [XLEN-1:0] mepc_out,
 
     // Vector configuration
-    input  logic            is_vset,
-    input  logic [     7:0] vl_d,
-    input  logic [XLEN-1:0] vtype_d,
-    input  logic            is_vec_instr,
+    input  wire             is_vset,
+    input  wire  [     7:0] vl_d,
+    input  wire  [XLEN-1:0] vtype_d,
+    input  wire             is_vec_instr,
     output logic [     7:0] vl_q,
     output logic [XLEN-1:0] vtype_q,
 
     // Fixed-point control
-    input  logic [     1:0] vec_vxrm,
-    input  logic            vec_vxsat,
+    input  wire  [     1:0] vec_vxrm,
+    input  wire             vec_vxsat,
     output logic            vec_csr_we,
     output logic [    11:0] vec_csr_waddr,
     output logic [XLEN-1:0] vec_csr_wdata

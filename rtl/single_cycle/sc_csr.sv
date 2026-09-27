@@ -5,33 +5,33 @@ module sc_csr
 #(
     parameter int XLEN = 32
 ) (
-    input logic clk,
-    input logic core_en,
-    input logic cycle_en,
-    input logic rst_n,
+    input wire  clk,
+    input wire  core_en,
+    input wire  cycle_en,
+    input wire  rst_n,
 
     // Zicsr access
-    input logic            csr_access,
-    input logic [    11:0] csr_addr,
-    input logic [     2:0] funct3,
-    input logic [XLEN-1:0] rs1_data,
-    input logic [     4:0] zimm,
+    input wire             csr_access,
+    input wire  [    11:0] csr_addr,
+    input wire  [     2:0] funct3,
+    input wire  [XLEN-1:0] rs1_data,
+    input wire  [     4:0] zimm,
 
     // Trapped-instruction context
-    input logic [XLEN-1:0] pc,
-    input logic [XLEN-1:0] bad_addr,
+    input wire  [XLEN-1:0] pc,
+    input wire  [XLEN-1:0] bad_addr,
 
     // Exception sources
-    input logic exc_illegal,
-    input logic exc_ecall,
-    input logic exc_ebreak,
-    input logic exc_instr_misaligned,
-    input logic exc_load_misaligned,
-    input logic exc_store_misaligned,
+    input wire  exc_illegal,
+    input wire  exc_ecall,
+    input wire  exc_ebreak,
+    input wire  exc_instr_misaligned,
+    input wire  exc_load_misaligned,
+    input wire  exc_store_misaligned,
 
     // Interrupt from CLINT
-    input logic is_mret,
-    input logic timer_irq,
+    input wire  is_mret,
+    input wire  timer_irq,
 
     // Zicsr read value
     output logic [XLEN-1:0] csr_rdata,

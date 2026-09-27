@@ -3,10 +3,10 @@
 module alu_decoder
   import alu_pkg::*;
 (
-    input  logic             [1:0] alu_op,
-    input  logic             [2:0] funct3,
-    input  logic                   funct7b5,
-    input  logic                   op5,
+    input  wire              [1:0] alu_op,
+    input  wire              [2:0] funct3,
+    input  wire                    funct7b5,
+    input  wire                    op5,
     output alu_pkg::alu_op_e       alu_ctrl
 );
 

@@ -3,27 +3,27 @@
 module hazard_unit #(
     parameter int XLEN = 32
 ) (
-    input logic clk,
-    input logic core_en,
-    input logic rst_n,
+    input wire clk,
+    input wire core_en,
+    input wire rst_n,
 
-    input logic [4:0] rs1_id,
-    input logic [4:0] rs2_id,
-    input logic [4:0] rs1_ex,
-    input logic [4:0] rs2_ex,
+    input wire [4:0] rs1_id,
+    input wire [4:0] rs2_id,
+    input wire [4:0] rs1_ex,
+    input wire [4:0] rs2_ex,
 
-    input logic [4:0] rd_id,
-    input logic [4:0] rd_ex,
-    input logic [4:0] rd_mem,
-    input logic [4:0] rd_wb,
+    input wire [4:0] rd_id,
+    input wire [4:0] rd_ex,
+    input wire [4:0] rd_mem,
+    input wire [4:0] rd_wb,
 
-    input logic reg_write_mem,
-    input logic reg_write_wb,
-    input logic mem_write_ex,
+    input wire reg_write_mem,
+    input wire reg_write_wb,
+    input wire mem_write_ex,
 
-    input logic [1:0] result_src_ex,
-    input logic [1:0] result_src_mem,
-    input logic [1:0] result_src_wb,
+    input wire [1:0] result_src_ex,
+    input wire [1:0] result_src_mem,
+    input wire [1:0] result_src_wb,
 
     output logic stall,
     output logic [1:0] forward_a,

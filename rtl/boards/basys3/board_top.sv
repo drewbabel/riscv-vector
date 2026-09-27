@@ -9,11 +9,11 @@ module board_top
     parameter int BoardClkHz = 100_000_000,
     parameter int MemLatency = 20
 ) (
-    input  logic        clk,
-    input  logic        rst,
-    input  logic [15:0] sw,
+    input  wire         clk,
+    input  wire         rst,
+    input  wire  [15:0] sw,
     output logic [15:0] led,
-    input  logic        uart_rx,
+    input  wire         uart_rx,
     output logic        uart_tx
 );
 

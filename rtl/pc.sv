@@ -4,10 +4,10 @@ module pc #(
     parameter int XLEN = 32,
     parameter logic [XLEN-1:0] RESET_ADDR = '0
 ) (
-    input  logic            clk,
-    input  logic            core_en,
-    input  logic            rst_n,
-    input  logic [XLEN-1:0] pc_next,
+    input  wire             clk,
+    input  wire             core_en,
+    input  wire             rst_n,
+    input  wire  [XLEN-1:0] pc_next,
     output logic [XLEN-1:0] pc_q
 );
 

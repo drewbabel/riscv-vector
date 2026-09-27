@@ -15,41 +15,41 @@ module mem_arb
     output logic                      dbg_resp_pending,
     output logic                      dbg_req_rw,
 `endif
-    input  logic                      clk,
-    input  logic                      rst_n,
-    input  logic                      core_en,
-    input  logic                      calib_done,
+    input  wire                       clk,
+    input  wire                       rst_n,
+    input  wire                       core_en,
+    input  wire                       calib_done,
     // Instruction cache
-    input  logic                      ic_req_valid,
-    input  logic [          XLEN-1:0] ic_req_addr,
+    input  wire                       ic_req_valid,
+    input  wire  [          XLEN-1:0] ic_req_addr,
     output logic [      LineBits-1:0] ic_resp_rdata,
     output logic                      ic_resp_ready,
     // Data cache
-    input  logic                      dc_req_valid,
-    input  logic                      dc_req_rw,
-    input  logic [          XLEN-1:0] dc_req_addr,
-    input  logic [      LineBits-1:0] dc_req_wdata,
-    input  logic [      MaskBits-1:0] dc_req_wstrb,      // Zero writes line
+    input  wire                       dc_req_valid,
+    input  wire                       dc_req_rw,
+    input  wire  [          XLEN-1:0] dc_req_addr,
+    input  wire  [      LineBits-1:0] dc_req_wdata,
+    input  wire  [      MaskBits-1:0] dc_req_wstrb,      // Zero writes line
     output logic [      LineBits-1:0] dc_resp_rdata,
     output logic                      dc_resp_ready,
     // Boot
-    input  logic                      boot_we,
-    input  logic [          XLEN-1:0] boot_addr,
-    input  logic [          XLEN-1:0] boot_wdata,
+    input  wire                       boot_we,
+    input  wire  [          XLEN-1:0] boot_addr,
+    input  wire  [          XLEN-1:0] boot_wdata,
     // Controller command
     output logic [APP_ADDR_WIDTH-1:0] app_addr,
     output logic [               2:0] app_cmd,
     output logic                      app_en,
-    input  logic                      app_rdy,
+    input  wire                       app_rdy,
     // Controller write data
     output logic [      LineBits-1:0] app_wdf_data,
     output logic [      MaskBits-1:0] app_wdf_mask,      // Active low mask
     output logic                      app_wdf_wren,
     output logic                      app_wdf_end,
-    input  logic                      app_wdf_rdy,
+    input  wire                       app_wdf_rdy,
     // Controller read data
-    input  logic [      LineBits-1:0] app_rd_data,
-    input  logic                      app_rd_data_valid
+    input  wire  [      LineBits-1:0] app_rd_data,
+    input  wire                       app_rd_data_valid
 );
 
   localparam logic [2:0] AppWrite = 3'b000;

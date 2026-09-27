@@ -5,14 +5,14 @@ module clint
 #(
     parameter int XLEN = 32
 ) (
-    input logic clk,
-    input logic core_en,
-    input logic rst_n,
+    input wire clk,
+    input wire core_en,
+    input wire rst_n,
 
-    input  logic            sel,
-    input  logic [     3:0] wstrb,
-    input  logic [XLEN-1:0] addr,
-    input  logic [XLEN-1:0] wdata,
+    input  wire             sel,
+    input  wire  [     3:0] wstrb,
+    input  wire  [XLEN-1:0] addr,
+    input  wire  [XLEN-1:0] wdata,
     output logic [XLEN-1:0] rdata,
 
     output logic timer_irq

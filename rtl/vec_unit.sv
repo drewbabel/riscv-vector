@@ -16,26 +16,26 @@ module vec_unit
     output logic [31:0] dbg_vec_wregs,
     output logic        dbg_vec_idle,
 `endif
-    input  logic        clk,
-    input  logic        rst_n,
-    input  logic        core_en,
+    input  wire         clk,
+    input  wire         rst_n,
+    input  wire         core_en,
 
     // Execute stage
-    input logic [31:0] instr,
-    input logic        instr_valid,
-    input logic        cancel,
-    input logic [31:0] xdata,
-    input logic [31:0] xstride,
+    input wire [31:0] instr,
+    input wire        instr_valid,
+    input wire        cancel,
+    input wire [31:0] xdata,
+    input wire [31:0] xstride,
 
     // Live configuration
-    input logic       vill,
-    input logic [7:0] vl,
-    input logic [2:0] vsew,
-    input logic [2:0] vlmul,
+    input wire       vill,
+    input wire [7:0] vl,
+    input wire [2:0] vsew,
+    input wire [2:0] vlmul,
 
     // Memory port
-    input  logic [  VLEN-1:0] mem_rdata,
-    input  logic              mem_ready,
+    input  wire  [  VLEN-1:0] mem_rdata,
+    input  wire               mem_ready,
     output logic              mem_req,
     output logic [      31:0] mem_addr,
     output logic [  VLEN-1:0] mem_wdata,
@@ -46,10 +46,10 @@ module vec_unit
     output logic [31:0] mem_bad_addr,
 
     // Fixed-point control
-    input  logic        csr_we,
-    input  logic [11:0] csr_waddr,
-    input  logic [31:0] csr_wdata,
-    input  logic        csr_wait,
+    input  wire         csr_we,
+    input  wire  [11:0] csr_waddr,
+    input  wire  [31:0] csr_wdata,
+    input  wire         csr_wait,
     output logic [ 1:0] vxrm,
     output logic        vxsat,
 

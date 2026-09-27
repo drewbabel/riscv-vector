@@ -9,31 +9,31 @@ module vec_mem #(
 `ifdef RISCV_FORMAL
     output logic [7:0] dbg_elem,
 `endif
-    input logic clk,
-    input logic rst_n,
-    input logic core_en,
+    input wire clk,
+    input wire rst_n,
+    input wire core_en,
 
     // Issued instruction
-    input logic              start,
-    input logic              load,
-    input logic              vm,
-    input logic [AWIDTH-1:0] vd,
-    input logic [       7:0] count,
-    input logic [       1:0] width,
-    input logic [      31:0] base,
-    input logic [      31:0] stride,
+    input wire              start,
+    input wire              load,
+    input wire              vm,
+    input wire [AWIDTH-1:0] vd,
+    input wire [       7:0] count,
+    input wire [       1:0] width,
+    input wire [      31:0] base,
+    input wire [      31:0] stride,
 
     // Register file
-    input  logic [  VLEN-1:0] v0,
-    input  logic [  VLEN-1:0] rdata,
+    input  wire  [  VLEN-1:0] v0,
+    input  wire  [  VLEN-1:0] rdata,
     output logic [AWIDTH-1:0] raddr,
     output logic              wen,
     output logic [  VLEN-1:0] wstrb,
     output logic [  VLEN-1:0] wdata,
 
     // Memory port
-    input  logic [ VLEN-1:0] mem_rdata,
-    input  logic             mem_ready,
+    input  wire  [ VLEN-1:0] mem_rdata,
+    input  wire              mem_ready,
     output logic             mem_req,
     output logic [     31:0] mem_addr,
     output logic [ VLEN-1:0] mem_wdata,
