@@ -23,7 +23,7 @@ module vec_mem_formal ();
 
   // Free memory stimulus
   (* anyseq *)logic            mem_ready;
-  (* anyseq *)logic [    31:0] mem_rdata;
+  (* anyseq *)logic [VLEN-1:0] mem_rdata;
 
   logic [     4:0] raddr;
   logic            wen;
@@ -31,8 +31,9 @@ module vec_mem_formal ();
   logic [VLEN-1:0] wdata;
   logic            mem_req;
   logic [    31:0] mem_addr;
-  logic [    31:0] mem_wdata;
-  logic [     3:0] mem_wstrb;
+  logic [VLEN-1:0] mem_wdata;
+  logic [    15:0] mem_wstrb;
+  logic [     7:0] dbg_elem;
   logic            busy;
   logic            done;
 
@@ -50,6 +51,7 @@ module vec_mem_formal ();
   vec_mem #(
       .VLEN(VLEN)
   ) dut (
+      .dbg_elem(dbg_elem),
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en),
@@ -122,6 +124,8 @@ module vec_mem_formal ();
       if (width == 2'd0) assume (count <= 8'd128);
       if (width == 2'd1) assume (count <= 8'd64);
       if (width == 2'd2) assume (count <= 8'd32);
+      if (width == 2'd2) assume (base[1:0] == 2'b00 && stride[1:0] == 2'b00);
+      if (width == 2'd1) assume (!base[0] && !stride[0]);
     end
 
   // Handshake safety
@@ -131,20 +135,21 @@ module vec_mem_formal ();
         assert (mem_req);
         assert (mem_addr == $past(mem_addr));
         assert (mem_wstrb == $past(mem_wstrb));
-        if (mem_wstrb != 4'h0) assert (mem_wdata == $past(mem_wdata));
+        if (mem_wstrb != '0) assert (mem_wdata == $past(mem_wdata));
       end
       if (!$past(core_en)) assert (done == $past(done));
+      if ($past(mem_req && mem_ready && core_en)) assert (dbg_elem > $past(dbg_elem));
     end
 
   // Beat accounting
   always @(posedge clk)
     if (rst_n) begin
-      assert (!mem_req || f_active);
-      assert (f_beats <= f_count || !f_active);
-      if (done) assert (f_active && f_beats == f_count);
-      if (f_active && f_beats == f_count) assert (!mem_req);
-      assert (mem_addr[1:0] == 2'b00);
-      if (load) assert (mem_wstrb == 4'h0);
+      if (mem_req) assert (f_active && dbg_elem < f_count);
+      if (done) assert (f_active && dbg_elem == f_count);
+      if (f_active) assert (dbg_elem <= f_count && f_count == count);
+      if (width == 2'd2) assert (mem_addr[1:0] == 2'b00);
+      if (width == 2'd1) assert (!mem_addr[0]);
+      if (load) assert (mem_wstrb == '0);
       if (wen) assert (load && mem_req && mem_ready);
     end
 
@@ -154,6 +159,8 @@ module vec_mem_formal ();
       cover (done && f_count == 8'd0);
       cover (done && f_count == 8'd3 && !load && !vm);
       cover (done && f_count == 8'd4 && load && width == 2'd2);
+      cover (done && f_count == 8'd4 && f_beats == 8'd1 && width == 2'd2);
+      cover (done && f_count == 8'd4 && f_beats == 8'd2 && width == 2'd2 && stride == 32'd4);
       cover (mem_req && !mem_ready && $past(mem_req) && !$past(core_en));
     end
 
