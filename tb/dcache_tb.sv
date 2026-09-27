@@ -16,9 +16,9 @@ module dcache_tb;
   localparam logic [LineBytes-1:0] EndStrb = LineBytes'(1) | (LineBytes'(1) << (LineBytes - 1));
   localparam logic [LineBytes-1:0] GapStrb = ~LineBytes'(1);
 
-  logic clk;
-  logic core_en;
-  logic rst_n;
+  logic                 clk;
+  logic                 core_en;
+  logic                 rst_n;
 
   logic                 cpu_valid;
   logic                 cpu_rw;
@@ -29,29 +29,29 @@ module dcache_tb;
   logic                 cpu_ready;
   logic [     Xlen-1:0] rword;
 
-  logic                mem_valid;
-  logic                mem_rw;
-  logic [    Xlen-1:0] mem_addr;
-  logic [LineBits-1:0] mem_wdata;
-  logic [LineBits-1:0] mem_rdata;
-  logic                mem_ready;
+  logic                 mem_valid;
+  logic                 mem_rw;
+  logic [     Xlen-1:0] mem_addr;
+  logic [ LineBits-1:0] mem_wdata;
+  logic [ LineBits-1:0] mem_rdata;
+  logic                 mem_ready;
 
-  logic [Xlen-1:0] boot_addr;
-  logic [Xlen-1:0] boot_wdata;
-  logic            boot_we;
+  logic [     Xlen-1:0] boot_addr;
+  logic [     Xlen-1:0] boot_wdata;
+  logic                 boot_we;
 
-  logic [    31:0] hit_count;
-  logic [    31:0] miss_count;
+  logic [         31:0] hit_count;
+  logic [         31:0] miss_count;
 
-  logic [LineBits-1:0] pattern;
+  logic [ LineBits-1:0] pattern;
 
-  int checks = 0;
-  int errors = 0;
-  int writebacks = 0;
-  int reads = 0;
-  int wb_mark = 0;
-  int rd_mark = 0;
-  int miss_mark = 0;
+  int                   checks = 0;
+  int                   errors = 0;
+  int                   writebacks = 0;
+  int                   reads = 0;
+  int                   wb_mark = 0;
+  int                   rd_mark = 0;
+  int                   miss_mark = 0;
 
   always #5 clk = ~clk;
 
@@ -212,8 +212,8 @@ module dcache_tb;
     end
   endtask  // Automatic
 
-  task automatic access(input logic rw, input logic [Xlen-1:0] addr,
-                        input logic [LineBytes-1:0] strb, input logic [LineBits-1:0] data);
+  task automatic access (input logic rw, input logic [Xlen-1:0] addr,
+                         input logic [LineBytes-1:0] strb, input logic [LineBits-1:0] data);
     int guard;
     #1;
     cpu_valid = 1'b1;
@@ -235,19 +235,19 @@ module dcache_tb;
   endtask  // Automatic
 
   task automatic read(input logic [Xlen-1:0] addr);
-    access(1'b0, addr, '0, '0);
+    access (1'b0, addr, '0, '0);
   endtask  // Automatic
 
   task automatic write_word(input logic [Xlen-1:0] addr, input logic [Xlen-1:0] data);
     int word;
     word = int'(addr[2+:BlkOffLen]);
-    access(1'b1, addr, LineBytes'({WordBytes{1'b1}}) << (WordBytes * word),
-           LineBits'(data) << (Xlen * word));
+    access (1'b1, addr, LineBytes'({WordBytes{1'b1}}) << (WordBytes * word),
+            LineBits'(data) << (Xlen * word));
   endtask  // Automatic
 
   task automatic write_line(input logic [Xlen-1:0] addr, input logic [LineBytes-1:0] strb,
                             input logic [LineBits-1:0] data);
-    access(1'b1, addr, strb, data);
+    access (1'b1, addr, strb, data);
   endtask  // Automatic
 
   task automatic read_word(input string name, input int set, input int tag, input int w);

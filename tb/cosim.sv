@@ -4,7 +4,7 @@ module cosim ();
 
   int checks = 0;
 
-  localparam int Xlen = 32;
+  localparam int Xlen  = 32;
   localparam int Depth = 256;
 
   logic             clk = 1'b0;
@@ -61,7 +61,7 @@ module cosim ();
   assign r_vstart = dut.riscv_pipelined_inst.dbg_vstart;
 
   // Vector retirement taps
-  localparam int Vlen = 128;
+  localparam int Vlen  = 128;
   localparam int Vregs = 32;
 
   logic [     7:0] r_vtag;

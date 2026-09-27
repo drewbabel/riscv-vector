@@ -10,10 +10,10 @@ module sc_core_top_tb;
   localparam int MaxTicks = 20000;
   localparam logic [7:0] PeriphTag = 8'h03;
 
-  int checks = 0;
-  int errors = 0;
-  int max_lat = 3;
-  int en_period = 2;
+  int                  checks = 0;
+  int                  errors = 0;
+  int                  max_lat = 3;
+  int                  en_period = 2;
 
   logic                clk = 1'b0;
   logic                rst_n;
@@ -147,7 +147,7 @@ module sc_core_top_tb;
   end
 
   // Line memory model
-  logic [LineBits-1:0] mem[MemLines];
+  logic [LineBits-1:0] mem[ MemLines];
   logic [    Xlen-1:0] img[ProgWords];
 
   function automatic int line_of(input logic [Xlen-1:0] a);
@@ -303,7 +303,9 @@ module sc_core_top_tb;
     repeat (4) @(posedge clk);
     rst_n = 1'b1;
 
-    while (reg_of(28) !== 32'd1 && ticks < MaxTicks) begin
+    while (reg_of(
+        28
+    ) !== 32'd1 && ticks < MaxTicks) begin
       @(posedge clk);
       ticks++;
     end

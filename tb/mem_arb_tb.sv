@@ -96,20 +96,20 @@ module mem_arb_tb;
 
   // Controller model
 
-  logic [LineBits-1:0] mem       [MemLines];
+  logic [LineBits-1:0] mem          [MemLines];
 
-  logic [         2:0] cq_cmd    [  QDepth];
-  logic [AppAddrW-1:0] cq_addr   [  QDepth];
+  logic [         2:0] cq_cmd       [  QDepth];
+  logic [AppAddrW-1:0] cq_addr      [  QDepth];
   int                  cq_wr = 0;
   int                  cq_rd = 0;
 
-  logic [LineBits-1:0] wq_data   [  QDepth];
-  logic [   MaskW-1:0] wq_mask   [  QDepth];
+  logic [LineBits-1:0] wq_data      [  QDepth];
+  logic [   MaskW-1:0] wq_mask      [  QDepth];
   int                  wq_wr = 0;
   int                  wq_rd = 0;
 
   logic [     RdLat:0] rd_v;
-  logic [LineBits-1:0] rd_d      [ RdLat+1];
+  logic [LineBits-1:0] rd_d         [ RdLat+1];
 
   logic                cmd_accept;
   logic                wdf_accept;
@@ -266,8 +266,9 @@ module mem_arb_tb;
       if (ic_resp_ready) seen = 1'b1;
       guard++;
       if (guard > 4000)
-        $fatal(1, "t=%0t  instruction request held valid 4000 cycles with no response ready",
-               $time);
+        $fatal(
+            1, "t=%0t  instruction request held valid 4000 cycles with no response ready", $time
+        );
     end
   endtask  // Automatic
 
@@ -400,8 +401,8 @@ module mem_arb_tb;
     boot_word(32'h0000_000C, 32'hAAAA_0003);
 
     ic_read(32'h0000_0000, got);
-    check("line of four boot word writes reads back wrong", got,
-          {32'hAAAA_0003, 32'hAAAA_0002, 32'hAAAA_0001, 32'hAAAA_0000});
+    check("line of four boot word writes reads back wrong", got, {
+          32'hAAAA_0003, 32'hAAAA_0002, 32'hAAAA_0001, 32'hAAAA_0000});
 
     // Boot leaves neighbours
     ic_read(32'h0000_0010, got);
@@ -410,29 +411,29 @@ module mem_arb_tb;
     // One lane only
     boot_word(32'h0000_0014, 32'hCCCC_0001);
     ic_read(32'h0000_0010, got);
-    check("boot word write disturbed the other three words", got,
-          {32'h0, 32'h0, 32'hCCCC_0001, 32'h0});
+    check("boot word write disturbed the other three words", got, {
+          32'h0, 32'h0, 32'hCCCC_0001, 32'h0});
 
     // Dirty line writeback
     dc_write(32'h0000_0020, {32'hBBBB_0003, 32'hBBBB_0002, 32'hBBBB_0001, 32'hBBBB_0000});
     dc_read(32'h0000_0020, got);
-    check("line reads back wrong after a data cache write", got,
-          {32'hBBBB_0003, 32'hBBBB_0002, 32'hBBBB_0001, 32'hBBBB_0000});
+    check("line reads back wrong after a data cache write", got, {
+          32'hBBBB_0003, 32'hBBBB_0002, 32'hBBBB_0001, 32'hBBBB_0000});
 
     // Full line overwrite
     dc_write(32'h0000_0000, {32'hDDDD_0003, 32'hDDDD_0002, 32'hDDDD_0001, 32'hDDDD_0000});
     ic_read(32'h0000_0000, got);
-    check("full line write left previous bytes in place", got,
-          {32'hDDDD_0003, 32'hDDDD_0002, 32'hDDDD_0001, 32'hDDDD_0000});
+    check("full line write left previous bytes in place", got, {
+          32'hDDDD_0003, 32'hDDDD_0002, 32'hDDDD_0001, 32'hDDDD_0000});
 
     // Requester tagging
     dc_write(32'h0000_0100, {32'h1111_0003, 32'h1111_0002, 32'h1111_0001, 32'h1111_0000});
     dc_write(32'h0000_0200, {32'h2222_0003, 32'h2222_0002, 32'h2222_0001, 32'h2222_0000});
     both_read(32'h0000_0100, 32'h0000_0200);
-    check("concurrent reads: instruction response has the wrong line", ic_got,
-          {32'h1111_0003, 32'h1111_0002, 32'h1111_0001, 32'h1111_0000});
-    check("concurrent reads: data response has the wrong line", dc_got,
-          {32'h2222_0003, 32'h2222_0002, 32'h2222_0001, 32'h2222_0000});
+    check("concurrent reads: instruction response has the wrong line", ic_got, {
+          32'h1111_0003, 32'h1111_0002, 32'h1111_0001, 32'h1111_0000});
+    check("concurrent reads: data response has the wrong line", dc_got, {
+          32'h2222_0003, 32'h2222_0002, 32'h2222_0001, 32'h2222_0000});
 
     // Word lane sweep
     for (int w = 0; w < 4; w++) begin
@@ -465,8 +466,7 @@ module mem_arb_tb;
         end
         dc_word_write(32'h0000_0504, strobes[s], {8'h5D, 8'h5C, 8'h5B, 8'h5A});
         dc_read(32'h0000_0500, got);
-        check($sformatf(
-                  "data cache word write ignored byte strobe %04b", strobes[s]), got, want);
+        check($sformatf("data cache word write ignored byte strobe %04b", strobes[s]), got, want);
       end
     end
 
@@ -475,8 +475,8 @@ module mem_arb_tb;
     dc_write(32'h0000_0610, {32'hF00D_0003, 32'hF00D_0002, 32'hF00D_0001, 32'hF00D_0000});
     dc_word_write(32'h0000_0608, 4'hF, 32'h0BAD_0000);
     ic_read(32'h0000_0610, got);
-    check("data cache word write disturbed the next line up", got,
-          {32'hF00D_0003, 32'hF00D_0002, 32'hF00D_0001, 32'hF00D_0000});
+    check("data cache word write disturbed the next line up", got, {
+          32'hF00D_0003, 32'hF00D_0002, 32'hF00D_0001, 32'hF00D_0000});
 
     // Word write stalled
     en_period = 3;
@@ -488,8 +488,7 @@ module mem_arb_tb;
       dc_write(32'h0000_0700, '0);
       dc_word_write(a, 4'hF, 32'hC0DE_0000 + Xlen'(i));
       ic_read(32'h0000_0700, got);
-      check($sformatf(
-                "data cache word write lost under a stalling controller, pass %0d", i), got,
+      check($sformatf("data cache word write lost under a stalling controller, pass %0d", i), got,
             LineBits'(32'hC0DE_0000 + Xlen'(i)) << ((i % 4) * 32));
     end
     en_period = 1;
@@ -510,13 +509,12 @@ module mem_arb_tb;
         dc_write(32'h0000_0300,
                  {32'h3333_0003, 32'h3333_0002, 32'h3333_0001, 32'h3333_0000} + LineBits'(p));
         ic_read(32'h0000_0300, got);
-        check($sformatf(
-                  "read after write reads back wrong, core_en 1 cycle in %0d", en_period), got,
-              {32'h3333_0003, 32'h3333_0002, 32'h3333_0001, 32'h3333_0000} + LineBits'(p));
+        check($sformatf("read after write reads back wrong, core_en 1 cycle in %0d", en_period),
+              got, {32'h3333_0003, 32'h3333_0002, 32'h3333_0001, 32'h3333_0000} + LineBits'(p));
         boot_word(32'h0000_0310, 32'hEEEE_0000 + Xlen'(p));
         ic_read(32'h0000_0310, got);
-        check($sformatf("boot word write did not land, core_en 1 cycle in %0d",
-                        en_period), got, {32'h0, 32'h0, 32'h0, 32'hEEEE_0000 + Xlen'(p)});
+        check($sformatf("boot word write did not land, core_en 1 cycle in %0d", en_period), got, {
+              32'h0, 32'h0, 32'h0, 32'hEEEE_0000 + Xlen'(p)});
       end
       en_period = 1;
     end
@@ -531,9 +529,8 @@ module mem_arb_tb;
       d = {32'h4444_0003 + i, 32'h4444_0002 + i, 32'h4444_0001 + i, 32'h4444_0000 + i};
       dc_write(a, d);
       ic_read(a, got);
-      check($sformatf(
-                "read after write reads back wrong under a stalling controller, pass %0d",
-                i), got, d);
+      check($sformatf("read after write reads back wrong under a stalling controller, pass %0d", i),
+            got, d);
     end
     rdy_pct   = 100;
     wdf_pct   = 100;
@@ -550,8 +547,8 @@ module mem_arb_tb;
       dc_write(a, d);
       ic_read(a, got);
       check($sformatf(
-                "read after write reads back wrong, stalling controller and slow core, pass %0d",
-                i), got, d);
+            "read after write reads back wrong, stalling controller and slow core, pass %0d", i),
+            got, d);
     end
     en_period = 1;
     rdy_pct   = 100;
@@ -569,8 +566,8 @@ module mem_arb_tb;
       check($sformatf("read after write reads back wrong at a read latency of %0d", L), got, d);
       boot_word(a + 4, 32'h7777_0000 + Xlen'(L));
       dc_read(a, got);
-      check($sformatf("boot word write did not land at a read latency of %0d", L), got,
-            {d[127:64], 32'h7777_0000 + Xlen'(L), d[31:0]});
+      check($sformatf("boot word write did not land at a read latency of %0d", L), got, {
+            d[127:64], 32'h7777_0000 + Xlen'(L), d[31:0]});
     end
     rd_lat = RdLat;
 
@@ -584,18 +581,17 @@ module mem_arb_tb;
       highs[4] = 32'h00FF_FFFC;
       for (int h = 0; h < 5; h++) begin
         boot_word(highs[h], 32'hB007_0000 + Xlen'(h));
-        check_addr($sformatf("boot word address truncated above the old block ram cap, %h",
-                             highs[h]), last_wr_addr, {highs[h][AppAddrW-1:4], 4'h0});
+        check_addr($sformatf("boot word address truncated above the old block ram cap, %h", highs[h]
+                   ), last_wr_addr, {highs[h][AppAddrW-1:4], 4'h0});
         ic_read(highs[h], got);
         check($sformatf("boot word write did not land at %h", highs[h]),
               LineBits'(got[highs[h][3:2]*32+:32]), LineBits'(32'hB007_0000 + Xlen'(h)));
       end
     end
 
-    check_int("commands left outstanding at the controller when the stimulus ended", cq_wr,
-                cq_rd);
-    check_int("write beats left outstanding at the controller when the stimulus ended",
-                wq_wr, wq_rd);
+    check_int("commands left outstanding at the controller when the stimulus ended", cq_wr, cq_rd);
+    check_int("write beats left outstanding at the controller when the stimulus ended", wq_wr,
+              wq_rd);
 
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);

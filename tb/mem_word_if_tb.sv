@@ -103,7 +103,7 @@ module mem_word_if_tb;
 
   // Line memory model
 
-  logic [LineBits-1:0] mem  [MemLines];
+  logic [LineBits-1:0] mem[MemLines];
 
   function automatic int line_of(input logic [Xlen-1:0] a);
     line_of = (int'(a) >> 4) % MemLines;
@@ -119,8 +119,7 @@ module mem_word_if_tb;
     $error("t=%0t  %s", $time, what);
   endtask  // Automatic
 
-  task automatic check(input string what, input logic [Xlen-1:0] got,
-                       input logic [Xlen-1:0] exp);
+  task automatic check(input string what, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
     checks++;
     if (got !== exp) begin
       $error("t=%0t  %s: saw %h, memory holds %h", $time, what, got, exp);
@@ -398,8 +397,8 @@ module mem_word_if_tb;
           a = 32'h0000_0300 + Xlen'(i * 4);
           store(a, 4'hF, 32'h4444_0000 + Xlen'(p * 16 + i));
           fetch(a, got);
-          check($sformatf("store did not reach memory, core_en 1 cycle in %0d", en_period),
-                got, 32'h4444_0000 + Xlen'(p * 16 + i));
+          check($sformatf("store did not reach memory, core_en 1 cycle in %0d", en_period), got,
+                32'h4444_0000 + Xlen'(p * 16 + i));
         end
       end
       en_period = 1;
@@ -416,8 +415,7 @@ module mem_word_if_tb;
       strb = 4'($urandom_range(15));
       if ($urandom_range(1) == 0) begin
         fetch(a, got);
-        check("random fetch returned the wrong word", got,
-              mem[line_of(a)][word_of(a)*32+:32]);
+        check("random fetch returned the wrong word", got, mem[line_of(a)][word_of(a)*32+:32]);
       end else begin
         if (strb != 4'h0) store(a, strb, d);
         load(a, got);
@@ -428,8 +426,7 @@ module mem_word_if_tb;
     #1;
     check_int("instruction side reported hits", int'(i_hits), 0);
     check_int("data side reported hits", int'(d_hits), 0);
-    check_int("instruction side missed on a different number of accesses", int'(i_misses),
-              i_done);
+    check_int("instruction side missed on a different number of accesses", int'(i_misses), i_done);
     check_int("data side missed on a different number of accesses", int'(d_misses), d_done);
 
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);

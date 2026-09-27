@@ -8,10 +8,10 @@ module dmem_tb ();
   localparam int DEPTH = 64;
   localparam int AddrWidth = $clog2(DEPTH);
 
-  int checks = 0;
-  int errors = 0;
+  int                   checks = 0;
+  int                   errors = 0;
 
-  logic clk = 1'b0;
+  logic                 clk = 1'b0;
   logic [LineBytes-1:0] wstrb;
   logic [     XLEN-1:0] addr;
   logic [ LineBits-1:0] wdata;

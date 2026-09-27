@@ -162,7 +162,7 @@ module vec_mem_tb ();
     if (stride != (32'd1 << width)) return int'(count);
     n = 0;
     for (int i = 0; i < int'(count); i++) begin
-      a = base + 32'(i) * stride;
+      a   = base + 32'(i) * stride;
       key = {a[31:4], 4'(i / (16 >> width))};
       if (i == 0 || key != last) n++;
       last = key;
