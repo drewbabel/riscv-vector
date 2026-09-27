@@ -29,12 +29,12 @@ module vec_mem_tb ();
   logic [VLEN-1:0] wstrb;
   logic [VLEN-1:0] wdata;
 
-  logic [31:0] mem_rdata;
+  logic [VLEN-1:0] mem_rdata;
   logic mem_ready;
   logic mem_req;
   logic [31:0] mem_addr;
-  logic [31:0] mem_wdata;
-  logic [3:0] mem_wstrb;
+  logic [VLEN-1:0] mem_wdata;
+  logic [15:0] mem_wstrb;
   logic busy;
   logic done;
 
@@ -52,8 +52,8 @@ module vec_mem_tb ();
   logic past_ready = 1'b0;
   logic past_en = 1'b0;
   logic [31:0] past_addr;
-  logic [31:0] past_wdata;
-  logic [3:0] past_wstrb;
+  logic [VLEN-1:0] past_wdata;
+  logic [15:0] past_wstrb;
 
   always #5 clk = ~clk;
 
@@ -154,6 +154,22 @@ module vec_mem_tb ();
     end
   endtask  // Automatic
 
+  function automatic int want_beats();
+    int n;
+    logic [31:0] a;
+    logic [31:0] key;
+    logic [31:0] last;
+    if (stride != (32'd1 << width)) return int'(count);
+    n = 0;
+    for (int i = 0; i < int'(count); i++) begin
+      a = base + 32'(i) * stride;
+      key = {a[31:4], 4'(i / (16 >> width))};
+      if (i == 0 || key != last) n++;
+      last = key;
+    end
+    return n;
+  endfunction
+
   task automatic run_one(input logic l, input logic [1:0] w, input logic [7:0] n,
                          input logic [31:0] b, input logic [31:0] s, input logic m,
                          input logic [4:0] d);
@@ -165,10 +181,10 @@ module vec_mem_tb ();
     stride = s;
     vm = m;
     vd = d;
+    want = want_beats();
     apply_golden();
     beats = 0;
     dones = 0;
-    want  = int'(n);
     @(negedge clk);
     start = 1'b1;
     @(posedge clk);
@@ -215,17 +231,17 @@ module vec_mem_tb ();
   end
 
   assign rdata = regs[raddr];
-  assign mem_rdata = {
-    mem[(mem_addr+3)%Bytes], mem[(mem_addr+2)%Bytes], mem[(mem_addr+1)%Bytes], mem[mem_addr%Bytes]
-  };
+  always_comb begin
+    for (int k = 0; k < 16; k++) mem_rdata[k*8+:8] = mem[({mem_addr[31:4], 4'h0}+32'(k))%Bytes];
+  end
 
   always @(posedge clk) begin
     if (rst_n && core_en) begin
       if (wen) regs[raddr] <= (regs[raddr] & ~wstrb) | (wdata & wstrb);
       if (mem_req && mem_ready) begin
         beats++;
-        for (int k = 0; k < 4; k++)
-        if (mem_wstrb[k]) mem[(mem_addr+32'(k))%Bytes] <= mem_wdata[k*8+:8];
+        for (int k = 0; k < 16; k++)
+        if (mem_wstrb[k]) mem[({mem_addr[31:4], 4'h0}+32'(k))%Bytes] <= mem_wdata[k*8+:8];
       end
       if (done) dones++;
     end
@@ -237,7 +253,9 @@ module vec_mem_tb ();
       check("request while idle", VLEN'(mem_req && !busy), VLEN'(0));
       check("write outside load", VLEN'(wen && !load), VLEN'(0));
       check("write before ready", VLEN'(wen && !mem_ready), VLEN'(0));
-      check("word aligned address", VLEN'(mem_addr[1:0]), VLEN'(0));
+      if (mem_req)
+        check("element aligned address", VLEN'(32'(mem_addr & ((32'd1 << width) - 32'd1))),
+              VLEN'(0));
       if (past_req && past_en && !past_ready) begin
         check("request held", VLEN'(mem_req), VLEN'(1));
         check("address held", VLEN'(mem_addr), VLEN'(past_addr));
@@ -275,6 +293,12 @@ module vec_mem_tb ();
     run_one(1'b0, 2'd0, 8'd16, 32'd40, 32'd1, 1'b1, 5'd4);
     run_one(1'b0, 2'd1, 8'd5, 32'd80, -32'sd2, 1'b0, 5'd5);
     run_one(1'b1, 2'd0, 8'd3, 32'd5, -32'sd2, 1'b0, 5'd6);
+
+    // Whole line beats
+    run_one(1'b1, 2'd2, 8'd4, 32'd32, 32'd4, 1'b1, 5'd9);
+    run_one(1'b0, 2'd0, 8'd16, 32'd48, 32'd1, 1'b1, 5'd10);
+    run_one(1'b1, 2'd2, 8'd4, 32'd40, 32'd4, 1'b0, 5'd11);
+    run_one(1'b0, 2'd1, 8'd24, 32'd70, 32'd2, 1'b0, 5'd12);
 
     // Zero count
     run_one(1'b1, 2'd2, 8'd0, 32'd0, 32'd4, 1'b1, 5'd7);
