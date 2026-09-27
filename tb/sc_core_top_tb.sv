@@ -10,48 +10,48 @@ module sc_core_top_tb;
   localparam int MaxTicks = 20000;
   localparam logic [7:0] PeriphTag = 8'h03;
 
-  int                  checks = 0;
-  int                  errors = 0;
-  int                  max_lat = 3;
-  int                  en_period = 2;
+  int                   checks = 0;
+  int                   errors = 0;
+  int                   max_lat = 3;
+  int                   en_period = 2;
 
-  logic                clk = 1'b0;
-  logic                rst_n;
-  logic                core_en;
+  logic                 clk = 1'b0;
+  logic                 rst_n;
+  logic                 core_en;
 
-  logic [    Xlen-1:0] instr;
-  logic [    Xlen-1:0] read_data;
-  logic [    Xlen-1:0] pc;
-  logic [    Xlen-1:0] mem_addr;
-  logic [         3:0] store_wstrb;
-  logic [    Xlen-1:0] store_data;
-  logic                imem_req;
-  logic                imem_ready;
-  logic                dmem_req;
-  logic                dmem_ready;
-  logic                periph_sel;
-  logic                irq_stim = 1'b0;
+  logic [     Xlen-1:0] instr;
+  logic [     Xlen-1:0] read_data;
+  logic [     Xlen-1:0] pc;
+  logic [     Xlen-1:0] mem_addr;
+  logic [          3:0] store_wstrb;
+  logic [     Xlen-1:0] store_data;
+  logic                 imem_req;
+  logic                 imem_ready;
+  logic                 dmem_req;
+  logic                 dmem_ready;
+  logic                 periph_sel;
+  logic                 irq_stim = 1'b0;
 
-  logic [    Xlen-1:0] dc_rdata;
-  logic                dc_ready;
+  logic [     Xlen-1:0] dc_rdata;
+  logic                 dc_ready;
 
-  logic                ic_mem_valid;
-  logic [    Xlen-1:0] ic_mem_addr;
-  logic [LineBits-1:0] ic_mem_rdata;
-  logic                ic_mem_ready;
+  logic                 ic_mem_valid;
+  logic [     Xlen-1:0] ic_mem_addr;
+  logic [ LineBits-1:0] ic_mem_rdata;
+  logic                 ic_mem_ready;
 
-  logic                dc_mem_valid;
-  logic                dc_mem_rw;
-  logic [    Xlen-1:0] dc_mem_addr;
-  logic [LineBits-1:0] dc_mem_wdata;
-  logic [         3:0] dc_mem_wstrb;
-  logic [LineBits-1:0] dc_mem_rdata;
-  logic                dc_mem_ready;
+  logic                 dc_mem_valid;
+  logic                 dc_mem_rw;
+  logic [     Xlen-1:0] dc_mem_addr;
+  logic [ LineBits-1:0] dc_mem_wdata;
+  logic [LineBytes-1:0] dc_mem_wstrb;
+  logic [ LineBits-1:0] dc_mem_rdata;
+  logic                 dc_mem_ready;
 
-  logic [        31:0] ic_hits;
-  logic [        31:0] ic_misses;
-  logic [        31:0] dc_hits;
-  logic [        31:0] dc_misses;
+  logic [         31:0] ic_hits;
+  logic [         31:0] ic_misses;
+  logic [         31:0] dc_hits;
+  logic [         31:0] dc_misses;
 
   always #5 clk = ~clk;
 
@@ -211,9 +211,8 @@ module sc_core_top_tb;
           d_busy <= 1'b0;
           d_pend <= 1'b1;
           if (dc_mem_rw) begin
-            for (b = 0; b < 4; b = b + 1) begin
-              if (dc_mem_wstrb[b])
-                mem[line_of(dc_mem_addr)][word_of(dc_mem_addr)*32+b*8+:8] <= dc_mem_wdata[b*8+:8];
+            for (b = 0; b < LineBytes; b = b + 1) begin
+              if (dc_mem_wstrb[b]) mem[line_of(dc_mem_addr)][b*8+:8] <= dc_mem_wdata[b*8+:8];
             end
             d_hold <= '0;
           end else begin
