@@ -1,28 +1,30 @@
 `default_nettype none
 
-module dmem #(
-    parameter int XLEN = 32,
-    parameter int DEPTH = 64,
-    localparam int AddrWidth = $clog2(DEPTH),
-    localparam int Byte = 4
+module dmem
+  import cache_pkg::*;
+#(
+    parameter  int XLEN     = 32,
+    parameter  int DEPTH    = 64,
+    localparam int Lines    = DEPTH / LineWords,
+    localparam int LineIdxW = $clog2(Lines)
 ) (
-    input  logic            clk,
-    input  logic [Byte-1:0] wstrb,
-    input  logic [XLEN-1:0] addr,
-    input  logic [XLEN-1:0] wdata,
-    output logic [XLEN-1:0] rdata
+    input  logic                 clk,
+    input  logic [LineBytes-1:0] wstrb,
+    input  logic [     XLEN-1:0] addr,
+    input  logic [ LineBits-1:0] wdata,
+    output logic [ LineBits-1:0] rdata
 );
 
-  logic [XLEN-1:0] mem[DEPTH];
+  logic [LineBits-1:0] mem[Lines];
 
-  assign rdata = mem[addr[AddrWidth+1:2]];
+  assign rdata = mem[addr[IdxLsb+:LineIdxW]];
 
   genvar i;
 
   generate
-    for (i = 0; i < Byte; i++) begin : g_we
+    for (i = 0; i < LineBytes; i++) begin : g_we
       always_ff @(posedge clk) begin
-        if (wstrb[i]) mem[addr[AddrWidth+1:2]][8*i+:8] <= wdata[8*i+:8];
+        if (wstrb[i]) mem[addr[IdxLsb+:LineIdxW]][8*i+:8] <= wdata[8*i+:8];
       end
     end
   endgenerate
