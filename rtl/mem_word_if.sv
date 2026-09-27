@@ -3,8 +3,10 @@
 module mem_word_if
   import cache_pkg::*;
 #(
-    parameter int XLEN = 32,
-    parameter bit RW   = 1'b0
+    parameter  int XLEN     = 32,
+    parameter  bit RW       = 1'b0,
+    parameter  int CPU_W    = XLEN,
+    localparam int CpuBytes = CPU_W / 8
 ) (
     input logic clk,
     input logic core_en,
@@ -14,9 +16,9 @@ module mem_word_if
     input  logic            cpu_valid,
     input  logic            cpu_rw,
     input  logic [XLEN-1:0] cpu_addr,
-    input  logic [XLEN-1:0] cpu_wdata,
-    input  logic [     3:0] cpu_wstrb,
-    output logic [XLEN-1:0] cpu_rdata,
+    input  logic [   CPU_W-1:0] cpu_wdata,
+    input  logic [CpuBytes-1:0] cpu_wstrb,
+    output logic [   CPU_W-1:0] cpu_rdata,
     output logic            cpu_ready,
 
     // Memory
@@ -24,7 +26,7 @@ module mem_word_if
     output logic                mem_rw,
     output logic [    XLEN-1:0] mem_addr,
     output logic [LineBits-1:0] mem_wdata,
-    output logic [         3:0] mem_wstrb,
+    output logic [LineBytes-1:0] mem_wstrb,
     input  logic [LineBits-1:0] mem_rdata,
     input  logic                mem_ready,
 
@@ -41,8 +43,9 @@ module mem_word_if
   state_t state, next_state;
 
   logic [     XLEN-1:0] req_addr;
-  logic [     XLEN-1:0] req_wdata;
-  logic [          3:0] req_wstrb;
+  logic [    CPU_W-1:0] req_wdata;
+  logic [ CpuBytes-1:0] req_wstrb;
+  logic [ BlkOffLen:0] lane;
   logic                 req_rw;
   logic [BlkOffLen-1:0] req_word;
   logic                 done;
@@ -52,14 +55,15 @@ module mem_word_if
 
   // Response cycle only
   assign cpu_ready  = done;
-  assign cpu_rdata  = mem_rdata[req_word*32+:32];
+  assign lane       = (CPU_W == LineBits) ? '0 : {1'b0, req_word};
+  assign cpu_rdata  = CPU_W'(mem_rdata >> (lane * CPU_W));
 
   assign mem_valid  = (state == ACCESS);
   assign mem_rw     = RW && req_rw;
   // Arbiter selects lanes
   assign mem_addr   = req_addr;
-  assign mem_wdata  = LineBits'(req_wdata);
-  assign mem_wstrb  = RW ? req_wstrb : 4'h0;
+  assign mem_wdata  = {(LineBits / CPU_W) {req_wdata}};
+  assign mem_wstrb  = RW ? LineBytes'(req_wstrb) << (lane * CpuBytes) : '0;
 
   // No line reuse
   assign hit_count  = '0;
