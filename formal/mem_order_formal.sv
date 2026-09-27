@@ -8,7 +8,7 @@ module mem_order_formal ();
 
   // Free core inputs
   (* anyseq *)logic [Xlen-1:0] instr;
-  (* anyseq *)logic [Xlen-1:0] read_data;
+  (* anyseq *)logic [   127:0] read_data;
   (* anyseq *)logic            imem_ready;
   (* anyseq *)logic            dmem_ready;
 
@@ -17,8 +17,8 @@ module mem_order_formal ();
   logic            mem_write;
   logic [Xlen-1:0] alu_result;
   logic [Xlen-1:0] write_data;
-  logic [     3:0] store_wstrb;
-  logic [Xlen-1:0] store_data;
+  logic [    15:0] store_wstrb;
+  logic [   127:0] store_data;
   logic [Xlen-1:0] mem_addr;
 
   logic            ex_commit;

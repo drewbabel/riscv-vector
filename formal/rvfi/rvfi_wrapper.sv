@@ -6,7 +6,7 @@ module rvfi_wrapper (
 
   // Free solver inputs
   (* keep *)`rvformal_rand_reg [31:0] instr;
-  (* keep *)`rvformal_rand_reg [31:0] read_data;
+  (* keep *)`rvformal_rand_reg [127:0] read_data;
   (* keep *)`rvformal_rand_reg        imem_ready;
   (* keep *)`rvformal_rand_reg        dmem_ready;
 
@@ -15,8 +15,8 @@ module rvfi_wrapper (
   (* keep *)logic              [31:0] pc;
   (* keep *)logic              [31:0] alu_result;
   (* keep *)logic              [31:0] write_data;
-  (* keep *)logic              [ 3:0] store_wstrb;
-  (* keep *)logic              [31:0] store_data;
+  (* keep *)logic              [ 15:0] store_wstrb;
+  (* keep *)logic              [127:0] store_data;
   (* keep *)logic              [31:0] mem_addr;
   (* keep *)logic                     mem_write;
 
