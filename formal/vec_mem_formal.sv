@@ -4,42 +4,42 @@ module vec_mem_formal ();
 
   localparam int VLEN = 128;
 
-  logic            clk;
+  logic              clk;
 
   // Free issue stimulus
-  (* anyseq *)logic            core_en;
-  (* anyseq *)logic            start;
-  (* anyseq *)logic            load;
-  (* anyseq *)logic            vm;
-  (* anyseq *)logic [     4:0] vd;
-  (* anyseq *)logic [     7:0] count;
-  (* anyseq *)logic [     1:0] width;
-  (* anyseq *)logic [    31:0] base;
-  (* anyseq *)logic [    31:0] stride;
+  (* anyseq *)logic              core_en;
+  (* anyseq *)logic              start;
+  (* anyseq *)logic              load;
+  (* anyseq *)logic              vm;
+  (* anyseq *)logic [       4:0] vd;
+  (* anyseq *)logic [       7:0] count;
+  (* anyseq *)logic [       1:0] width;
+  (* anyseq *)logic [      31:0] base;
+  (* anyseq *)logic [      31:0] stride;
 
   // Free register stimulus
-  (* anyseq *)logic [VLEN-1:0] v0;
-  (* anyseq *)logic [VLEN-1:0] rdata;
+  (* anyseq *)logic [  VLEN-1:0] v0;
+  (* anyseq *)logic [  VLEN-1:0] rdata;
 
   // Free memory stimulus
-  (* anyseq *)logic            mem_ready;
-  (* anyseq *)logic [VLEN-1:0] mem_rdata;
+  (* anyseq *)logic              mem_ready;
+  (* anyseq *)logic [  VLEN-1:0] mem_rdata;
 
-  logic [     4:0] raddr;
-  logic            wen;
-  logic [VLEN-1:0] wstrb;
-  logic [VLEN-1:0] wdata;
-  logic            mem_req;
-  logic [    31:0] mem_addr;
-  logic [VLEN-1:0] mem_wdata;
-  logic [    15:0] mem_wstrb;
-  logic [     7:0] dbg_elem;
-  logic            busy;
-  logic            done;
+  logic [       4:0] raddr;
+  logic              wen;
+  logic [  VLEN-1:0] wstrb;
+  logic [  VLEN-1:0] wdata;
+  logic              mem_req;
+  logic [      31:0] mem_addr;
+  logic [  VLEN-1:0] mem_wdata;
+  logic [VLEN/8-1:0] mem_wstrb;
+  logic [       7:0] dbg_elem;
+  logic              busy;
+  logic              done;
 
-  logic            rst_n;
-  logic [     1:0] t = 2'd0;
-  logic            f_past_valid = 1'b0;
+  logic              rst_n;
+  logic [       1:0] t = 2'd0;
+  logic              f_past_valid = 1'b0;
 
   initial assume (t == 2'd0);
   always @(posedge clk) begin
@@ -147,8 +147,8 @@ module vec_mem_formal ();
       if (mem_req) assert (f_active && dbg_elem < f_count);
       if (done) assert (f_active && dbg_elem == f_count);
       if (f_active) assert (dbg_elem <= f_count && f_count == count);
-      if (width == 2'd2) assert (mem_addr[1:0] == 2'b00);
-      if (width == 2'd1) assert (!mem_addr[0]);
+      if (mem_req && width == 2'd2) assert (mem_addr[1:0] == 2'b00);
+      if (mem_req && width == 2'd1) assert (!mem_addr[0]);
       if (load) assert (mem_wstrb == '0);
       if (wen) assert (load && mem_req && mem_ready);
     end
