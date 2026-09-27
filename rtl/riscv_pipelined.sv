@@ -2,6 +2,7 @@
 
 module riscv_pipelined
   import alu_pkg::*;
+  import cache_pkg::*;
 #(
     parameter int XLEN      = 32,
     parameter bit GSHARE_EN = 1'b1
@@ -50,7 +51,7 @@ module riscv_pipelined
     input  logic            core_en,
     input  logic            rst_n,
     input  logic [XLEN-1:0] instr,
-    input  logic [XLEN-1:0] read_data,
+    input  logic [LineBits-1:0] read_data,
     input  logic            timer_irq,
     input  logic            ext_irq,
     input  logic            imem_ready,
@@ -60,8 +61,8 @@ module riscv_pipelined
     output logic            mem_write,
     output logic [XLEN-1:0] alu_result,
     output logic [XLEN-1:0] write_data,
-    output logic [     3:0] store_wstrb,
-    output logic [XLEN-1:0] store_data,
+    output logic [LineBytes-1:0] store_wstrb,
+    output logic [ LineBits-1:0] store_data,
     output logic [XLEN-1:0] mem_addr
 );
 
@@ -73,8 +74,11 @@ module riscv_pipelined
   logic            v_req;
   logic            v_ready;
   logic [XLEN-1:0] v_addr;
-  logic [XLEN-1:0] v_wdata;
-  logic [     3:0] v_wstrb;
+
+  logic [ LineBits-1:0] s_line_wdata;
+  logic [LineBytes-1:0] s_line_wstrb;
+  logic [ LineBits-1:0] v_wdata;
+  logic [LineBytes-1:0] v_wstrb;
 
   datapath #(
       .XLEN     (XLEN),
@@ -122,7 +126,7 @@ module riscv_pipelined
       .core_en    (core_en),
       .rst_n      (rst_n),
       .instr      (instr),
-      .read_data  (read_data),
+      .read_line  (read_data),
       .timer_irq  (timer_irq),
       .ext_irq    (ext_irq),
       .imem_ready (imem_ready),
@@ -142,16 +146,21 @@ module riscv_pipelined
       .vmem_wstrb (v_wstrb)
   );
 
+  // Scalar word into line
+  assign s_line_wdata = {LineWords{s_wdata}};
+  assign s_line_wstrb = LineBytes'(s_wstrb) << (4 * s_addr[2+:BlkOffLen]);
+
   dmem_arb #(
-      .XLEN(XLEN)
+      .XLEN  (XLEN),
+      .DATA_W(LineBits)
   ) dmem_arb_inst (
       .clk    (clk),
       .rst_n  (rst_n),
       .core_en(core_en),
       .s_req  (s_req),
       .s_addr (s_addr),
-      .s_wdata(s_wdata),
-      .s_wstrb(s_wstrb),
+      .s_wdata(s_line_wdata),
+      .s_wstrb(s_line_wstrb),
       .s_ready(s_ready),
       .v_req  (v_req),
       .v_addr (v_addr),

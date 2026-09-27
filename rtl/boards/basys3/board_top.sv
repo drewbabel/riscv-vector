@@ -65,6 +65,7 @@ module board_top
   logic [ LineBits-1:0] dc_line;
   logic [ LineBits-1:0] dc_wdata;
   logic [LineBytes-1:0] dc_wstrb;
+  logic [ LineBits-1:0] core_rdata;
 
   logic                ic_mem_valid;
   logic [    XLEN-1:0] ic_mem_addr;
@@ -220,7 +221,7 @@ module board_top
       .core_en    (core_en),
       .rst_n      (core_rst_n),
       .instr      (instr),
-      .read_data  (read_data),
+      .read_data  (core_rdata),
       .timer_irq  (timer_irq),
       .ext_irq    (ext_irq),
       .imem_ready (imem_ready),
@@ -230,8 +231,8 @@ module board_top
       .mem_write  (),
       .alu_result (),
       .write_data (),
-      .store_wstrb(store_wstrb),
-      .store_data (store_data),
+      .store_wstrb(dc_wstrb),
+      .store_data (dc_wdata),
       .mem_addr   (mem_addr)
   );
 
@@ -253,10 +254,11 @@ module board_top
       .miss_count(ic_misses)
   );
 
-  // Word into line
-  assign dc_wdata = {LineWords{store_data}};
-  assign dc_wstrb = LineBytes'(store_wstrb) << (4 * mem_addr[2+:BlkOffLen]);
+  // Word views of line
   assign dc_rdata = dc_line[mem_addr[2+:BlkOffLen]*XLEN+:XLEN];
+  assign core_rdata = periph_sel ? {LineWords{read_data}} : dc_line;
+  assign store_data = dc_wdata[mem_addr[2+:BlkOffLen]*XLEN+:XLEN];
+  assign store_wstrb = dc_wstrb[mem_addr[2+:BlkOffLen]*4+:4];
 
   dcache #(
       .XLEN(XLEN)
@@ -265,7 +267,7 @@ module board_top
       .core_en   (core_en),
       .rst_n     (core_rst_n),
       .cpu_valid (dmem_req && !periph_sel),
-      .cpu_rw    (|store_wstrb),
+      .cpu_rw    (|dc_wstrb),
       .cpu_addr  (mem_addr),
       .cpu_wdata (dc_wdata),
       .cpu_wstrb (dc_wstrb),

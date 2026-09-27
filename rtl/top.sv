@@ -1,6 +1,8 @@
 `default_nettype none
 
-module top #(
+module top
+  import cache_pkg::*;
+#(
     parameter int XLEN  = 32,
     parameter int DEPTH = 64
 ) (
@@ -13,9 +15,9 @@ module top #(
 );
 
   logic [XLEN-1:0] instr;
-  logic [XLEN-1:0] read_data;
-  logic [     3:0] store_wstrb;
-  logic [XLEN-1:0] store_data;
+  logic [ LineBits-1:0] read_data;
+  logic [LineBytes-1:0] store_wstrb;
+  logic [ LineBits-1:0] store_data;
   logic [XLEN-1:0] mem_addr;
 
   riscv_pipelined #(

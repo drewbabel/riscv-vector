@@ -2,6 +2,7 @@
 
 module datapath
   import alu_pkg::*;
+  import cache_pkg::*;
   import opcode_pkg::*;
   import muldiv_pkg::*;
   import bp_pkg::*;
@@ -54,7 +55,7 @@ module datapath
     input  logic            core_en,
     input  logic            rst_n,
     input  logic [XLEN-1:0] instr,
-    input  logic [XLEN-1:0] read_data,
+    input  logic [LineBits-1:0] read_line,
     input  logic            timer_irq,
     input  logic            ext_irq,
     input  logic            imem_ready,
@@ -70,8 +71,8 @@ module datapath
     input  logic            vmem_ready,
     output logic            vmem_req,
     output logic [XLEN-1:0] vmem_addr,
-    output logic [XLEN-1:0] vmem_wdata,
-    output logic [     3:0] vmem_wstrb
+    output logic [ LineBits-1:0] vmem_wdata,
+    output logic [LineBytes-1:0] vmem_wstrb
 );
 
   logic                   [    XLEN-1:0] pc_next;
@@ -86,6 +87,7 @@ module datapath
   logic                   [    XLEN-1:0] result;
   logic                   [    XLEN-1:0] result_ex;
   logic                   [    XLEN-1:0] load_data;
+  logic                   [    XLEN-1:0] read_data;
   logic                   [         7:0] ld_byte;
   logic                   [        15:0] ld_half;
 
@@ -679,7 +681,7 @@ module datapath
       .csr_wait   (vec_csr_wait),
       .vxrm       (vec_vxrm),
       .vxsat      (vec_vxsat),
-      .mem_rdata  (read_data),
+      .mem_rdata  (read_line),
       .mem_ready  (vmem_ready),
       .mem_req    (vmem_req),
       .mem_addr   (vmem_addr),
@@ -819,6 +821,9 @@ module datapath
   assign write_data = write_data_mem;
   assign mem_write  = mem_write_mem;
   assign mem_addr   = alu_result_mem;
+
+  // Addressed word of line
+  assign read_data  = read_line[alu_result_mem[2+:BlkOffLen]*XLEN+:XLEN];
 
   // Memory access
   always_comb begin
