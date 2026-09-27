@@ -4,7 +4,7 @@ module mem_order_formal ();
 
   localparam int Xlen = 32;
 
-  logic clk;
+  logic            clk;
 
   // Free core inputs
   (* anyseq *)logic [Xlen-1:0] instr;
@@ -101,18 +101,17 @@ module mem_order_formal ();
   // Program contract
   logic is_lw, is_sw, is_vle, is_vse, is_vset, is_addi, is_fence, is_csrs;
 
-  assign is_lw = (instr[6:0] == 7'b0000011) && (instr[14:12] == 3'b010)
-      && (instr[19:15] == 5'd0) && (instr[21:20] == 2'b00);
-  assign is_sw = (instr[6:0] == 7'b0100011) && (instr[14:12] == 3'b010)
-      && (instr[19:15] == 5'd0) && (instr[8:7] == 2'b00);
-  assign is_vle = (instr[6:0] == 7'b0000111) && (instr[31:26] == 6'd0)
-      && (instr[24:12] == 13'd0) && (instr[25] || instr[11:7] != 5'd0);
-  assign is_vse = (instr[6:0] == 7'b0100111) && (instr[31:26] == 6'd0)
-      && (instr[24:12] == 13'd0);
-  assign is_vset = (instr[6:0] == 7'b1010111) && (instr[31:20] == 12'd0)
-      && (instr[14:12] == 3'b111) && (instr[19:15] == 5'd1);
-  assign is_addi = (instr[6:0] == 7'b0010011) && (instr[14:12] == 3'b000)
-      && (instr[19:15] == 5'd0) && (instr[11:7] == 5'd1) && (instr[31:23] == 9'd0);
+  assign is_lw = (instr[6:0] == 7'b0000011) && (instr[14:12] == 3'b010) && (instr[19:15] == 5'd0) &&
+      (instr[21:20] == 2'b00);
+  assign is_sw = (instr[6:0] == 7'b0100011) && (instr[14:12] == 3'b010) && (instr[19:15] == 5'd0) &&
+      (instr[8:7] == 2'b00);
+  assign is_vle = (instr[6:0] == 7'b0000111) && (instr[31:26] == 6'd0) && (instr[24:12] == 13'd0) &&
+      (instr[25] || instr[11:7] != 5'd0);
+  assign is_vse = (instr[6:0] == 7'b0100111) && (instr[31:26] == 6'd0) && (instr[24:12] == 13'd0);
+  assign is_vset = (instr[6:0] == 7'b1010111) && (instr[31:20] == 12'd0) &&
+      (instr[14:12] == 3'b111) && (instr[19:15] == 5'd1);
+  assign is_addi = (instr[6:0] == 7'b0010011) && (instr[14:12] == 3'b000) &&
+      (instr[19:15] == 5'd0) && (instr[11:7] == 5'd1) && (instr[31:23] == 9'd0);
   assign is_fence = (instr == 32'h0000_000F);
   assign is_csrs = (instr == 32'h3000_A073);
 
@@ -148,8 +147,8 @@ module mem_order_formal ();
   logic [7:0] s_seq;
   logic       s_store;
 
-  logic [7:0] v_seq       [2];
-  logic       v_store     [2];
+  logic [7:0] v_seq     [2];
+  logic       v_store   [2];
   logic [1:0] v_cnt;
 
   assign ex_sload  = ex_commit && (ex_insn[6:0] == 7'b0000011);
@@ -222,7 +221,8 @@ module mem_order_formal ();
 
   // Vector never passes
   always @(posedge clk)
-    if (rst_n && v_take && s_pend && (s_store || v_store[0])) assert (v_seq[0] < s_seq);
+    if (rst_n && v_take && s_pend && (s_store || v_store[0]))
+      assert (v_seq[0] < s_seq);
 
   // Fence drains unit
   always @(posedge clk) if (rst_n && ex_fence) assert (v_cnt == 2'd0);

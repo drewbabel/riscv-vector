@@ -5,56 +5,56 @@ module rvfi_wrapper (
 );
 
   // Free solver inputs
-  (* keep *)`rvformal_rand_reg [31:0] instr;
+  (* keep *)`rvformal_rand_reg [ 31:0] instr;
   (* keep *)`rvformal_rand_reg [127:0] read_data;
-  (* keep *)`rvformal_rand_reg        imem_ready;
-  (* keep *)`rvformal_rand_reg        dmem_ready;
+  (* keep *)`rvformal_rand_reg         imem_ready;
+  (* keep *)`rvformal_rand_reg         dmem_ready;
 
-  (* keep *)logic                     dmem_req;
+  (* keep *)logic                      dmem_req;
 
-  (* keep *)logic              [31:0] pc;
-  (* keep *)logic              [31:0] alu_result;
-  (* keep *)logic              [31:0] write_data;
+  (* keep *)logic              [ 31:0] pc;
+  (* keep *)logic              [ 31:0] alu_result;
+  (* keep *)logic              [ 31:0] write_data;
   (* keep *)logic              [ 15:0] store_wstrb;
   (* keep *)logic              [127:0] store_data;
-  (* keep *)logic              [31:0] mem_addr;
-  (* keep *)logic                     mem_write;
+  (* keep *)logic              [ 31:0] mem_addr;
+  (* keep *)logic                      mem_write;
 
   // Retirement taps
-  (* keep *)logic                     dbg_valid;
-  (* keep *)logic              [31:0] dbg_insn;
-  (* keep *)logic              [31:0] dbg_pc_rdata;
-  (* keep *)logic              [31:0] dbg_pc_wdata;
-  (* keep *)logic              [31:0] dbg_rs1_rdata;
-  (* keep *)logic              [31:0] dbg_rs2_rdata;
-  (* keep *)logic              [31:0] dbg_rd_wdata;
-  (* keep *)logic                     dbg_reg_write;
-  (* keep *)logic              [31:0] dbg_mem_addr;
-  (* keep *)logic              [ 3:0] dbg_mem_wmask;
-  (* keep *)logic              [31:0] dbg_mem_wdata;
-  (* keep *)logic              [31:0] dbg_mem_rdata;
-  (* keep *)logic                     dbg_trap;
-  (* keep *)logic              [31:0] dbg_csr_wdata;
-  (* keep *)logic              [31:0] dbg_mscratch;
-  (* keep *)logic              [31:0] dbg_mstatus;
-  (* keep *)logic              [31:0] dbg_mtvec;
-  (* keep *)logic              [31:0] dbg_mepc;
-  (* keep *)logic              [31:0] dbg_mcause;
-  (* keep *)logic              [31:0] dbg_mtval;
-  (* keep *)logic              [31:0] dbg_mie;
-  (* keep *)logic              [31:0] dbg_mip;
-  (* keep *)logic              [31:0] dbg_mcycle;
-  (* keep *)logic              [31:0] dbg_minstret;
-  (* keep *)logic              [31:0] dbg_mcycleh;
-  (* keep *)logic              [31:0] dbg_minstreth;
-  (* keep *)logic              [ 7:0] dbg_vl;
-  (* keep *)logic              [ 7:0] dbg_vtype_bits;
-  (* keep *)logic                     dbg_vtype_ill;
-  (* keep *)logic              [ 6:0] dbg_vstart;
+  (* keep *)logic                      dbg_valid;
+  (* keep *)logic              [ 31:0] dbg_insn;
+  (* keep *)logic              [ 31:0] dbg_pc_rdata;
+  (* keep *)logic              [ 31:0] dbg_pc_wdata;
+  (* keep *)logic              [ 31:0] dbg_rs1_rdata;
+  (* keep *)logic              [ 31:0] dbg_rs2_rdata;
+  (* keep *)logic              [ 31:0] dbg_rd_wdata;
+  (* keep *)logic                      dbg_reg_write;
+  (* keep *)logic              [ 31:0] dbg_mem_addr;
+  (* keep *)logic              [  3:0] dbg_mem_wmask;
+  (* keep *)logic              [ 31:0] dbg_mem_wdata;
+  (* keep *)logic              [ 31:0] dbg_mem_rdata;
+  (* keep *)logic                      dbg_trap;
+  (* keep *)logic              [ 31:0] dbg_csr_wdata;
+  (* keep *)logic              [ 31:0] dbg_mscratch;
+  (* keep *)logic              [ 31:0] dbg_mstatus;
+  (* keep *)logic              [ 31:0] dbg_mtvec;
+  (* keep *)logic              [ 31:0] dbg_mepc;
+  (* keep *)logic              [ 31:0] dbg_mcause;
+  (* keep *)logic              [ 31:0] dbg_mtval;
+  (* keep *)logic              [ 31:0] dbg_mie;
+  (* keep *)logic              [ 31:0] dbg_mip;
+  (* keep *)logic              [ 31:0] dbg_mcycle;
+  (* keep *)logic              [ 31:0] dbg_minstret;
+  (* keep *)logic              [ 31:0] dbg_mcycleh;
+  (* keep *)logic              [ 31:0] dbg_minstreth;
+  (* keep *)logic              [  7:0] dbg_vl;
+  (* keep *)logic              [  7:0] dbg_vtype_bits;
+  (* keep *)logic                      dbg_vtype_ill;
+  (* keep *)logic              [  6:0] dbg_vstart;
 
   // Bounded stalls
-  logic              [ 2:0] imem_stall_cnt = 0;
-  logic              [ 2:0] dmem_stall_cnt = 0;
+  logic              [  2:0] imem_stall_cnt = 0;
+  logic              [  2:0] dmem_stall_cnt = 0;
 
   always @(posedge clock) begin
     if (reset || imem_ready) imem_stall_cnt <= 0;
@@ -220,8 +220,8 @@ module rvfi_wrapper (
   logic is_mscratch;
   assign is_mscratch = csr_op && dbg_insn[31:20] == 12'h340;
   assign rvfi_csr_mscratch_rmask = is_mscratch ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mscratch_wmask =
-      (mscratch_pre != mscratch_post) ? 32'hFFFFFFFF : (is_mscratch ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mscratch_wmask = (mscratch_pre != mscratch_post) ?
+      32'hFFFFFFFF : (is_mscratch ? 32'hFFFFFFFF : 32'd0);
   assign rvfi_csr_mscratch_rdata = mscratch_pre;
   assign rvfi_csr_mscratch_wdata = mscratch_post;
 `endif
@@ -229,8 +229,8 @@ module rvfi_wrapper (
   logic is_mstatus;
   assign is_mstatus = csr_op && dbg_insn[31:20] == 12'h300;
   assign rvfi_csr_mstatus_rmask = is_mstatus ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mstatus_wmask =
-      (mstatus_pre != mstatus_post) ? 32'hFFFFFFFF : (is_mstatus ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mstatus_wmask = (mstatus_pre != mstatus_post) ?
+      32'hFFFFFFFF : (is_mstatus ? 32'hFFFFFFFF : 32'd0);
   assign rvfi_csr_mstatus_rdata = mstatus_pre;
   assign rvfi_csr_mstatus_wdata = mstatus_post;
 `endif
@@ -238,8 +238,8 @@ module rvfi_wrapper (
   logic is_mtvec;
   assign is_mtvec = csr_op && dbg_insn[31:20] == 12'h305;
   assign rvfi_csr_mtvec_rmask = is_mtvec ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mtvec_wmask =
-      (mtvec_pre != mtvec_post) ? 32'hFFFFFFFF : (is_mtvec ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mtvec_wmask = (mtvec_pre != mtvec_post) ?
+      32'hFFFFFFFF : (is_mtvec ? 32'hFFFFFFFF : 32'd0);
   assign rvfi_csr_mtvec_rdata = mtvec_pre;
   assign rvfi_csr_mtvec_wdata = mtvec_post;
 `endif
@@ -247,8 +247,8 @@ module rvfi_wrapper (
   logic is_mepc;
   assign is_mepc = csr_op && dbg_insn[31:20] == 12'h341;
   assign rvfi_csr_mepc_rmask = is_mepc ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mepc_wmask =
-      (mepc_pre != mepc_post) ? 32'hFFFFFFFF : (is_mepc ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mepc_wmask = (mepc_pre != mepc_post) ?
+      32'hFFFFFFFF : (is_mepc ? 32'hFFFFFFFF : 32'd0);
   assign rvfi_csr_mepc_rdata = mepc_pre;
   assign rvfi_csr_mepc_wdata = mepc_post;
 `endif
@@ -256,8 +256,8 @@ module rvfi_wrapper (
   logic is_mcause;
   assign is_mcause = csr_op && dbg_insn[31:20] == 12'h342;
   assign rvfi_csr_mcause_rmask = is_mcause ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mcause_wmask =
-      (mcause_pre != mcause_post) ? 32'hFFFFFFFF : (is_mcause ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mcause_wmask = (mcause_pre != mcause_post) ?
+      32'hFFFFFFFF : (is_mcause ? 32'hFFFFFFFF : 32'd0);
   assign rvfi_csr_mcause_rdata = mcause_pre;
   assign rvfi_csr_mcause_wdata = mcause_post;
 `endif
@@ -265,8 +265,8 @@ module rvfi_wrapper (
   logic is_mtval;
   assign is_mtval = csr_op && dbg_insn[31:20] == 12'h343;
   assign rvfi_csr_mtval_rmask = is_mtval ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mtval_wmask =
-      (mtval_pre != mtval_post) ? 32'hFFFFFFFF : (is_mtval ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mtval_wmask = (mtval_pre != mtval_post) ?
+      32'hFFFFFFFF : (is_mtval ? 32'hFFFFFFFF : 32'd0);
   assign rvfi_csr_mtval_rdata = mtval_pre;
   assign rvfi_csr_mtval_wdata = mtval_post;
 `endif
@@ -274,8 +274,8 @@ module rvfi_wrapper (
   logic is_mie;
   assign is_mie = csr_op && dbg_insn[31:20] == 12'h304;
   assign rvfi_csr_mie_rmask = is_mie ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mie_wmask =
-      (mie_pre != mie_post) ? 32'hFFFFFFFF : (is_mie ? 32'hFFFFFFFF : 32'd0);
+  assign
+      rvfi_csr_mie_wmask = (mie_pre != mie_post) ? 32'hFFFFFFFF : (is_mie ? 32'hFFFFFFFF : 32'd0);
   assign rvfi_csr_mie_rdata = mie_pre;
   assign rvfi_csr_mie_wdata = mie_post;
 `endif
@@ -283,8 +283,8 @@ module rvfi_wrapper (
   logic is_mip;
   assign is_mip = csr_op && dbg_insn[31:20] == 12'h344;
   assign rvfi_csr_mip_rmask = is_mip ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mip_wmask =
-      (mip_pre != mip_post) ? 32'hFFFFFFFF : (is_mip ? 32'hFFFFFFFF : 32'd0);
+  assign
+      rvfi_csr_mip_wmask = (mip_pre != mip_post) ? 32'hFFFFFFFF : (is_mip ? 32'hFFFFFFFF : 32'd0);
   assign rvfi_csr_mip_rdata = mip_pre;
   assign rvfi_csr_mip_wdata = mip_post;
 `endif

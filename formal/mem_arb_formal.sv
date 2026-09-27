@@ -147,7 +147,7 @@ module mem_arb_formal
 
   // Fairness window
   localparam int GapMax = 2;
-  localparam int GapW = 4;
+  localparam int GapW   = 4;
 
   logic [GapW-1:0] gap_rdy;
   logic [GapW-1:0] gap_wdf;
@@ -231,9 +231,9 @@ module mem_arb_formal
   // Covers
 
   localparam logic [1:0] StIssue = 2'd1;
-  localparam logic [1:0] StWait = 2'd2;
-  localparam logic [1:0] SrcIc = 2'd0;
-  localparam logic [1:0] SrcDc = 2'd1;
+  localparam logic [1:0] StWait  = 2'd2;
+  localparam logic [1:0] SrcIc   = 2'd0;
+  localparam logic [1:0] SrcDc   = 2'd1;
   localparam logic [1:0] SrcBoot = 2'd2;
 
   logic [1:0] prev_state;
