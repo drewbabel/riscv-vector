@@ -19,7 +19,7 @@ module mem_word_if_tb;
   logic                i_mem_rw;
   logic [    Xlen-1:0] i_mem_addr;
   logic [LineBits-1:0] i_mem_wdata;
-  logic [         3:0] i_mem_wstrb;
+  logic [        15:0] i_mem_wstrb;
   logic [LineBits-1:0] i_mem_rdata;
   logic                i_mem_ready;
   logic [        31:0] i_hits;
@@ -36,7 +36,7 @@ module mem_word_if_tb;
   logic                d_mem_rw;
   logic [    Xlen-1:0] d_mem_addr;
   logic [LineBits-1:0] d_mem_wdata;
-  logic [         3:0] d_mem_wstrb;
+  logic [        15:0] d_mem_wstrb;
   logic [LineBits-1:0] d_mem_rdata;
   logic                d_mem_ready;
   logic [        31:0] d_hits;
@@ -188,9 +188,8 @@ module mem_word_if_tb;
           d_busy <= 1'b0;
           d_pend <= 1'b1;
           if (d_mem_rw) begin
-            for (b = 0; b < 4; b = b + 1) begin
-              if (d_mem_wstrb[b])
-                mem[line_of(d_mem_addr)][word_of(d_mem_addr)*32+b*8+:8] <= d_mem_wdata[b*8+:8];
+            for (b = 0; b < 16; b = b + 1) begin
+              if (d_mem_wstrb[b]) mem[line_of(d_mem_addr)][b*8+:8] <= d_mem_wdata[b*8+:8];
             end
             d_hold <= '0;
           end else begin
@@ -211,7 +210,7 @@ module mem_word_if_tb;
   always @(posedge clk) begin
     if (rst_n) begin
       if (i_mem_rw) fail("read only instance drove a write command at memory");
-      if (i_mem_wstrb != 4'h0) fail("read only instance drove a nonzero byte strobe");
+      if (i_mem_wstrb != '0) fail("read only instance drove a nonzero byte strobe");
       if (i_cpu_ready && !core_en) fail("instruction side asserted ready while core_en was low");
       if (d_cpu_ready && !core_en) fail("data side asserted ready while core_en was low");
       if (i_cpu_ready && !i_mem_ready) fail("instruction side answered without a memory response");

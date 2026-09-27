@@ -2,6 +2,8 @@
 
 module dmem_tb ();
 
+  import cache_pkg::*;
+
   localparam int XLEN = 32;
   localparam int DEPTH = 64;
   localparam int AddrWidth = $clog2(DEPTH);
@@ -10,10 +12,13 @@ module dmem_tb ();
   int errors = 0;
 
   logic clk = 1'b0;
-  logic [3:0] wstrb;
-  logic [XLEN-1:0] addr;
-  logic [XLEN-1:0] wdata;
-  logic [XLEN-1:0] rdata;
+  logic [LineBytes-1:0] wstrb;
+  logic [     XLEN-1:0] addr;
+  logic [ LineBits-1:0] wdata;
+  logic [ LineBits-1:0] rdata;
+  logic [     XLEN-1:0] rword;
+
+  assign rword = rdata[addr[2+:BlkOffLen]*XLEN+:XLEN];
 
   logic [XLEN-1:0] shadow[DEPTH];
 
@@ -33,19 +38,29 @@ module dmem_tb ();
   task automatic write_mem(input logic [XLEN-1:0] a, input logic [XLEN-1:0] data);
     #1;
     addr  = a;
-    wdata = data;
-    wstrb = 4'hF;
+    wdata = {LineWords{data}};
+    wstrb = LineBytes'(4'hF) << (4 * a[2+:BlkOffLen]);
     @(posedge clk);
     @(negedge clk);
-    wstrb = 4'h0;
+    wstrb = '0;
+  endtask
+
+  task automatic write_line(input logic [XLEN-1:0] a, input logic [LineBits-1:0] data);
+    #1;
+    addr  = a;
+    wdata = data;
+    wstrb = '1;
+    @(posedge clk);
+    @(negedge clk);
+    wstrb = '0;
   endtask
 
   // Drive a cycle with wstrb zero, memory must not change
   task automatic write_blocked(input logic [XLEN-1:0] a, input logic [XLEN-1:0] data);
     #1;
     addr  = a;
-    wdata = data;
-    wstrb = 4'h0;
+    wdata = {LineWords{data}};
+    wstrb = '0;
     @(posedge clk);
     @(negedge clk);
   endtask
@@ -57,9 +72,9 @@ module dmem_tb ();
     #1;
     exp = shadow[a[AddrWidth+1:2]];
     checks++;
-    if (rdata !== exp) begin
+    if (rword !== exp) begin
       errors++;
-      $display("Read mismatch addr=%h exp=%h got=%h", a, exp, rdata);
+      $display("Read mismatch addr=%h exp=%h got=%h", a, exp, rword);
     end
   endtask
 
@@ -72,7 +87,11 @@ module dmem_tb ();
 
   // Reference model
   always @(posedge clk) begin
-    if (|wstrb) shadow[addr[AddrWidth+1:2]] <= wdata;
+    for (int w = 0; w < LineWords; w++) begin
+      if (|wstrb[w*4+:4]) begin
+        shadow[{addr[AddrWidth+1:IdxLsb], BlkOffLen'(w)}] <= wdata[w*XLEN+:XLEN];
+      end
+    end
   end
 
   initial begin
@@ -94,6 +113,10 @@ module dmem_tb ();
     // we low blocks write
     write_blocked(32'h00000004, 32'hFFFFFFFF);
     check_read(32'h00000004);
+
+    // Whole line write
+    write_line(32'h00000010, 128'h3333_3333_2222_2222_1111_1111_0000_0000);
+    for (int w = 0; w < LineWords; w++) check_read(XLEN'(16 + w * 4));
 
     // Randomized write then read sweep
     for (int i = 0; i < 1000; i++) begin
