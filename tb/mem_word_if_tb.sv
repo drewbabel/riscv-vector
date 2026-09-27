@@ -7,47 +7,47 @@ module mem_word_if_tb;
   localparam int Xlen = 32;
   localparam int MemLines = 64;
 
-  logic                clk;
-  logic                rst_n;
-  logic                core_en;
+  logic                 clk;
+  logic                 rst_n;
+  logic                 core_en;
 
-  logic                i_cpu_valid;
-  logic [    Xlen-1:0] i_cpu_addr;
-  logic [    Xlen-1:0] i_cpu_rdata;
-  logic                i_cpu_ready;
-  logic                i_mem_valid;
-  logic                i_mem_rw;
-  logic [    Xlen-1:0] i_mem_addr;
-  logic [LineBits-1:0] i_mem_wdata;
-  logic [        15:0] i_mem_wstrb;
-  logic [LineBits-1:0] i_mem_rdata;
-  logic                i_mem_ready;
-  logic [        31:0] i_hits;
-  logic [        31:0] i_misses;
+  logic                 i_cpu_valid;
+  logic [     Xlen-1:0] i_cpu_addr;
+  logic [     Xlen-1:0] i_cpu_rdata;
+  logic                 i_cpu_ready;
+  logic                 i_mem_valid;
+  logic                 i_mem_rw;
+  logic [     Xlen-1:0] i_mem_addr;
+  logic [ LineBits-1:0] i_mem_wdata;
+  logic [LineBytes-1:0] i_mem_wstrb;
+  logic [ LineBits-1:0] i_mem_rdata;
+  logic                 i_mem_ready;
+  logic [         31:0] i_hits;
+  logic [         31:0] i_misses;
 
-  logic                d_cpu_valid;
-  logic                d_cpu_rw;
-  logic [    Xlen-1:0] d_cpu_addr;
-  logic [    Xlen-1:0] d_cpu_wdata;
-  logic [         3:0] d_cpu_wstrb;
-  logic [    Xlen-1:0] d_cpu_rdata;
-  logic                d_cpu_ready;
-  logic                d_mem_valid;
-  logic                d_mem_rw;
-  logic [    Xlen-1:0] d_mem_addr;
-  logic [LineBits-1:0] d_mem_wdata;
-  logic [        15:0] d_mem_wstrb;
-  logic [LineBits-1:0] d_mem_rdata;
-  logic                d_mem_ready;
-  logic [        31:0] d_hits;
-  logic [        31:0] d_misses;
+  logic                 d_cpu_valid;
+  logic                 d_cpu_rw;
+  logic [     Xlen-1:0] d_cpu_addr;
+  logic [     Xlen-1:0] d_cpu_wdata;
+  logic [          3:0] d_cpu_wstrb;
+  logic [     Xlen-1:0] d_cpu_rdata;
+  logic                 d_cpu_ready;
+  logic                 d_mem_valid;
+  logic                 d_mem_rw;
+  logic [     Xlen-1:0] d_mem_addr;
+  logic [ LineBits-1:0] d_mem_wdata;
+  logic [LineBytes-1:0] d_mem_wstrb;
+  logic [ LineBits-1:0] d_mem_rdata;
+  logic                 d_mem_ready;
+  logic [         31:0] d_hits;
+  logic [         31:0] d_misses;
 
-  int                  checks = 0;
-  int                  errors = 0;
-  int                  max_lat = 6;
-  int                  en_period = 1;
-  int                  i_done = 0;
-  int                  d_done = 0;
+  int                   checks = 0;
+  int                   errors = 0;
+  int                   max_lat = 6;
+  int                   en_period = 1;
+  int                   i_done = 0;
+  int                   d_done = 0;
 
   always #5 clk = ~clk;
 
@@ -187,7 +187,7 @@ module mem_word_if_tb;
           d_busy <= 1'b0;
           d_pend <= 1'b1;
           if (d_mem_rw) begin
-            for (b = 0; b < 16; b = b + 1) begin
+            for (b = 0; b < LineBytes; b = b + 1) begin
               if (d_mem_wstrb[b]) mem[line_of(d_mem_addr)][b*8+:8] <= d_mem_wdata[b*8+:8];
             end
             d_hold <= '0;

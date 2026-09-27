@@ -18,7 +18,7 @@ module dmem_tb ();
   logic [ LineBits-1:0] rdata;
   logic [     XLEN-1:0] rword;
 
-  assign rword = rdata[addr[2+:BlkOffLen]*XLEN+:XLEN];
+  assign rword = rdata[addr[WordLsb+:BlkOffLen]*XLEN+:XLEN];
 
   logic [XLEN-1:0] shadow[DEPTH];
 
@@ -39,11 +39,15 @@ module dmem_tb ();
     #1;
     addr  = a;
     wdata = {LineWords{data}};
-    wstrb = LineBytes'(4'hF) << (4 * a[2+:BlkOffLen]);
+    wstrb = LineBytes'({WordBytes{1'b1}}) << (WordBytes * a[WordLsb+:BlkOffLen]);
     @(posedge clk);
     @(negedge clk);
     wstrb = '0;
   endtask
+
+  function automatic logic [LineBits-1:0] line_of(input logic [XLEN-1:0] seed);
+    for (int w = 0; w < LineWords; w++) line_of[w*XLEN+:XLEN] = seed + XLEN'(w);
+  endfunction
 
   task automatic write_line(input logic [XLEN-1:0] a, input logic [LineBits-1:0] data);
     #1;
@@ -88,7 +92,7 @@ module dmem_tb ();
   // Reference model
   always @(posedge clk) begin
     for (int w = 0; w < LineWords; w++) begin
-      if (|wstrb[w*4+:4]) begin
+      if (|wstrb[w*WordBytes+:WordBytes]) begin
         shadow[{addr[AddrWidth+1:IdxLsb], BlkOffLen'(w)}] <= wdata[w*XLEN+:XLEN];
       end
     end
@@ -115,8 +119,8 @@ module dmem_tb ();
     check_read(32'h00000004);
 
     // Whole line write
-    write_line(32'h00000010, 128'h3333_3333_2222_2222_1111_1111_0000_0000);
-    for (int w = 0; w < LineWords; w++) check_read(XLEN'(16 + w * 4));
+    write_line(XLEN'(LineBytes), line_of(32'h1111_0000));
+    for (int w = 0; w < LineWords; w++) check_read(XLEN'(LineBytes + w * WordBytes));
 
     // Randomized write then read sweep
     for (int i = 0; i < 1000; i++) begin

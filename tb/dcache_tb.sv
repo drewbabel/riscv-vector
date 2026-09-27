@@ -98,7 +98,7 @@ module dcache_tb;
   );
 
   // Addressed word
-  assign rword = cpu_rdata[cpu_addr[2+:BlkOffLen]*Xlen+:Xlen];
+  assign rword = cpu_rdata[cpu_addr[WordLsb+:BlkOffLen]*Xlen+:Xlen];
 
   // Count memory traffic
   always @(posedge clk) begin
@@ -212,8 +212,8 @@ module dcache_tb;
     end
   endtask  // Automatic
 
-  task automatic access (input logic rw, input logic [Xlen-1:0] addr,
-                         input logic [LineBytes-1:0] strb, input logic [LineBits-1:0] data);
+  task automatic cpu_access(input logic rw, input logic [Xlen-1:0] addr,
+                            input logic [LineBytes-1:0] strb, input logic [LineBits-1:0] data);
     int guard;
     #1;
     cpu_valid = 1'b1;
@@ -235,19 +235,19 @@ module dcache_tb;
   endtask  // Automatic
 
   task automatic read(input logic [Xlen-1:0] addr);
-    access (1'b0, addr, '0, '0);
+    cpu_access(1'b0, addr, '0, '0);
   endtask  // Automatic
 
   task automatic write_word(input logic [Xlen-1:0] addr, input logic [Xlen-1:0] data);
     int word;
-    word = int'(addr[2+:BlkOffLen]);
-    access (1'b1, addr, LineBytes'({WordBytes{1'b1}}) << (WordBytes * word),
-            LineBits'(data) << (Xlen * word));
+    word = int'(addr[WordLsb+:BlkOffLen]);
+    cpu_access(1'b1, addr, LineBytes'({WordBytes{1'b1}}) << (WordBytes * word),
+               LineBits'(data) << (Xlen * word));
   endtask  // Automatic
 
   task automatic write_line(input logic [Xlen-1:0] addr, input logic [LineBytes-1:0] strb,
                             input logic [LineBits-1:0] data);
-    access (1'b1, addr, strb, data);
+    cpu_access(1'b1, addr, strb, data);
   endtask  // Automatic
 
   task automatic read_word(input string name, input int set, input int tag, input int w);

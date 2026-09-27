@@ -3,6 +3,7 @@
 module vec_mem_tb ();
 
   localparam int VLEN = 128;
+  localparam int LineB = VLEN / 8;
   localparam int Regs = 32;
   localparam int Bytes = 256;
   localparam int Timeout = 2000000;
@@ -34,7 +35,7 @@ module vec_mem_tb ();
   logic mem_req;
   logic [31:0] mem_addr;
   logic [VLEN-1:0] mem_wdata;
-  logic [15:0] mem_wstrb;
+  logic [LineB-1:0] mem_wstrb;
   logic busy;
   logic done;
 
@@ -53,7 +54,10 @@ module vec_mem_tb ();
   logic past_en = 1'b0;
   logic [31:0] past_addr;
   logic [VLEN-1:0] past_wdata;
-  logic [15:0] past_wstrb;
+  logic [31:0] line_base;
+
+  assign line_base = mem_addr & ~32'(LineB - 1);
+  logic [LineB-1:0] past_wstrb;
 
   always #5 clk = ~clk;
 
@@ -163,7 +167,7 @@ module vec_mem_tb ();
     n = 0;
     for (int i = 0; i < int'(count); i++) begin
       a   = base + 32'(i) * stride;
-      key = {a[31:4], 4'(i / (16 >> width))};
+      key = (a / LineB) * 32'(VLEN) + 32'(i / (LineB >> width));
       if (i == 0 || key != last) n++;
       last = key;
     end
@@ -232,7 +236,7 @@ module vec_mem_tb ();
 
   assign rdata = regs[raddr];
   always_comb begin
-    for (int k = 0; k < 16; k++) mem_rdata[k*8+:8] = mem[({mem_addr[31:4], 4'h0}+32'(k))%Bytes];
+    for (int k = 0; k < LineB; k++) mem_rdata[k*8+:8] = mem[(line_base+32'(k))%Bytes];
   end
 
   always @(posedge clk) begin
@@ -240,8 +244,8 @@ module vec_mem_tb ();
       if (wen) regs[raddr] <= (regs[raddr] & ~wstrb) | (wdata & wstrb);
       if (mem_req && mem_ready) begin
         beats++;
-        for (int k = 0; k < 16; k++)
-        if (mem_wstrb[k]) mem[({mem_addr[31:4], 4'h0}+32'(k))%Bytes] <= mem_wdata[k*8+:8];
+        for (int k = 0; k < LineB; k++)
+        if (mem_wstrb[k]) mem[(line_base+32'(k))%Bytes] <= mem_wdata[k*8+:8];
       end
       if (done) dones++;
     end

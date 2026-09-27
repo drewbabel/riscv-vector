@@ -28,7 +28,7 @@ module mem_arb_tb;
   logic                dc_req_rw;
   logic [    Xlen-1:0] dc_req_addr;
   logic [LineBits-1:0] dc_req_wdata;
-  logic [        15:0] dc_req_wstrb;
+  logic [   MaskW-1:0] dc_req_wstrb;
   logic [LineBits-1:0] dc_resp_rdata;
   logic                dc_resp_ready;
 
@@ -328,7 +328,7 @@ module mem_arb_tb;
     dc_req_rw    = 1'b1;
     dc_req_addr  = addr;
     dc_req_wdata = {LineWords{data}};
-    dc_req_wstrb = 16'(strb) << (4 * addr[3:2]);
+    dc_req_wstrb = MaskW'(strb) << (WordBytes * addr[WordLsb+:BlkOffLen]);
     wait_dc();
     dc_req_valid = 1'b0;
     dc_req_wstrb = '0;
