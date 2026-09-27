@@ -11,51 +11,53 @@ module vec_unit_tb
   localparam int VLEN = 128;
   localparam int Depth = 2 ** AWIDTH;
   localparam int Bytes = 256;
+  localparam int LineB = VLEN / 8;
   localparam int Timeout = 100000;
 
-  int              checks = 0;
-  int              errors = 0;
+  int               checks = 0;
+  int               errors = 0;
 
-  logic            clk = 1'b0;
-  logic            rst_n;
-  logic            core_en;
-  logic [    31:0] instr;
-  logic            instr_valid;
-  logic            cancel;
-  logic [    31:0] xdata;
-  logic [    31:0] xstride;
-  logic            vill;
-  logic [     7:0] vl;
-  logic [     2:0] vsew;
-  logic [     2:0] vlmul;
-  logic [     1:0] vxrm;
-  logic            vxsat;
-  logic            csr_we;
-  logic [    11:0] csr_waddr;
-  logic [    31:0] csr_wdata;
-  logic            csr_wait;
-  logic            is_vector;
-  logic            vec_hold;
-  logic            vec_idle;
-  logic            load_pending;
-  logic            store_pending;
-  logic            mem_misaligned;
-  logic [    31:0] mem_bad_addr;
-  logic            xreg_valid;
-  logic [    31:0] xreg_result;
+  logic             clk = 1'b0;
+  logic             rst_n;
+  logic             core_en;
+  logic [     31:0] instr;
+  logic             instr_valid;
+  logic             cancel;
+  logic [     31:0] xdata;
+  logic [     31:0] xstride;
+  logic             vill;
+  logic [      7:0] vl;
+  logic [      2:0] vsew;
+  logic [      2:0] vlmul;
+  logic [      1:0] vxrm;
+  logic             vxsat;
+  logic             csr_we;
+  logic [     11:0] csr_waddr;
+  logic [     31:0] csr_wdata;
+  logic             csr_wait;
+  logic             is_vector;
+  logic             vec_hold;
+  logic             vec_idle;
+  logic             load_pending;
+  logic             store_pending;
+  logic             mem_misaligned;
+  logic [     31:0] mem_bad_addr;
+  logic             xreg_valid;
+  logic [     31:0] xreg_result;
 
-  logic [VLEN-1:0] shadow          [Depth];
+  logic [ VLEN-1:0] shadow          [Depth];
 
   // Memory model
-  logic [    31:0] mem_rdata;
-  logic            mem_ready;
-  logic            mem_req;
-  logic [    31:0] mem_addr;
-  logic [    31:0] mem_wdata;
-  logic [     3:0] mem_wstrb;
-  logic [     7:0] mem             [Bytes];
-  logic [     7:0] gmem            [Bytes];
-  int              ready_pct = 100;
+  logic [ VLEN-1:0] mem_rdata;
+  logic             mem_ready;
+  logic             mem_req;
+  logic [     31:0] mem_addr;
+  logic [ VLEN-1:0] mem_wdata;
+  logic [LineB-1:0] mem_wstrb;
+  logic [     31:0] line_base;
+  logic [      7:0] mem             [Bytes];
+  logic [      7:0] gmem            [Bytes];
+  int               ready_pct = 100;
 
   always #5 clk = ~clk;
 
@@ -98,9 +100,10 @@ module vec_unit_tb
       .store_pending(store_pending)
   );
 
-  assign mem_rdata = {
-    mem[(mem_addr+3)%Bytes], mem[(mem_addr+2)%Bytes], mem[(mem_addr+1)%Bytes], mem[mem_addr%Bytes]
-  };
+  assign line_base = mem_addr & ~32'(LineB - 1);
+  always_comb begin
+    for (int k = 0; k < LineB; k++) mem_rdata[k*8+:8] = mem[(line_base+32'(k))%Bytes];
+  end
 
   always @(posedge clk) begin
     #2;
@@ -109,8 +112,8 @@ module vec_unit_tb
 
   always @(posedge clk) begin
     if (rst_n && core_en && mem_req && mem_ready) begin
-      for (int k = 0; k < 4; k++)
-      if (mem_wstrb[k]) mem[(mem_addr+32'(k))%Bytes] <= mem_wdata[k*8+:8];
+      for (int k = 0; k < LineB; k++)
+      if (mem_wstrb[k]) mem[(line_base+32'(k))%Bytes] <= mem_wdata[k*8+:8];
     end
   end
 
