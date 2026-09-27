@@ -7,13 +7,13 @@ module riscv_single
 #(
     parameter int XLEN = 32
 ) (
-    input  logic            clk,
-    input  logic            core_en,
-    input  logic            cycle_en,
-    input  logic            rst_n,
-    input  logic [XLEN-1:0] instr,
-    input  logic [XLEN-1:0] read_data,
-    input  logic            timer_irq,
+    input  wire             clk,
+    input  wire             core_en,
+    input  wire             cycle_en,
+    input  wire             rst_n,
+    input  wire  [XLEN-1:0] instr,
+    input  wire  [XLEN-1:0] read_data,
+    input  wire             timer_irq,
     output logic [XLEN-1:0] pc,
     output logic            mem_write,
     output logic [XLEN-1:0] alu_result,

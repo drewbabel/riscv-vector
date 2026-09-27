@@ -10,22 +10,22 @@ module mem_delay
     localparam int LineIdxLen = $clog2(Lines),
     localparam int CntWidth = $clog2(Latency + 1)
 ) (
-    input logic clk,
-    input logic core_en,
-    input logic rst_n,
+    input wire clk,
+    input wire core_en,
+    input wire rst_n,
 
     // Line
-    input  logic                req_valid,
-    input  logic                req_rw,
-    input  logic [    XLEN-1:0] req_addr,
-    input  logic [LineBits-1:0] req_wdata,
+    input  wire                 req_valid,
+    input  wire                 req_rw,
+    input  wire  [    XLEN-1:0] req_addr,
+    input  wire  [LineBits-1:0] req_wdata,
     output logic [LineBits-1:0] resp_rdata,
     output logic                resp_ready,
 
     // Boot
-    input logic            boot_we,
-    input logic [XLEN-1:0] boot_addr,
-    input logic [XLEN-1:0] boot_wdata
+    input wire            boot_we,
+    input wire [XLEN-1:0] boot_addr,
+    input wire [XLEN-1:0] boot_wdata
 );
 
   logic [LineIdxLen-1:0] line_idx;

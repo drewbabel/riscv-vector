@@ -4,11 +4,11 @@ module boot_loader #(
     parameter int XLEN  = 32,
     parameter int DEPTH = 16384
 ) (
-    input  logic            clk,
-    input  logic            core_en,
-    input  logic            rst_n,
-    input  logic            rx_valid,
-    input  logic [     7:0] rx_data,
+    input  wire             clk,
+    input  wire             core_en,
+    input  wire             rst_n,
+    input  wire             rx_valid,
+    input  wire  [     7:0] rx_data,
     output logic            we,
     output logic [XLEN-1:0] waddr,
     output logic [XLEN-1:0] wdata,

@@ -5,11 +5,11 @@ module imem #(
     parameter int DEPTH = 64,
     localparam int AddrWidth = $clog2(DEPTH)
 ) (
-    input logic clk,
-    input logic we,
-    input logic [XLEN-1:0] waddr,
-    input logic [XLEN-1:0] wdata,
-    input logic [XLEN-1:0] addr,
+    input wire clk,
+    input wire we,
+    input wire [XLEN-1:0] waddr,
+    input wire [XLEN-1:0] wdata,
+    input wire [XLEN-1:0] addr,
     output logic [XLEN-1:0] instr
 );
 

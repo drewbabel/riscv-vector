@@ -5,35 +5,35 @@ module vec_issue
 #(
     parameter int AWIDTH = 5
 ) (
-    input logic clk,
-    input logic rst_n,
-    input logic core_en,
+    input wire clk,
+    input wire rst_n,
+    input wire core_en,
 
     // Execute stage
-    input logic                  instr_valid,
-    input logic                  cancel,
-    input vec_op_e               op,
-    input vec_src_e              src,
-    input vec_eew_e              eew,
-    input logic                  writes_xreg,
-    input logic     [AWIDTH-1:0] vs1,
-    input logic     [AWIDTH-1:0] vs2,
-    input logic     [AWIDTH-1:0] vd,
-    input logic                  vm,
-    input logic                  reads_vd,
-    input logic     [       4:0] simm,
-    input logic     [      31:0] xdata,
-    input logic     [      31:0] xstride,
+    input wire                        instr_valid,
+    input wire                        cancel,
+    input wire vec_op_e               op,
+    input wire vec_src_e              src,
+    input wire vec_eew_e              eew,
+    input wire                        writes_xreg,
+    input wire           [AWIDTH-1:0] vs1,
+    input wire           [AWIDTH-1:0] vs2,
+    input wire           [AWIDTH-1:0] vd,
+    input wire                        vm,
+    input wire                        reads_vd,
+    input wire           [       4:0] simm,
+    input wire           [      31:0] xdata,
+    input wire           [      31:0] xstride,
 
     // Live configuration
-    input logic [7:0] vl,
-    input logic [2:0] vsew,
-    input logic [2:0] vlmul,
-    input logic [1:0] vxrm,
+    input wire [7:0] vl,
+    input wire [2:0] vsew,
+    input wire [2:0] vlmul,
+    input wire [1:0] vxrm,
 
     // Sequencer status
-    input logic seq_busy,
-    input logic seq_done,
+    input wire seq_busy,
+    input wire seq_done,
 
     // Sequencer command
     output logic                  seq_start,

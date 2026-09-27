@@ -10,17 +10,17 @@ module vec_mask
     localparam int CntW     = $clog2(DLEN + 1),
     localparam int SelW     = $clog2(Widths)
 ) (
-    input vec_op_e             op,
-    input vec_src_e            src,
-    input logic     [     2:0] vsew,
-    input logic                vm,
-    input logic     [DLEN-1:0] vs2_data,
-    input logic     [DLEN-1:0] vs1_data,
-    input logic     [DLEN-1:0] v0_bits,
-    input logic     [    31:0] xdata,
-    input logic     [     4:0] simm,
-    input logic     [     7:0] elem_base,
-    input logic     [     7:0] vl,
+    input wire vec_op_e             op,
+    input wire vec_src_e            src,
+    input wire           [     2:0] vsew,
+    input wire                      vm,
+    input wire           [DLEN-1:0] vs2_data,
+    input wire           [DLEN-1:0] vs1_data,
+    input wire           [DLEN-1:0] v0_bits,
+    input wire           [    31:0] xdata,
+    input wire           [     4:0] simm,
+    input wire           [     7:0] elem_base,
+    input wire           [     7:0] vl,
 
     output logic [DLEN-1:0] result,
     output logic [    31:0] xresult

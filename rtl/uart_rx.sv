@@ -6,10 +6,10 @@ module uart_rx #(
     parameter int OVERSAMPLE  = 16,
     parameter int DATA_BITS   = 8
 ) (
-    input logic clk,
-    input logic core_en,
-    input logic rst_n,
-    input logic rx_serial,
+    input wire clk,
+    input wire core_en,
+    input wire rst_n,
+    input wire rx_serial,
     output logic [DATA_BITS-1:0] rx_data,
     output logic rx_valid,
     output logic rx_error

@@ -4,13 +4,13 @@ module pmu #(
     parameter int XLEN = 32,
     parameter int CLK_FREQ_HZ = 50_000_000
 ) (
-    input  logic [XLEN-1:0] addr,
+    input  wire  [XLEN-1:0] addr,
     output logic [XLEN-1:0] rdata,
 
-    input logic [XLEN-1:0] ic_hits,
-    input logic [XLEN-1:0] ic_misses,
-    input logic [XLEN-1:0] dc_hits,
-    input logic [XLEN-1:0] dc_misses
+    input wire [XLEN-1:0] ic_hits,
+    input wire [XLEN-1:0] ic_misses,
+    input wire [XLEN-1:0] dc_hits,
+    input wire [XLEN-1:0] dc_misses
 );
 
   localparam logic [XLEN-1:0] ClkHz = CLK_FREQ_HZ;

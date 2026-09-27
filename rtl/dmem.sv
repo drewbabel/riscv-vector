@@ -8,10 +8,10 @@ module dmem
     localparam int Lines    = DEPTH / LineWords,
     localparam int LineIdxW = $clog2(Lines)
 ) (
-    input  logic                 clk,
-    input  logic [LineBytes-1:0] wstrb,
-    input  logic [     XLEN-1:0] addr,
-    input  logic [ LineBits-1:0] wdata,
+    input  wire                  clk,
+    input  wire  [LineBytes-1:0] wstrb,
+    input  wire  [     XLEN-1:0] addr,
+    input  wire  [ LineBits-1:0] wdata,
     output logic [ LineBits-1:0] rdata
 );
 

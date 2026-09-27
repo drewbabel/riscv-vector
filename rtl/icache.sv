@@ -5,21 +5,21 @@ module icache
 #(
     parameter int XLEN = 32
 ) (
-    input logic clk,
-    input logic core_en,
-    input logic rst_n,
+    input wire clk,
+    input wire core_en,
+    input wire rst_n,
 
     // Core
-    input  logic            cpu_valid,
-    input  logic [XLEN-1:0] cpu_addr,
+    input  wire             cpu_valid,
+    input  wire  [XLEN-1:0] cpu_addr,
     output logic [XLEN-1:0] cpu_rdata,
     output logic            cpu_ready,
 
     // Memory
     output logic                mem_valid,
     output logic [    XLEN-1:0] mem_addr,
-    input  logic [LineBits-1:0] mem_rdata,
-    input  logic                mem_ready,
+    input  wire  [LineBits-1:0] mem_rdata,
+    input  wire                 mem_ready,
 
     // Counters
     output logic [31:0] hit_count,

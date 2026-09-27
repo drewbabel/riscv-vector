@@ -6,18 +6,18 @@ module vec_reduce
     parameter  int DLEN     = 128,
     localparam int MaxElems = DLEN / 8
 ) (
-    input logic clk,
-    input logic rst_n,
-    input logic core_en,
+    input wire clk,
+    input wire rst_n,
+    input wire core_en,
 
-    input vec_op_e                 op,
-    input logic    [         2:0] vsew,
-    input logic                   widen,
-    input logic                   first,
-    input logic                   step,
-    input logic    [    DLEN-1:0] vs2_data,
-    input logic    [    DLEN-1:0] vs1_data,
-    input logic    [MaxElems-1:0] elem_active,
+    input wire vec_op_e                op,
+    input wire          [         2:0] vsew,
+    input wire                         widen,
+    input wire                         first,
+    input wire                         step,
+    input wire          [    DLEN-1:0] vs2_data,
+    input wire          [    DLEN-1:0] vs1_data,
+    input wire          [MaxElems-1:0] elem_active,
 
     output logic [DLEN-1:0] result
 );

@@ -11,11 +11,11 @@ module board_top
     parameter bit GSHARE_EN    = 1'b1,
     parameter bit SINGLE_CYCLE = 1'b0
 ) (
-    input  logic        clk,
-    input  logic        rst,
-    input  logic [ 7:0] sw,
+    input  wire         clk,
+    input  wire         rst,
+    input  wire  [ 7:0] sw,
     output logic [ 7:0] led,
-    input  logic        uart_rx,
+    input  wire         uart_rx,
     output logic        uart_tx,
     // DDR3
     output logic [14:0] ddr3_addr,

@@ -5,15 +5,15 @@ module mem #(
     parameter int DEPTH = 8192,
     localparam int AddrWidth = $clog2(DEPTH)
 ) (
-    input  logic            clk,
-    input  logic            core_en,
+    input  wire             clk,
+    input  wire             core_en,
     // Fetch read port
-    input  logic [XLEN-1:0] iaddr,
+    input  wire  [XLEN-1:0] iaddr,
     output logic [XLEN-1:0] instr,
     // Data port
-    input  logic [     3:0] wstrb,
-    input  logic [XLEN-1:0] daddr,
-    input  logic [XLEN-1:0] wdata,
+    input  wire  [     3:0] wstrb,
+    input  wire  [XLEN-1:0] daddr,
+    input  wire  [XLEN-1:0] wdata,
     output logic [XLEN-1:0] rdata
 );
 

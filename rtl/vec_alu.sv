@@ -6,16 +6,16 @@ module vec_alu
     parameter  int DLEN     = 128,
     localparam int MaxElems = DLEN / 8
 ) (
-    input  vec_op_e                 op,
-    input  vec_src_e                src,
-    input  logic     [         2:0] vsew,
-    input  logic                    vm,
-    input  logic     [MaxElems-1:0] mask_bits,
-    input  logic     [    DLEN-1:0] vs2_data,
-    input  logic     [    DLEN-1:0] vs1_data,
-    input  logic     [        31:0] xdata,
-    input  logic     [         4:0] simm,
-    output logic     [    DLEN-1:0] result
+    input  wire vec_op_e                 op,
+    input  wire vec_src_e                src,
+    input  wire           [         2:0] vsew,
+    input  wire                          vm,
+    input  wire           [MaxElems-1:0] mask_bits,
+    input  wire           [    DLEN-1:0] vs2_data,
+    input  wire           [    DLEN-1:0] vs1_data,
+    input  wire           [        31:0] xdata,
+    input  wire           [         4:0] simm,
+    output logic          [    DLEN-1:0] result
 );
 
   logic [DLEN-1:0] res8;

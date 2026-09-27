@@ -5,15 +5,15 @@ module vec_mixed
 #(
     parameter int DLEN = 128
 ) (
-    input  vec_op_e             op,
-    input  vec_src_e            src,
-    input  vec_eew_e            eew,
-    input  logic     [     2:0] vsew,
-    input  logic     [DLEN-1:0] vs2_data,
-    input  logic     [DLEN-1:0] vs1_data,
-    input  logic     [    31:0] xdata,
-    input  logic     [     4:0] simm,
-    output logic     [DLEN-1:0] result
+    input  wire vec_op_e             op,
+    input  wire vec_src_e            src,
+    input  wire vec_eew_e            eew,
+    input  wire           [     2:0] vsew,
+    input  wire           [DLEN-1:0] vs2_data,
+    input  wire           [DLEN-1:0] vs1_data,
+    input  wire           [    31:0] xdata,
+    input  wire           [     4:0] simm,
+    output logic          [DLEN-1:0] result
 );
 
   logic [DLEN-1:0] res8;
