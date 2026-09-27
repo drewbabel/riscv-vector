@@ -148,7 +148,7 @@ module riscv_pipelined
 
   // Scalar word into line
   assign s_line_wdata = {LineWords{s_wdata}};
-  assign s_line_wstrb = LineBytes'(s_wstrb) << (4 * s_addr[2+:BlkOffLen]);
+  assign s_line_wstrb = LineBytes'(s_wstrb) << (WordBytes * s_addr[WordLsb+:BlkOffLen]);
 
   dmem_arb #(
       .XLEN  (XLEN),

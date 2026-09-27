@@ -105,8 +105,9 @@ module mem_arb
               src <= SRC_BOOT;
               req_rw <= ReqWrite;
               req_addr <= boot_addr;
-              req_wdata <= {4{boot_wdata}};
-              req_mask <= ~(16'hF << {boot_addr[3:2], 2'b00});  // Open selected word
+              req_wdata <= {LineWords{boot_wdata}};
+              req_mask <= ~(MaskBits'({WordBytes{1'b1}}) <<
+                            (WordBytes * boot_addr[WordLsb+:BlkOffLen]));  // Open selected word
             end else if (dc_req_valid) begin
               src <= SRC_DC;
               req_rw <= dc_req_rw;

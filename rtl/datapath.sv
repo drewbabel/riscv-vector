@@ -823,7 +823,7 @@ module datapath
   assign mem_addr   = alu_result_mem;
 
   // Addressed word of line
-  assign read_data  = read_line[alu_result_mem[2+:BlkOffLen]*XLEN+:XLEN];
+  assign read_data  = read_line[alu_result_mem[WordLsb+:BlkOffLen]*XLEN+:XLEN];
 
   // Memory access
   always_comb begin

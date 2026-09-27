@@ -255,10 +255,10 @@ module board_top
   );
 
   // Word views of line
-  assign dc_rdata = dc_line[mem_addr[2+:BlkOffLen]*XLEN+:XLEN];
+  assign dc_rdata = dc_line[mem_addr[WordLsb+:BlkOffLen]*XLEN+:XLEN];
   assign core_rdata = periph_sel ? {LineWords{read_data}} : dc_line;
-  assign store_data = dc_wdata[mem_addr[2+:BlkOffLen]*XLEN+:XLEN];
-  assign store_wstrb = dc_wstrb[mem_addr[2+:BlkOffLen]*4+:4];
+  assign store_data = dc_wdata[mem_addr[WordLsb+:BlkOffLen]*XLEN+:XLEN];
+  assign store_wstrb = dc_wstrb[mem_addr[WordLsb+:BlkOffLen]*WordBytes+:WordBytes];
 
   dcache #(
       .XLEN(XLEN)

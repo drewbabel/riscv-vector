@@ -364,7 +364,7 @@ module board_top
 
     // Word into line
     assign dc_wdata = {LineWords{store_data}};
-    assign dc_wstrb = LineBytes'(store_wstrb) << (4 * mem_addr[2+:BlkOffLen]);
+    assign dc_wstrb = LineBytes'(store_wstrb) << (WordBytes * mem_addr[WordLsb+:BlkOffLen]);
   end else begin : g_pipelined
     riscv_pipelined #(
         .XLEN     (XLEN),
@@ -390,15 +390,15 @@ module board_top
     );
 
     // Line into word
-    assign store_data = dc_wdata[mem_addr[2+:BlkOffLen]*XLEN+:XLEN];
-    assign store_wstrb = dc_wstrb[mem_addr[2+:BlkOffLen]*4+:4];
+    assign store_data = dc_wdata[mem_addr[WordLsb+:BlkOffLen]*XLEN+:XLEN];
+    assign store_wstrb = dc_wstrb[mem_addr[WordLsb+:BlkOffLen]*WordBytes+:WordBytes];
 
     // Fetch never pauses
     assign imem_req = 1'b1;
   end
 
   // Word views of line
-  assign dc_rdata   = dc_line[mem_addr[2+:BlkOffLen]*XLEN+:XLEN];
+  assign dc_rdata   = dc_line[mem_addr[WordLsb+:BlkOffLen]*XLEN+:XLEN];
   assign core_rdata = periph_sel ? {LineWords{read_data}} : dc_line;
 
   // Bare word paths
