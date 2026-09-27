@@ -31,7 +31,7 @@ module vec_sat_lane_tb
       .sat(sat)
   );
 
-  vec_op_e ops[10] = '{
+  vec_op_e ops[13] = '{
       VEC_SADDU,
       VEC_SADD,
       VEC_SSUBU,
@@ -41,7 +41,10 @@ module vec_sat_lane_tb
       VEC_ASUBU,
       VEC_ASUB,
       VEC_SSRL,
-      VEC_SSRA
+      VEC_SSRA,
+      VEC_SMUL,
+      VEC_NCLIPU,
+      VEC_NCLIP
   };
 
   // Width helpers
@@ -122,10 +125,51 @@ module vec_sat_lane_tb
       VEC_ASUBU: t = roundoff(ux - uy, 1, mode);
       VEC_ASUB:  t = roundoff(sx - sy, 1, mode);
       VEC_SSRL:  t = roundoff(ux, int'(uy) & (w - 1), mode);
-      default:   t = roundoff(sx, int'(uy) & (w - 1), mode);
+      VEC_SSRA:  t = roundoff(sx, int'(uy) & (w - 1), mode);
+      VEC_SMUL: begin
+        t = roundoff(sx * sy, w - 1, mode);
+        if (t > smax) begin
+          t = smax;
+          s = 1'b1;
+        end else if (t < smin) begin
+          t = smin;
+          s = 1'b1;
+        end
+      end
+      VEC_NCLIPU: begin
+        t = roundoff(uval(x, 2 * w), int'(y) & (2 * w - 1), mode);
+        if (t > umask(w)) begin
+          t = umask(w);
+          s = 1'b1;
+        end
+      end
+      default: begin
+        t = roundoff(sval(x, 2 * w), int'(y) & (2 * w - 1), mode);
+        if (t > smax) begin
+          t = smax;
+          s = 1'b1;
+        end else if (t < smin) begin
+          t = smin;
+          s = 1'b1;
+        end
+      end
     endcase
+    if ((o == VEC_NCLIPU || o == VEC_NCLIP) && w == 32) begin
+      t = 0;
+      s = 1'b0;
+    end
     res = 32'(t & umask(w));
   endtask
+
+  // Product with junk
+  function automatic logic [63:0] full_product(input logic [31:0] x, input logic [31:0] y,
+                                               input int w);
+    logic [63:0] keep;
+    logic [63:0] prod;
+    keep = (w == 32) ? '1 : 64'(umask(2 * w));
+    prod = 64'(sval(x, w) * sval(y, w));
+    full_product = (prod & keep) | ({$urandom, $urandom} & ~keep);
+  endfunction
 
   // One check
   task automatic check(input vec_op_e o, input logic [2:0] sew, input logic [1:0] mode,
@@ -137,7 +181,7 @@ module vec_sat_lane_tb
     vxrm = mode;
     a = x;
     b = y;
-    product = {$urandom, $urandom};
+    product = full_product(x, y, 8 << sew);
     #1;
     ref_lane(o, 8 << sew, x, y, mode, exp_res, exp_sat);
     checks++;
@@ -161,11 +205,21 @@ module vec_sat_lane_tb
 
   // Every byte pair
   task automatic sweep8();
-    for (int k = 0; k < 10; k++)
+    for (int k = 0; k < $size(ops); k++)
       for (int m = 0; m < 4; m++)
         for (int i = 0; i < 256; i++)
           for (int j = 0; j < 256; j++)
             check(ops[k], 3'd0, 2'(m), {$urandom} << 8 | 32'(i), {$urandom} << 8 | 32'(j));
+  endtask
+
+  // Narrowing sources
+  task automatic sweep_clip8();
+    for (int k = 11; k < 13; k++)
+      for (int m = 0; m < 4; m++)
+        for (int sh = 0; sh < 32; sh++)
+          for (int i = 0; i < 4096; i++)
+            check(ops[k], 3'd0, 2'(m), {$urandom} << 16 | 32'(i << 4) | 32'($urandom & 15),
+                  {$urandom} << 5 | 32'(sh));
   endtask
 
   // Edge values
@@ -189,7 +243,7 @@ module vec_sat_lane_tb
   endfunction
 
   task automatic edges(input logic [2:0] sew);
-    for (int k = 0; k < 10; k++)
+    for (int k = 0; k < $size(ops); k++)
       for (int m = 0; m < 4; m++)
         for (int i = 0; i < 12; i++)
           for (int j = 0; j < 12; j++)
@@ -197,7 +251,7 @@ module vec_sat_lane_tb
   endtask
 
   task automatic random_cases(input logic [2:0] sew, input int n);
-    for (int k = 0; k < 10; k++)
+    for (int k = 0; k < $size(ops); k++)
       for (int m = 0; m < 4; m++)
         for (int i = 0; i < n; i++) check(ops[k], sew, 2'(m), $urandom, $urandom);
   endtask
@@ -211,6 +265,8 @@ module vec_sat_lane_tb
   initial begin
     // Exhaustive bytes
     sweep8();
+
+    sweep_clip8();
 
     // Halfword and word edges
     edges(3'd1);
