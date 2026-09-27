@@ -86,8 +86,8 @@ module cosim ();
   logic            r_vmreq;
   logic            r_vmready;
   logic [Xlen-1:0] r_vmaddr;
-  logic [Xlen-1:0] r_vmdata;
-  logic [     3:0] r_vmstrb;
+  logic [   127:0] r_vmdata;
+  logic [    15:0] r_vmstrb;
 
   assign r_vmreq   = dut.riscv_pipelined_inst.v_req;
   assign r_vmready = dut.riscv_pipelined_inst.v_ready;
@@ -97,8 +97,8 @@ module cosim ();
 
   always @(negedge clk) begin
     // addr wstrb data
-    if (rst_n && r_vmreq && r_vmready && r_vmstrb != 4'h0)
-      $display("VMEM %08x %1x %08x", r_vmaddr, r_vmstrb, r_vmdata);
+    if (rst_n && r_vmreq && r_vmready && r_vmstrb != '0)
+      $display("VMEM %08x %04x %032x", {r_vmaddr[31:4], 4'h0}, r_vmstrb, r_vmdata);
   end
 
   // Fence drains unit

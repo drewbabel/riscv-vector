@@ -76,7 +76,7 @@ COMMIT_RE = re.compile(
 # dut commit trace
 TRACE_RE = re.compile(r"TRACE (\d+) ([0-9a-f]+) ([0-9a-f]+)")
 VCOMMIT_RE = re.compile(r"VCOMMIT (\d+) (\d+) ([0-9a-f]+)")
-VMEM_RE = re.compile(r"VMEM ([0-9a-f]+) ([0-9a-f]) ([0-9a-f]+)")
+VMEM_RE = re.compile(r"VMEM ([0-9a-f]+) ([0-9a-f]{4}) ([0-9a-f]+)")
 VCD = os.path.join(BUILD, "cosim.vcd")
 TRACE = []  # Retirement times
 DUT_VWR = []  # Vector writes
@@ -102,7 +102,7 @@ def run_dut(dut_hex, vcd=False):
         vm = VMEM_RE.match(line)
         if vm:  # strobed bytes of a beat
             addr, ws, wd = int(vm.group(1), 16), int(vm.group(2), 16), int(vm.group(3), 16)
-            for k in range(4):
+            for k in range(16):
                 if ws & (1 << k):
                     DUT_VMEM.append(((addr + k) & (DEPTH * 4 - 1), (wd >> (8 * k)) & 0xFF))
             continue
