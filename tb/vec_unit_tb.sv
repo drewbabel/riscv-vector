@@ -280,6 +280,11 @@ module vec_unit_tb
         errors = errors + 1;
         $display("FAIL never went idle at %0t", $time);
       end
+      checks = checks + 1;
+      if (dut.u_issue.u_busy.busy != '0) begin
+        errors = errors + 1;
+        $display("FAIL busy %h at idle %0t", dut.u_issue.u_busy.busy, $time);
+      end
       @(negedge clk);
     end
   endtask
