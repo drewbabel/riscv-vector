@@ -9,6 +9,7 @@ __pycache__/
 !tests/*.hex
 .DS_Store
 .vscode/*
+!.vscode/systemverilog.code-snippets
 obj_dir/
 
 # FPGA build artifacts (yosys / nextpnr / prjxray / openFPGALoader)

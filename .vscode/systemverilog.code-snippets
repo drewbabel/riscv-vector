@@ -1,0 +1,20 @@
+{
+  "task": {
+    "scope": "systemverilog",
+    "prefix": "task",
+    "body": [
+      "task automatic ${1:name}(${2});",
+      "\t$0",
+      "endtask  // Automatic"
+    ],
+    "description": "automatic task"
+  },
+  "input wire port": {
+    "scope": "systemverilog",
+    "prefix": "iw",
+    "body": [
+      "input wire ${1:name},"
+    ],
+    "description": "input wire port"
+  }
+}
