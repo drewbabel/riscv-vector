@@ -25,6 +25,16 @@ module vec_issue
     input wire           [      31:0] xdata,
     input wire           [      31:0] xstride,
 
+    // Register groups
+    input wire [  AWIDTH:0] wr_regs,
+    input wire [AWIDTH-1:0] rd1,
+    input wire [  AWIDTH:0] rd1_regs,
+    input wire [  AWIDTH:0] rd2_regs,
+
+    // Write finished
+    input wire              clear,
+    input wire [AWIDTH-1:0] clear_addr,
+
     // Live configuration
     input wire [7:0] vl,
     input wire [2:0] vsew,
@@ -78,6 +88,10 @@ module vec_issue
   logic     [       2:0] q_vsew;
   logic     [       2:0] q_vlmul;
   logic     [       1:0] q_vxrm;
+  logic     [  AWIDTH:0] q_wr_regs;
+  logic     [AWIDTH-1:0] q_rd1;
+  logic     [  AWIDTH:0] q_rd1_regs;
+  logic     [  AWIDTH:0] q_rd2_regs;
 
   // Executing slot
   logic                  e_valid;
@@ -90,8 +104,28 @@ module vec_issue
   logic                  x_wait;
   logic                  x_spent;
   logic                  x_hold;
+  logic                  regs_ready;
 
-  assign launch = q_valid && !e_valid;
+  vec_busy_bits #(
+      .NREGS(1 << AWIDTH)
+  ) u_busy (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(core_en),
+      .start(launch),
+      .vd(q_vd),
+      .vd_regs(q_wr_regs),
+      .vs1(q_rd1),
+      .vs1_regs(q_rd1_regs),
+      .vs2(q_vs2),
+      .vs2_regs(q_rd2_regs),
+      .masked(!q_vm),
+      .clear(clear),
+      .clear_addr(clear_addr),
+      .ready(regs_ready)
+  );
+
+  assign launch = q_valid && !e_valid && regs_ready;
   assign x_wait = (q_valid && q_xreg) || (e_valid && e_xreg);
   assign accept = instr_valid && !cancel && !x_wait && !x_spent && (!q_valid || launch);
   assign x_hold = instr_valid && (x_wait || writes_xreg) && !x_spent;
@@ -156,6 +190,10 @@ module vec_issue
         q_vsew     <= vsew;
         q_vlmul    <= vlmul;
         q_vxrm     <= vxrm;
+        q_wr_regs  <= wr_regs;
+        q_rd1      <= rd1;
+        q_rd1_regs <= rd1_regs;
+        q_rd2_regs <= rd2_regs;
       end
 
       // Retire instruction

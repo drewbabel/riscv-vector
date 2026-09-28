@@ -116,6 +116,8 @@ module vec_unit
   logic      [         4:0] elem_count;
   logic      [MaxElems-1:0] elem_active;
   logic                     seq_last;
+  logic                     seq_reg_done;
+  logic                     m_reg_done;
   logic                     seq_busy;
   logic                     seq_done;
 
@@ -309,6 +311,21 @@ module vec_unit
 
   assign group_legal = emul_legal && align_ok && overlap_ok && mask_ok;
 
+  // Busy groups
+  logic [5:0] load_regs;
+  logic [5:0] wr_regs;
+  logic [5:0] rd1_regs;
+  logic [5:0] rd2_regs;
+  logic       busy_clear;
+
+  assign load_regs = 6'(((16'(issue_vl) << dec_width) + 16'(VLEN / 8 - 1)) >> $clog2(VLEN / 8));
+  assign wr_regs = (!has_vd || dec_store || (issue_vl == 8'd0)) ?
+      6'd0 : (dec_mem ? load_regs : d_regs);
+  assign rd1_regs = dec_store ? d_regs : (uses_vs1 ? s1_regs : 6'd0);
+  assign rd2_regs = uses_vs2 ? s2_regs : 6'd0;
+  assign busy_clear = seq_mem ?
+      m_reg_done : (seq_reg_done && (seq_cls != VEC_CLS_XS) && (seq_cls != VEC_CLS_XM));
+
   // Rounding and saturation
   logic [1:0] vxrm_q;
   logic       vxsat_q;
@@ -391,6 +408,12 @@ module vec_unit
       .simm(dec_simm),
       .xdata(xdata),
       .xstride(issue_stride),
+      .wr_regs(wr_regs),
+      .rd1(dec_store ? dec_vd : dec_vs1),
+      .rd1_regs(rd1_regs),
+      .rd2_regs(rd2_regs),
+      .clear(busy_clear),
+      .clear_addr(seq_mem ? m_raddr : waddr),
       .vl(issue_vl),
       .vsew(issue_vsew),
       .vlmul(vlmul),
@@ -458,6 +481,7 @@ module vec_unit
       .elem_count(elem_count),
       .elem_active(elem_active),
       .last(seq_last),
+      .reg_done(seq_reg_done),
       .busy(seq_busy),
       .done(seq_done)
   );
@@ -494,6 +518,7 @@ module vec_unit
       .mem_addr(mem_addr),
       .mem_wdata(mem_wdata),
       .mem_wstrb(mem_wstrb),
+      .reg_done(m_reg_done),
       .busy(m_busy),
       .done(m_done)
   );
