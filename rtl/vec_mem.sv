@@ -39,6 +39,7 @@ module vec_mem #(
     output logic [ VLEN-1:0] mem_wdata,
     output logic [Bytes-1:0] mem_wstrb,
 
+    output logic reg_done,
     output logic busy,
     output logic done
 );
@@ -108,6 +109,10 @@ module vec_mem #(
     for (int j = 0; j < Bytes; j++) wstrb[j*8+:8] = {8{reg_mask[j]}};
   end
   assign wen = busy && load && mem_ready && (|reg_mask);
+
+  // Register finished
+  assign reg_done = busy && load && mem_ready &&
+      ((next_elem == count) || ((next_elem >> (OffW3 - 3'(width))) != reg_idx));
 
   // Walk the beats
   always_ff @(posedge clk) begin

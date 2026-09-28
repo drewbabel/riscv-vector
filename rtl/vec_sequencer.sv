@@ -10,30 +10,30 @@ module vec_sequencer
     localparam int Widths = $clog2(ELEN / 8) + 1,
     localparam int SelW = $clog2(Widths)
 ) (
-    input  wire                 clk,
-    input  wire                 rst_n,
-    input  wire                 core_en,
-    input  wire                 start,
-    input  wire  [         4:0] vs1,
-    input  wire  [         4:0] vs2,
-    input  wire  [         4:0] vd,
-    input  wire                 reads_vd,
-    input  wire  [         7:0] vl,
-    input  wire  [         2:0] vsew,
-    input  wire  [         2:0] vlmul,
-    input  wire                 vm,
-    input  wire  [MaxElems-1:0] mask_bits,
-    input  wire  [    VLEN-1:0] v0_bits,
+    input wire                clk,
+    input wire                rst_n,
+    input wire                core_en,
+    input wire                start,
+    input wire [         4:0] vs1,
+    input wire [         4:0] vs2,
+    input wire [         4:0] vd,
+    input wire                reads_vd,
+    input wire [         7:0] vl,
+    input wire [         2:0] vsew,
+    input wire [         2:0] vlmul,
+    input wire                vm,
+    input wire [MaxElems-1:0] mask_bits,
+    input wire [    VLEN-1:0] v0_bits,
 
     // Element geometry
     input wire vec_rel_e d_rel,
     input wire vec_rel_e s1_rel,
     input wire vec_rel_e s2_rel,
-    input wire      mul_rate,
-    input wire      single_write,
-    input wire      mask_dest,
-    input wire      mask_whole,
-    input wire      mask_src,
+    input wire           mul_rate,
+    input wire           single_write,
+    input wire           mask_dest,
+    input wire           mask_whole,
+    input wire           mask_src,
 
     // Register ports
     output logic [AWIDTH-1:0] raddr1,
@@ -52,6 +52,7 @@ module vec_sequencer
     output logic [MaxElems-1:0] elem_active,
 
     output logic last,
+    output logic reg_done,
     output logic busy,
     output logic done
 );
@@ -129,6 +130,11 @@ module vec_sequencer
   assign raddr2 = vs2 + AWIDTH'(prod2[12:7]);
   assign raddr3 = reads_vd ? (vd + AWIDTH'(prodd[12:7])) : '0;
   assign waddr = vd + AWIDTH'(prodd[12:7]);
+
+  // Register finished
+  logic [12:0] prodd_next;
+  assign prodd_next = single_write ? 13'd0 : (mask_dest ? 13'(elem_next) : (13'(elem_next) << ld));
+  assign reg_done = busy && (last || (prodd_next[12:7] != prodd[12:7]));
   assign wen = busy && (wstrb != '0);
 
   // Destination bits
