@@ -92,6 +92,8 @@ module vec_issue_tb
       .vxrm(vxrm),
       .seq_busy(seq_busy),
       .seq_done(seq_done),
+      .pipe_busy(1'b0),
+      .x_done(seq_done),
       .seq_start(seq_start),
       .seq_op(seq_op),
       .seq_src(seq_src),
