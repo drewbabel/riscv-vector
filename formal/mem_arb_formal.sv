@@ -4,7 +4,7 @@ module mem_arb_formal
   import cache_pkg::*;
 ();
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int AppAddrW = 29;
   localparam int MaskW = LineBits / 8;
   localparam logic [2:0] AppRead = 3'b001;
