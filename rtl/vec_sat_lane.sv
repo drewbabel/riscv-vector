@@ -3,7 +3,7 @@
 module vec_sat_lane
   import vec_pkg::*;
 #(
-    parameter int ELEN = 32
+    parameter int ELEN = arch_pkg::ELEN
 ) (
     input  wire vec_op_e              op,
     input  wire          [       2:0] vsew,
@@ -19,6 +19,7 @@ module vec_sat_lane
   localparam int PW = 2 * ELEN + 1;
   localparam int DW = $clog2(ELEN);
   localparam int IW = $clog2(XW);
+  localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
 
   logic [    DW:0] w;
   logic [  DW+1:0] w2;
@@ -160,14 +161,14 @@ module vec_sat_lane
       end
       VEC_NCLIPU: begin
         sum = shifted + XW'(r);
-        sat = (vsew < 3'd2) && ((sum >> w) != '0);
-        res = (vsew >= 3'd2) ? '0 : (sat ? wmask : ELEN'(sum));
+        sat = (vsew < SewTop) && ((sum >> w) != '0);
+        res = (vsew >= SewTop) ? '0 : (sat ? wmask : ELEN'(sum));
       end
       VEC_NCLIP: begin
         sum = shifted + XW'(r);
         hi  = $signed(sum) >>> (w - (DW + 1)'(1));
-        sat = (vsew < 3'd2) && (hi != '0) && (hi != '1);
-        res = (vsew >= 3'd2) ? '0 : (sat ? (sum[XW-1] ? smin : smax) : ELEN'(sum));
+        sat = (vsew < SewTop) && (hi != '0) && (hi != '1);
+        res = (vsew >= SewTop) ? '0 : (sat ? (sum[XW-1] ? smin : smax) : ELEN'(sum));
       end
       default: res = '0;
     endcase

@@ -3,7 +3,7 @@
 module vec_div_lane
   import vec_pkg::*;
 #(
-    parameter int ELEN = 32
+    parameter int ELEN = arch_pkg::ELEN
 ) (
     input  wire                     clk,
     input  wire                     rst_n,
