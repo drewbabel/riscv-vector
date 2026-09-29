@@ -1,7 +1,7 @@
 `default_nettype none
 
 module boot_loader #(
-    parameter int XLEN  = 32,
+    parameter int XLEN  = arch_pkg::XLEN,
     parameter int DEPTH = 16384
 ) (
     input  wire             clk,
@@ -22,9 +22,12 @@ module boot_loader #(
   } state_t;
 
   localparam logic [XLEN-1:0] CapWords = XLEN'(DEPTH);
+  localparam int WordBytes = XLEN / 8;
+  localparam int WordLsb = $clog2(WordBytes);
+  localparam logic [WordLsb-1:0] LastByte = WordLsb'(WordBytes - 1);
 
   state_t state, next_state;
-  logic [1:0] cnt_byte;
+  logic [WordLsb-1:0] cnt_byte;
   logic [XLEN-1:0] cnt_word;
   logic [XLEN-1:0] max_word;
   logic [XLEN-1:0] limit;
@@ -42,11 +45,11 @@ module boot_loader #(
       state <= next_state;
 
       if (rx_valid) begin
-        cnt_byte <= cnt_byte + 2'd1;
+        cnt_byte <= cnt_byte + WordLsb'(1);
         acc <= {rx_data, acc[XLEN-1:$bits(rx_data)]};
         case (state)
-          COUNT: if (cnt_byte == 2'd3) max_word <= {rx_data, acc[XLEN-1:$bits(rx_data)]};
-          LOAD: if (cnt_byte == 2'd3) cnt_word <= cnt_word + 1'd1;
+          COUNT: if (cnt_byte == LastByte) max_word <= {rx_data, acc[XLEN-1:$bits(rx_data)]};
+          LOAD: if (cnt_byte == LastByte) cnt_word <= cnt_word + 1'd1;
           default: ;
         endcase
       end
@@ -56,15 +59,15 @@ module boot_loader #(
   always_comb begin
     next_state = state;
     case (state)
-      COUNT: if (rx_valid && cnt_byte == 2'd3) next_state = LOAD;
+      COUNT: if (rx_valid && cnt_byte == LastByte) next_state = LOAD;
       LOAD: if (cnt_word == limit) next_state = DONE;
       DONE: ;  // Terminates
       default: ;
     endcase
   end
 
-  assign we      = (state == LOAD) && rx_valid && (cnt_byte == 2'd3);
-  assign waddr   = cnt_word << 2;
+  assign we      = (state == LOAD) && rx_valid && (cnt_byte == LastByte);
+  assign waddr   = cnt_word << WordLsb;
   assign wdata   = {rx_data, acc[XLEN-1:$bits(rx_data)]};
   assign loading = state != DONE;
 

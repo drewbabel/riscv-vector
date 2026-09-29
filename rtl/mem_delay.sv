@@ -3,9 +3,9 @@
 module mem_delay
   import cache_pkg::*;
 #(
-    parameter int XLEN = 32,
+    parameter int XLEN = arch_pkg::XLEN,
     parameter int DEPTH = 16384,
-    parameter int Latency = 20,
+    parameter int Latency = arch_pkg::MemLatency,
     localparam int Lines = DEPTH / LineWords,
     localparam int LineIdxLen = $clog2(Lines),
     localparam int CntWidth = $clog2(Latency + 1)
@@ -33,13 +33,13 @@ module mem_delay
   logic [LineIdxLen-1:0] wr_idx;
   logic [ BlkOffLen-1:0] boot_word;
 
-  logic [CntWidth-1:0] cnt;
-  logic busy;
-  logic done;
+  logic [  CntWidth-1:0] cnt;
+  logic                  busy;
+  logic                  done;
 
-  logic                req_rw_q;
-  logic [    XLEN-1:0] req_addr_q;
-  logic [LineBits-1:0] req_wdata_q;
+  logic                  req_rw_q;
+  logic [      XLEN-1:0] req_addr_q;
+  logic [  LineBits-1:0] req_wdata_q;
 
   localparam int Lanes = LineBits / 8;
 
@@ -47,9 +47,9 @@ module mem_delay
   logic [   Lanes-1:0] wr_lane;
   logic                wr_en;
 
-  assign line_idx  = req_addr_q[IdxLsb+:LineIdxLen];
-  assign boot_idx  = boot_addr[IdxLsb+:LineIdxLen];
-  assign boot_word = boot_addr[2+:BlkOffLen];
+  assign line_idx = req_addr_q[IdxLsb+:LineIdxLen];
+  assign boot_idx = boot_addr[IdxLsb+:LineIdxLen];
+  assign boot_word = boot_addr[WordLsb+:BlkOffLen];
 
   assign done = busy && (cnt >= CntWidth'(Latency - 1));
 
@@ -87,7 +87,7 @@ module mem_delay
   // Strobe the boot word
   always_comb begin
     for (int b = 0; b < Lanes; b++) begin
-      wr_lane[b] = !boot_we || (boot_word == BlkOffLen'(b / 4));
+      wr_lane[b] = !boot_we || (boot_word == BlkOffLen'(b / WordBytes));
     end
   end
 

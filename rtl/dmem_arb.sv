@@ -1,7 +1,7 @@
 `default_nettype none
 
 module dmem_arb #(
-    parameter  int XLEN   = 32,
+    parameter  int XLEN   = arch_pkg::XLEN,
     parameter  int DATA_W = XLEN,
     localparam int StrbW  = DATA_W / 8
 ) (
