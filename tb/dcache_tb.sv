@@ -4,7 +4,7 @@ module dcache_tb;
 
   import cache_pkg::*;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int WordBytes = Xlen / 8;
   localparam int Depth = 8192;
   localparam int Latency = 4;

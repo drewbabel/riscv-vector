@@ -5,7 +5,7 @@ module boot_loader_tb ();
   int checks = 0;
   int errors = 0;
 
-  localparam int XLEN = 32;
+  localparam int XLEN = arch_pkg::XLEN;
   localparam int Depth = 20000;
   localparam int SmallDepth = 32;
 
@@ -24,7 +24,7 @@ module boot_loader_tb ();
   logic            small_loading;
   logic [XLEN-1:0] small_idx = '0;
 
-  logic [    31:0] prog             [];
+  logic [XLEN-1:0] prog           [];
   logic [XLEN-1:0] write_idx = '0;
   logic [XLEN-1:0] data_cnt;
 
@@ -75,7 +75,7 @@ module boot_loader_tb ();
     #1 rx_valid = 1'b0;
   endtask  // Automatic
 
-  task automatic send_word(input logic [31:0] w);
+  task automatic send_word(input logic [XLEN-1:0] w);
     for (int j = 0; j < XLEN; j += 8) send_byte(w[j+:8]);
   endtask  // Automatic
 
@@ -103,21 +103,21 @@ module boot_loader_tb ();
     load_data();
 
     repeat (2) @(posedge clk);
-    check("loading", {31'd0, loading}, 32'd0);
+    check("loading", XLEN'(loading), 32'd0);
     check("write_idx", write_idx, data_cnt);
-    check("small_loading", {31'd0, small_loading}, 32'd0);
+    check("small_loading", XLEN'(small_loading), 32'd0);
     check("small_idx", small_idx, XLEN'(SmallDepth));
     verdict();
   end
 
   always @(posedge clk) begin
     if (we) begin
-      check("waddr", waddr, write_idx * 4);
+      check("waddr", waddr, write_idx * (XLEN / 8));
       check("wdata", wdata, prog[write_idx]);
       write_idx++;
     end
     if (small_we) begin
-      check("small_waddr", small_waddr, small_idx * 4);
+      check("small_waddr", small_waddr, small_idx * (XLEN / 8));
       check("small_wdata", small_wdata, prog[small_idx]);
       small_idx++;
     end

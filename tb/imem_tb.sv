@@ -5,7 +5,7 @@ module imem_tb ();
   int checks = 0;
   int errors = 0;
 
-  localparam int Xlen = 32;
+  localparam int Xlen  = arch_pkg::XLEN;
   localparam int DEPTH = 64;
 
   logic [Xlen-1:0] addr;
@@ -47,7 +47,7 @@ module imem_tb ();
 
     // Test reading from memory
     for (int i = 0; i < DEPTH; i++) begin
-      addr = i * 4;
+      addr = i * (Xlen / 8);
       #1;
       check("Memory read", instr, Xlen'(i * 4));
     end

@@ -4,7 +4,7 @@ module dmem_tb ();
 
   import cache_pkg::*;
 
-  localparam int XLEN = 32;
+  localparam int XLEN = arch_pkg::XLEN;
   localparam int DEPTH = 64;
   localparam int AddrWidth = $clog2(DEPTH);
 
@@ -74,7 +74,7 @@ module dmem_tb ();
     #1;
     addr = a;
     #1;
-    exp = shadow[a[AddrWidth+1:2]];
+    exp = shadow[a[AddrWidth+WordLsb-1:WordLsb]];
     checks++;
     if (rword !== exp) begin
       errors++;
@@ -93,7 +93,7 @@ module dmem_tb ();
   always @(posedge clk) begin
     for (int w = 0; w < LineWords; w++) begin
       if (|wstrb[w*WordBytes+:WordBytes]) begin
-        shadow[{addr[AddrWidth+1:IdxLsb], BlkOffLen'(w)}] <= wdata[w*XLEN+:XLEN];
+        shadow[{addr[AddrWidth+WordLsb-1:IdxLsb], BlkOffLen'(w)}] <= wdata[w*XLEN+:XLEN];
       end
     end
   end
@@ -103,7 +103,7 @@ module dmem_tb ();
     $dumpvars(0, dmem_tb);
 
     // Zero all words to define reads
-    for (int i = 0; i < DEPTH; i++) write_mem(XLEN'(i * 4), '0);
+    for (int i = 0; i < DEPTH; i++) write_mem(XLEN'(i * WordBytes), '0);
 
     // Write word, read it back
     write_mem(32'h00000004, 32'hDEADBEEF);
@@ -126,9 +126,9 @@ module dmem_tb ();
     for (int i = 0; i < 1000; i++) begin
       int w;
       w = $urandom % DEPTH;
-      write_mem(XLEN'(w * 4), XLEN'($urandom));
+      write_mem(XLEN'(w * WordBytes), XLEN'($urandom));
       w = $urandom % DEPTH;
-      check_read(XLEN'(w * 4));
+      check_read(XLEN'(w * WordBytes));
     end
 
     verdict();

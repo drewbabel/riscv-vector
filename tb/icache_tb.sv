@@ -4,19 +4,19 @@ module icache_tb;
 
   import cache_pkg::*;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 8192;
   localparam int Latency = 4;
   localparam int Stride = 1 << (IdxLsb + IcIdxLen);
 
-  logic clk;
-  logic core_en;
-  logic rst_n;
+  logic                clk;
+  logic                core_en;
+  logic                rst_n;
 
-  logic            cpu_valid;
-  logic [Xlen-1:0] cpu_addr;
-  logic [Xlen-1:0] cpu_rdata;
-  logic            cpu_ready;
+  logic                cpu_valid;
+  logic [    Xlen-1:0] cpu_addr;
+  logic [    Xlen-1:0] cpu_rdata;
+  logic                cpu_ready;
 
   logic                mem_valid;
   logic [    Xlen-1:0] mem_addr;
@@ -30,8 +30,8 @@ module icache_tb;
   logic [        31:0] hit_count;
   logic [        31:0] miss_count;
 
-  int checks = 0;
-  int errors = 0;
+  int                  checks = 0;
+  int                  errors = 0;
 
   always #5 clk = ~clk;
 
@@ -110,10 +110,7 @@ module icache_tb;
   endtask  // Automatic
 
   task automatic boot_line(input logic [Xlen-1:0] base, input logic [Xlen-1:0] seed);
-    boot_word(base + 0, seed + 0);
-    boot_word(base + 4, seed + 1);
-    boot_word(base + 8, seed + 2);
-    boot_word(base + 12, seed + 3);
+    for (int w = 0; w < LineWords; w++) boot_word(base + Xlen'(w * WordBytes), seed + Xlen'(w));
   endtask  // Automatic
 
   task automatic fetch(input logic [Xlen-1:0] addr);
@@ -155,7 +152,7 @@ module icache_tb;
     do_reset();
 
     boot_line(32'h0000_0000, 32'hA000_0000);
-    boot_line(32'(Stride), 32'hB000_0000);
+    boot_line(Xlen'(Stride), 32'hB000_0000);
     boot_line(32'h0000_0010, 32'hC000_0000);
 
     // Cold miss
@@ -182,7 +179,7 @@ module icache_tb;
     check_int("two misses", miss_count, 2);
 
     // Conflict replaces
-    fetch(32'(Stride));
+    fetch(Xlen'(Stride));
     check("conflicting tag", cpu_rdata, 32'hB000_0000);
     fetch(32'h0000_0000);
     check("conflict evicted", cpu_rdata, 32'hA000_0000);
