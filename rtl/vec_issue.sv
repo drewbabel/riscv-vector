@@ -44,6 +44,8 @@ module vec_issue
     // Sequencer status
     input wire seq_busy,
     input wire seq_done,
+    input wire pipe_busy,
+    input wire x_done,
 
     // Sequencer command
     output logic                  seq_start,
@@ -97,7 +99,8 @@ module vec_issue
   logic                  e_valid;
   logic                  e_load;
   logic                  e_store;
-  logic                  e_xreg;
+  logic                  x_pend;
+  logic                  regs_busy;
 
   logic                  accept;
   logic                  launch;
@@ -122,15 +125,17 @@ module vec_issue
       .masked(!q_vm),
       .clear(clear),
       .clear_addr(clear_addr),
-      .ready(regs_ready)
+      .ready(regs_ready),
+      .any(regs_busy)
   );
 
-  assign launch = q_valid && !e_valid && regs_ready;
-  assign x_wait = (q_valid && q_xreg) || (e_valid && e_xreg);
+  // Loads own write port
+  assign launch = q_valid && !e_valid && regs_ready && !((q_op == VEC_LOAD) && pipe_busy);
+  assign x_wait = (q_valid && q_xreg) || x_pend;
   assign accept = instr_valid && !cancel && !x_wait && !x_spent && (!q_valid || launch);
   assign x_hold = instr_valid && (x_wait || writes_xreg) && !x_spent;
   assign vec_hold = x_hold || (instr_valid && q_valid && !launch);
-  assign vec_idle = !q_valid && !e_valid && !seq_busy;
+  assign vec_idle = !q_valid && !e_valid && !seq_busy && !regs_busy;
 
   // Pending memory work
   assign load_pending = (q_valid && q_op == VEC_LOAD) || (e_valid && e_load);
@@ -142,9 +147,14 @@ module vec_issue
       e_valid   <= 1'b0;
       seq_start <= 1'b0;
       x_spent   <= 1'b0;
+      x_pend    <= 1'b0;
     end else if (core_en) begin
       seq_start <= 1'b0;
-      x_spent   <= seq_done && e_valid && e_xreg;
+      x_spent   <= x_done && x_pend;
+
+      // Scalar result pending
+      if (launch && q_xreg) x_pend <= 1'b1;
+      else if (x_done) x_pend <= 1'b0;
 
       // Drain the slot
       if (launch) begin
@@ -152,7 +162,6 @@ module vec_issue
         e_valid      <= 1'b1;
         e_load       <= (q_op == VEC_LOAD);
         e_store      <= (q_op == VEC_STORE);
-        e_xreg       <= q_xreg;
         seq_op       <= q_op;
         seq_src      <= q_src;
         seq_eew      <= q_eew;
