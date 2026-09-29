@@ -2,7 +2,7 @@
 
 module vec_busy_bits_tb ();
 
-  localparam int NREGS  = 32;
+  localparam int NREGS  = arch_pkg::NumRegs;
   localparam int AddrW  = $clog2(NREGS);
   localparam int CountW = AddrW + 1;
 

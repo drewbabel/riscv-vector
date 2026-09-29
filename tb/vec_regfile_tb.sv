@@ -2,9 +2,10 @@
 
 module vec_regfile_tb ();
 
-  localparam int AWIDTH = 5;
-  localparam int VLEN = 128;
-  localparam int Depth = 2 ** AWIDTH;
+  localparam int AWIDTH = arch_pkg::RegAddrW;
+  localparam int VLEN   = arch_pkg::VLEN;
+  localparam int Words  = VLEN / 32;
+  localparam int Depth  = 2 ** AWIDTH;
 
   int checks = 0;
   int errors = 0;
@@ -164,8 +165,8 @@ module vec_regfile_tb ();
     logic [VLEN-1:0] data;
     logic [VLEN-1:0] strb;
     for (int i = 0; i < n; i++) begin
-      data = {$urandom, $urandom, $urandom, $urandom};
-      strb = {$urandom, $urandom, $urandom, $urandom};
+      for (int w = Words - 1; w >= 0; w--) data[w*32+:32] = $urandom;
+      for (int w = Words - 1; w >= 0; w--) strb[w*32+:32] = $urandom;
       write_masked(AWIDTH'($urandom), data, strb);
       check_reads(AWIDTH'($urandom), AWIDTH'($urandom), AWIDTH'($urandom));
     end
@@ -189,16 +190,16 @@ module vec_regfile_tb ();
     check_all();
 
     // Full width write
-    write_full(5, {4{32'hDEAD_BEEF}});
+    write_full(5, {Words{32'hDEAD_BEEF}});
     check_reads(5, 5, 5);
 
     // v0 holds data
-    write_full(0, {4{32'hA5A5_5A5A}});
+    write_full(0, {Words{32'hA5A5_5A5A}});
     check_reads(0, 0, 0);
 
     // Three ports differ
-    write_full(7, {4{32'h0000_0007}});
-    write_full(9, {4{32'h0000_0009}});
+    write_full(7, {Words{32'h0000_0007}});
+    write_full(9, {Words{32'h0000_0009}});
     check_reads(5, 7, 9);
 
     // Byte strobe
@@ -213,7 +214,7 @@ module vec_regfile_tb ();
     check_field(13, 0, 4'b1101);
 
     // Read before write
-    check_read_first(17, {4{32'h2222_2222}});
+    check_read_first(17, {Words{32'h2222_2222}});
 
     // Core disabled
     write_core_off(21, '1);
