@@ -131,8 +131,9 @@ module vec_reduce_tb ();
       step        = 1'b1;
       #1;
       ref_phase(p == 0);
-      check_result(tag);
       @(posedge clk);
+      #1;
+      check_result(tag);
       @(negedge clk);
     end
     step  = 1'b0;
@@ -175,13 +176,13 @@ module vec_reduce_tb ();
     elem_active = '1;
     first       = 1'b1;
     step        = 1'b1;
+    @(posedge clk);
     #1;
     checks = checks + 1;
     if (result[31:0] !== 32'd17) begin
       errors = errors + 1;
       $display("FAIL directed sum got=%0d want=17", result[31:0]);
     end
-    @(posedge clk);
     @(negedge clk);
     step  = 1'b0;
     first = 1'b0;
