@@ -2,7 +2,10 @@
 
 module vec_mem_formal ();
 
-  localparam int VLEN = 128;
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int AWIDTH = arch_pkg::RegAddrW;
+  localparam int VLEN = arch_pkg::VLEN;
+  localparam int VlW = $clog2(VLEN + 1);
 
   logic              clk;
 
@@ -11,11 +14,11 @@ module vec_mem_formal ();
   (* anyseq *)logic              start;
   (* anyseq *)logic              load;
   (* anyseq *)logic              vm;
-  (* anyseq *)logic [       4:0] vd;
-  (* anyseq *)logic [       7:0] count;
+  (* anyseq *)logic [AWIDTH-1:0] vd;
+  (* anyseq *)logic [   VlW-1:0] count;
   (* anyseq *)logic [       1:0] width;
-  (* anyseq *)logic [      31:0] base;
-  (* anyseq *)logic [      31:0] stride;
+  (* anyseq *)logic [  XLEN-1:0] base;
+  (* anyseq *)logic [  XLEN-1:0] stride;
 
   // Free register stimulus
   (* anyseq *)logic [  VLEN-1:0] v0;
@@ -25,15 +28,15 @@ module vec_mem_formal ();
   (* anyseq *)logic              mem_ready;
   (* anyseq *)logic [  VLEN-1:0] mem_rdata;
 
-  logic [       4:0] raddr;
+  logic [AWIDTH-1:0] raddr;
   logic              wen;
   logic [  VLEN-1:0] wstrb;
   logic [  VLEN-1:0] wdata;
   logic              mem_req;
-  logic [      31:0] mem_addr;
+  logic [  XLEN-1:0] mem_addr;
   logic [  VLEN-1:0] mem_wdata;
   logic [VLEN/8-1:0] mem_wstrb;
-  logic [       7:0] dbg_elem;
+  logic [   VlW-1:0] dbg_elem;
   logic              dbg_n_ok;
   logic              busy;
   logic              done;
@@ -50,7 +53,9 @@ module vec_mem_formal ();
   assign rst_n = (t != 2'd0);
 
   vec_mem #(
-      .VLEN(VLEN)
+      .XLEN  (XLEN),
+      .AWIDTH(AWIDTH),
+      .VLEN  (VLEN)
   ) dut (
       .dbg_elem(dbg_elem),
       .dbg_n_ok(dbg_n_ok),
@@ -82,21 +87,21 @@ module vec_mem_formal ();
   );
 
   // Instruction tracker
-  logic       f_active;
-  logic [7:0] f_beats;
-  logic [7:0] f_count;
+  logic           f_active;
+  logic [VlW-1:0] f_beats;
+  logic [VlW-1:0] f_count;
 
   always @(posedge clk) begin
     if (!rst_n) begin
       f_active <= 1'b0;
-      f_beats  <= 8'd0;
+      f_beats  <= '0;
     end else if (core_en) begin
       if (!f_active && start) begin
         f_active <= 1'b1;
-        f_beats  <= 8'd0;
+        f_beats  <= '0;
         f_count  <= count;
       end else if (f_active) begin
-        if (mem_req && mem_ready) f_beats <= f_beats + 8'd1;
+        if (mem_req && mem_ready) f_beats <= f_beats + VlW'(1);
         if (done) f_active <= 1'b0;
       end
     end
@@ -123,9 +128,9 @@ module vec_mem_formal ();
     if (rst_n) begin
       if (f_active) assume (!start);
       assume (width != 2'd3);
-      if (width == 2'd0) assume (count <= 8'd128);
-      if (width == 2'd1) assume (count <= 8'd64);
-      if (width == 2'd2) assume (count <= 8'd32);
+      if (width == 2'd0) assume (count <= VlW'(VLEN));
+      if (width == 2'd1) assume (count <= VlW'(VLEN / 2));
+      if (width == 2'd2) assume (count <= VlW'(VLEN / 4));
       if (width == 2'd2) assume (base[1:0] == 2'b00 && stride[1:0] == 2'b00);
       if (width == 2'd1) assume (!base[0] && !stride[0]);
     end
