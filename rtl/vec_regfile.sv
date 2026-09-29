@@ -1,8 +1,8 @@
 `default_nettype none
 
 module vec_regfile #(
-    parameter  int AWIDTH = 5,
-    parameter  int VLEN   = 128,
+    parameter  int AWIDTH = arch_pkg::RegAddrW,
+    parameter  int VLEN   = arch_pkg::VLEN,
     localparam int Depth  = 2 ** AWIDTH
 ) (
     input  wire               clk,

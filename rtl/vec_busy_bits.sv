@@ -1,7 +1,7 @@
 `default_nettype none
 
 module vec_busy_bits #(
-    parameter  int NREGS  = 32,
+    parameter  int NREGS  = arch_pkg::NumRegs,
     localparam int AddrW  = $clog2(NREGS),
     localparam int CountW = AddrW + 1
 ) (
