@@ -147,17 +147,71 @@ module vec_unit
 
   logic      [MaxElems-1:0] mask_bits;
   logic                     issue_hold;
+  logic                     x_done;
+
+  // Pipeline registers
+  logic                     valid_ex;
+  vec_op_e                  op_ex;
+  vec_src_e                 src_ex;
+  vec_eew_e                 eew_ex;
+  logic      [         2:0] vsew_ex;
+  logic                     vm_ex;
+  logic      [         4:0] simm_ex;
+  logic      [        31:0] xdata_ex;
+  logic      [         7:0] vl_ex;
+  logic      [    VLEN-1:0] rdata1_ex;
+  logic      [    VLEN-1:0] rdata2_ex;
+  logic      [    VLEN-1:0] rdata0_ex;
+  logic      [MaxElems-1:0] mask_bits_ex;
+  logic      [MaxElems-1:0] elem_active_ex;
+  logic      [         7:0] elem_base_ex;
+  logic      [         6:0] s1_off_ex;
+  logic      [         6:0] s2_off_ex;
+  logic      [         6:0] d_off_ex;
+  logic      [  AWIDTH-1:0] waddr_ex;
+  logic      [    VLEN-1:0] wstrb_ex;
+  logic                     wen_ex;
+  logic                     reg_done_ex;
+  logic                     last_ex;
+  logic                     slot_first_ex;
+
+  logic                     valid_x2;
+  vec_cls_e                 cls_x2;
+  logic      [         6:0] d_off_x2;
+  logic      [  AWIDTH-1:0] waddr_x2;
+  logic      [    VLEN-1:0] wstrb_x2;
+  logic                     wen_x2;
+  logic                     reg_done_x2;
+  logic                     last_x2;
+
+  vec_cls_e                 cls_wb;
+  logic      [        31:0] xdata_wb;
+  logic      [    VLEN-1:0] alu_result_wb;
+  logic      [    VLEN-1:0] mixed_result_wb;
+  logic      [    VLEN-1:0] red_result_wb;
+  logic      [    VLEN-1:0] mask_result_wb;
+  logic      [         6:0] d_off_wb;
+  logic      [  AWIDTH-1:0] waddr_wb;
+  logic      [    VLEN-1:0] wstrb_wb;
+  logic                     valid_wb;
+  logic                     wen_wb;
+  logic                     reg_done_wb;
+  logic                     last_wb;
 
   // Instruction classes
   vec_cls_e                 dec_cls;
   vec_cls_e                 seq_cls;
+  vec_cls_e                 cls_ex;
   vec_geom_t                dec_geom_s;
   vec_geom_t                seq_geom_s;
+  vec_geom_t                geom_ex;
 
   assign dec_cls = vec_class(dec_op);
   assign seq_cls = vec_class(seq_op);
   assign dec_geom_s = vec_geom(dec_op, dec_eew);
   assign seq_geom_s = vec_geom(seq_op, seq_eew);
+  assign cls_ex = vec_class(op_ex);
+  assign geom_ex = vec_geom(op_ex, eew_ex);
 
   // Mask is data
   logic v0_is_data;
@@ -316,15 +370,14 @@ module vec_unit
   logic [5:0] wr_regs;
   logic [5:0] rd1_regs;
   logic [5:0] rd2_regs;
-  logic       busy_clear;
+  logic       seq_clear;
 
   assign load_regs = 6'(((16'(issue_vl) << dec_width) + 16'(VLEN / 8 - 1)) >> $clog2(VLEN / 8));
   assign wr_regs = (!has_vd || dec_store || (issue_vl == 8'd0)) ?
       6'd0 : (dec_mem ? load_regs : d_regs);
   assign rd1_regs = dec_store ? d_regs : (uses_vs1 ? s1_regs : 6'd0);
   assign rd2_regs = uses_vs2 ? s2_regs : 6'd0;
-  assign busy_clear = seq_mem ?
-      m_reg_done : (seq_reg_done && (seq_cls != VEC_CLS_XS) && (seq_cls != VEC_CLS_XM));
+  assign seq_clear = seq_reg_done && (seq_cls != VEC_CLS_XS) && (seq_cls != VEC_CLS_XM);
 
   // Rounding and saturation
   logic [1:0] vxrm_q;
@@ -412,14 +465,16 @@ module vec_unit
       .rd1(dec_store ? dec_vd : dec_vs1),
       .rd1_regs(rd1_regs),
       .rd2_regs(rd2_regs),
-      .clear(busy_clear),
-      .clear_addr(seq_mem ? m_raddr : waddr),
+      .clear(reg_done_wb || m_reg_done),
+      .clear_addr(reg_done_wb ? waddr_wb : m_raddr),
       .vl(issue_vl),
       .vsew(issue_vsew),
       .vlmul(vlmul),
       .vxrm(vxrm_q),
       .seq_busy(seq_busy || m_busy),
       .seq_done(seq_done || m_done),
+      .pipe_busy(valid_ex || valid_x2 || valid_wb),
+      .x_done(x_done),
       .seq_start(seq_start),
       .seq_op(seq_op),
       .seq_src(seq_src),
@@ -442,13 +497,32 @@ module vec_unit
       .store_pending(store_pending)
   );
 
+  // Book the write
+  logic seq_deep;
+  logic slot_free;
+  logic seq_hold;
+
+  assign seq_deep = (seq_cls == VEC_CLS_RED);
+  assign seq_hold = seq_busy && !slot_free;
+
+  vec_write_slots #(
+      .DEPTH(3)
+  ) u_slots (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(core_en),
+      .start(seq_busy && slot_free),
+      .depth(seq_deep ? 2'd3 : 2'd2),
+      .free(slot_free)
+  );
+
   vec_sequencer #(
       .AWIDTH(AWIDTH),
       .VLEN  (VLEN)
   ) u_sequencer (
       .clk(clk),
       .rst_n(rst_n),
-      .core_en(core_en),
+      .core_en(core_en && !seq_hold),
       .start(seq_start && !seq_mem),
       .vs1(seq_vs1),
       .vs2(seq_vs2),
@@ -533,10 +607,10 @@ module vec_unit
   ) u_regfile (
       .clk(clk),
       .core_en(core_en),
-      .we(seq_mem ? m_wen : vreg_write),
-      .wstrb(seq_mem ? m_wstrb : wstrb),
-      .waddr(seq_mem ? m_raddr : waddr),
-      .wdata(seq_mem ? m_wdata : wdata),
+      .we(wen_wb || m_wen),
+      .wstrb(wen_wb ? wstrb_wb : m_wstrb),
+      .waddr(wen_wb ? waddr_wb : m_raddr),
+      .wdata(wen_wb ? wdata : m_wdata),
       .raddr1(seq_mem ? m_raddr : raddr1),
       .raddr2(raddr2),
       .raddr3(raddr3),
@@ -553,39 +627,82 @@ module vec_unit
     assign mask_bits[e] = (sel < 9'(VLEN)) ? rdata0[sel[6:0]] : 1'b0;
   end
 
+  // Slot holds it
+  logic slot_first;
+  always_ff @(posedge clk) begin
+    if (!rst_n) slot_first <= 1'b0;
+    else if (core_en) slot_first <= seq_start && !seq_mem;
+  end
+
+  // RD/EX
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      valid_ex      <= 1'b0;
+      wen_ex        <= 1'b0;
+      reg_done_ex   <= 1'b0;
+      last_ex       <= 1'b0;
+      slot_first_ex <= 1'b0;
+    end else if (core_en) begin
+      valid_ex       <= seq_busy && !seq_hold;
+      wen_ex         <= vreg_write && !seq_hold;
+      reg_done_ex    <= seq_clear && !seq_hold;
+      last_ex        <= seq_busy && seq_last && !seq_hold;
+      slot_first_ex  <= slot_first;
+      op_ex          <= seq_op;
+      src_ex         <= seq_src;
+      eew_ex         <= seq_eew;
+      vsew_ex        <= seq_vsew;
+      vm_ex          <= seq_vm;
+      simm_ex        <= seq_simm;
+      xdata_ex       <= seq_xdata;
+      vl_ex          <= seq_vl;
+      rdata1_ex      <= rdata1;
+      rdata2_ex      <= rdata2;
+      rdata0_ex      <= rdata0;
+      mask_bits_ex   <= mask_bits;
+      elem_active_ex <= elem_active;
+      elem_base_ex   <= elem_base;
+      s1_off_ex      <= s1_off;
+      s2_off_ex      <= s2_off;
+      d_off_ex       <= d_off;
+      waddr_ex       <= waddr;
+      wstrb_ex       <= wstrb;
+    end
+  end
+
   // Aligned operands
   logic [VLEN-1:0] vs1_data;
   logic [VLEN-1:0] vs2_data;
 
-  assign vs1_data = rdata1 >> s1_off;
-  assign vs2_data = rdata2 >> s2_off;
+  assign vs1_data = rdata1_ex >> s1_off_ex;
+  assign vs2_data = rdata2_ex >> s2_off_ex;
 
   vec_alu #(
       .DLEN(VLEN)
   ) u_alu (
-      .op(seq_op),
-      .src(seq_src),
-      .vsew(seq_vsew),
-      .vm(seq_vm),
-      .mask_bits(mask_bits),
+      .op(op_ex),
+      .src(src_ex),
+      .vsew(vsew_ex),
+      .vm(vm_ex),
+      .mask_bits(mask_bits_ex),
       .vs2_data(vs2_data),
       .vs1_data(vs1_data),
-      .xdata(seq_xdata),
-      .simm(seq_simm),
+      .xdata(xdata_ex),
+      .simm(simm_ex),
       .result(alu_result)
   );
 
   vec_mixed #(
       .DLEN(VLEN)
   ) u_mixed (
-      .op(seq_op),
-      .src(seq_src),
-      .eew(seq_eew),
-      .vsew(seq_vsew),
+      .op(op_ex),
+      .src(src_ex),
+      .eew(eew_ex),
+      .vsew(vsew_ex),
       .vs2_data(vs2_data),
       .vs1_data(vs1_data),
-      .xdata(seq_xdata),
-      .simm(seq_simm),
+      .xdata(xdata_ex),
+      .simm(simm_ex),
       .result(mixed_result)
   );
 
@@ -595,47 +712,105 @@ module vec_unit
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en),
-      .op(seq_op),
-      .vsew(seq_vsew),
-      .widen(seq_geom_s.widen),
-      .first(seq_busy && (elem_base == 8'd0)),
-      .step(seq_busy && (seq_cls == VEC_CLS_RED)),
+      .op(op_ex),
+      .vsew(vsew_ex),
+      .widen(geom_ex.widen),
+      .first(valid_ex && (elem_base_ex == 8'd0)),
+      .step(valid_ex && (cls_ex == VEC_CLS_RED)),
       .vs2_data(vs2_data),
       .vs1_data(vs1_data),
-      .elem_active(elem_active),
+      .elem_active(elem_active_ex),
       .result(red_result)
   );
 
   vec_mask #(
       .DLEN(VLEN)
   ) u_mask (
-      .op(seq_op),
-      .src(seq_src),
-      .vsew(seq_vsew),
-      .vm(seq_vm),
+      .op(op_ex),
+      .src(src_ex),
+      .vsew(vsew_ex),
+      .vm(vm_ex),
       .vs2_data(vs2_data),
       .vs1_data(vs1_data),
-      .v0_bits(rdata0),
-      .xdata(seq_xdata),
-      .simm(seq_simm),
-      .elem_base(elem_base),
-      .vl(seq_vl),
+      .v0_bits(rdata0_ex),
+      .xdata(xdata_ex),
+      .simm(simm_ex),
+      .elem_base(elem_base_ex),
+      .vl(vl_ex),
       .result(mask_result),
       .xresult(mask_xresult)
   );
 
+  // Deep units
+  logic deep_ex;
+  assign deep_ex = (cls_ex == VEC_CLS_RED);
+
+  // EX/X2
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      valid_x2    <= 1'b0;
+      wen_x2      <= 1'b0;
+      reg_done_x2 <= 1'b0;
+      last_x2     <= 1'b0;
+    end else if (core_en) begin
+      valid_x2    <= valid_ex && deep_ex;
+      wen_x2      <= wen_ex && deep_ex;
+      reg_done_x2 <= reg_done_ex && deep_ex;
+      last_x2     <= last_ex && deep_ex;
+      cls_x2      <= cls_ex;
+      d_off_x2    <= d_off_ex;
+      waddr_x2    <= waddr_ex;
+      wstrb_x2    <= wstrb_ex;
+    end
+  end
+
+  // EX/WB and X2/WB
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      valid_wb    <= 1'b0;
+      wen_wb      <= 1'b0;
+      reg_done_wb <= 1'b0;
+      last_wb     <= 1'b0;
+    end else if (core_en) begin
+      if (valid_x2) begin  // Slot row keeps one
+        valid_wb    <= 1'b1;
+        wen_wb      <= wen_x2;
+        reg_done_wb <= reg_done_x2;
+        last_wb     <= last_x2;
+        cls_wb      <= cls_x2;
+        d_off_wb    <= d_off_x2;
+        waddr_wb    <= waddr_x2;
+        wstrb_wb    <= wstrb_x2;
+      end else begin
+        valid_wb    <= valid_ex && !deep_ex;
+        wen_wb      <= wen_ex && !deep_ex;
+        reg_done_wb <= reg_done_ex && !deep_ex;
+        last_wb     <= last_ex && !deep_ex;
+        cls_wb      <= cls_ex;
+        d_off_wb    <= d_off_ex;
+        waddr_wb    <= waddr_ex;
+        wstrb_wb    <= wstrb_ex;
+      end
+      xdata_wb        <= xdata_ex;
+      alu_result_wb   <= alu_result;
+      mixed_result_wb <= mixed_result;
+      red_result_wb   <= red_result;
+      mask_result_wb  <= mask_result;
+    end
+  end
+
   // Result select
   always_comb begin
-    case (seq_cls)
-      VEC_CLS_MIXED:                                         raw_result = mixed_result;
-      VEC_CLS_RED:                                           raw_result = red_result;
-      VEC_CLS_SX:                                            raw_result = VLEN'(seq_xdata);
-      VEC_CLS_CMP, VEC_CLS_MLOG, VEC_CLS_MSET, VEC_CLS_IOTA: raw_result = mask_result;
-      default:                                               raw_result = alu_result;
+    case (cls_wb)
+      VEC_CLS_MIXED:                                         raw_result = mixed_result_wb;
+      VEC_CLS_RED:                                           raw_result = red_result_wb;
+      VEC_CLS_SX:                                            raw_result = VLEN'(xdata_wb);
+      VEC_CLS_CMP, VEC_CLS_MLOG, VEC_CLS_MSET, VEC_CLS_IOTA: raw_result = mask_result_wb;
+      default:                                               raw_result = alu_result_wb;
     endcase
   end
 
-  assign wdata = raw_result << d_off;
+  assign wdata = raw_result << d_off_wb;
 
   // Scalar return path
   logic [31:0] xres_q;
@@ -649,13 +824,6 @@ module vec_unit
       3'd1:    elem_zero = 32'($signed(rdata2[15:0]));
       default: elem_zero = rdata2[31:0];
     endcase
-  end
-
-  // Slot holds it
-  logic slot_first;
-  always_ff @(posedge clk) begin
-    if (!rst_n) slot_first <= 1'b0;
-    else if (core_en) slot_first <= seq_start && !seq_mem;
   end
 
 `ifdef RISCV_FORMAL_ABSTRACT_XRES
@@ -672,20 +840,40 @@ module vec_unit
     if (!rst_n) xres_q <= 32'd0;
     else if (core_en) begin
       if (seq_busy && (elem_base == 8'd0) && (seq_cls == VEC_CLS_XS)) xres_q <= xs_val;
-      else if ((seq_busy || slot_first) && (seq_cls == VEC_CLS_XM)) xres_q <= xm_val;
+      else if ((valid_ex || slot_first_ex) && (cls_ex == VEC_CLS_XM)) xres_q <= xm_val;
     end
   end
 
-  assign xreg_valid  = dec_writes_xreg && is_vector;
+  // Final capture
+  assign x_done = (seq_busy && (elem_base == 8'd0) && (seq_cls == VEC_CLS_XS)) ||
+      ((cls_ex == VEC_CLS_XM) && ((valid_ex && last_ex) || (slot_first_ex && (vl_ex == 8'd0))));
+
+  assign xreg_valid = dec_writes_xreg && is_vector;
   assign xreg_result = xres_q;
-  assign vec_hold    = issue_hold || (csr_wait && !vec_idle);
+  assign vec_hold = issue_hold || (csr_wait && !vec_idle);
 
 `ifdef RISCV_FORMAL
-  // Retirement export
+  // Retire after last write
+  logic       retire_wb_q;
+  logic       zero_q;
+  logic       retire;
   logic [7:0] tag_q;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      retire_wb_q <= 1'b0;
+      zero_q      <= 1'b0;
+    end else if (core_en) begin
+      retire_wb_q <= last_wb;
+      zero_q      <= seq_start && !seq_mem && (seq_vl == 8'd0);
+    end
+  end
+
+  assign retire = retire_wb_q || m_done || zero_q;
+
   always_ff @(posedge clk) begin
     if (!rst_n) tag_q <= 8'd0;
-    else if (core_en && (seq_done || m_done)) tag_q <= tag_q + 8'd1;
+    else if (core_en && retire) tag_q <= tag_q + 8'd1;
   end
 
   // Registers written
@@ -693,19 +881,19 @@ module vec_unit
   logic        wr_en;
   logic [ 4:0] wr_addr;
 
-  assign wr_en   = seq_mem ? m_wen : vreg_write;
-  assign wr_addr = seq_mem ? m_raddr : waddr;
+  assign wr_en   = wen_wb || m_wen;
+  assign wr_addr = wen_wb ? waddr_wb : m_raddr;
 
   always_ff @(posedge clk) begin
     if (!rst_n) wr_mask_q <= 32'd0;
     else if (core_en) begin
-      if (seq_start) wr_mask_q <= 32'd0;
+      if (retire) wr_mask_q <= wr_en ? (32'd1 << wr_addr) : 32'd0;
       else if (wr_en) wr_mask_q[wr_addr] <= 1'b1;
     end
   end
 
   assign dbg_vec_tag    = tag_q;
-  assign dbg_vec_retire = seq_done || m_done;
+  assign dbg_vec_retire = retire;
   assign dbg_vec_wregs  = wr_mask_q;
   assign dbg_vec_idle   = vec_idle;
 `endif
