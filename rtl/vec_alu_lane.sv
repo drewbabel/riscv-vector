@@ -3,7 +3,7 @@
 module vec_alu_lane
   import vec_pkg::*;
 #(
-    parameter int W = 32
+    parameter int W = arch_pkg::ELEN
 ) (
     input  wire vec_op_e         op,
     input  wire                  vm,
