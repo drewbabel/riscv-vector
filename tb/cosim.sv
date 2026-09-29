@@ -172,12 +172,15 @@ module cosim ();
       end
     end
 
+    if (!stop) $display("HUNG no park sentinel after %0d cycles", max_commits);
+
     // Drain the unit
     for (int i = 0; i < 2000 && !r_vidle; i++) begin
       @(posedge clk);
       #1;
       if (r_vretire) emit_vcommit();
     end
+    if (!r_vidle) $display("HUNG vector unit not idle");
 
     $display("MONITOR: %0d commits", checks);
     $finish;

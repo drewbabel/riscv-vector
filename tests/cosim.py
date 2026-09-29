@@ -83,6 +83,7 @@ DUT_VWR = []  # Vector writes
 SPK_VWR = []  # Vector writes
 DUT_VMEM = []  # Vector store bytes
 FENCE_BUSY = []  # Fence retired early
+HUNG = []  # Never reached the end
 SPK_VMEM = []  # Vector store bytes
 VEC_WIDTH = {0: 1, 5: 2, 6: 4}  # width field to byte count
 
@@ -94,6 +95,8 @@ def run_dut(dut_hex, vcd=False):
     out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True).stdout
     FENCE_BUSY.clear()
     FENCE_BUSY.extend(l for l in out.splitlines() if l.startswith("FENCE BUSY"))
+    HUNG.clear()
+    HUNG.extend(l for l in out.splitlines() if l.startswith("HUNG"))
     trace = []
     TRACE.clear()
     DUT_VWR.clear()
@@ -607,6 +610,8 @@ def run_one(src):
     spike_elf = os.path.join(BUILD, "prog_spike.elf")
     build_images(src, dut_hex, spike_elf)
     dut = run_dut(dut_hex)
+    if HUNG:
+        return False, HUNG[0]
     spike = run_spike(spike_elf, len(dut))
     ok, why = compare(dut, spike)
     if ok and FENCE_BUSY:
@@ -673,6 +678,9 @@ def main():
         sys.exit(1)
     if FENCE_BUSY:
         print(f"DIVERGENCE {FENCE_BUSY[0]}")
+        sys.exit(1)
+    if HUNG:
+        print(f"DIVERGENCE {HUNG[0]}")
         sys.exit(1)
     extra = ""
     if VECTOR:
