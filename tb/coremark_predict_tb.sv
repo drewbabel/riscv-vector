@@ -3,16 +3,17 @@
 module coremark_predict_tb ();
 
   import cache_pkg::*;
+  localparam int XLEN = arch_pkg::XLEN;
   localparam int DEPTH = 16384;
-  localparam int ClkDiv = 2;
-  localparam int FastClkHz = 100_000_000;
-  localparam int BaudRate = 28_800;
+  localparam int ClkDiv = arch_pkg::ClkDiv;
+  localparam int FastClkHz = arch_pkg::BoardClkHz;
+  localparam int BaudRate = arch_pkg::BaudRate;
   localparam int ClksPerBit = (FastClkHz + BaudRate / 2) / BaudRate;
 
   logic clk = 0, rst;
   logic [15:0] sw, led;
   logic uart_rx = 1, uart_tx;
-  logic [31:0] img[DEPTH];
+  logic [XLEN-1:0] img[DEPTH];
 
   int branches = 0;
   int mispredicts = 0;
@@ -60,15 +61,15 @@ module coremark_predict_tb ();
     $readmemh("sw/coremark/coremark_sim.hex", img);
     #1;  // After mem init
     for (int k = 0; k < DEPTH; k++) begin
-      dut.imem_inst.line_mem[k/LineWords][32*(k%LineWords)+:32] = img[k];
-      dut.dmem_inst.line_mem[k/LineWords][32*(k%LineWords)+:32] = img[k];
+      dut.imem_inst.line_mem[k/LineWords][XLEN*(k%LineWords)+:XLEN] = img[k];
+      dut.dmem_inst.line_mem[k/LineWords][XLEN*(k%LineWords)+:XLEN] = img[k];
     end
     rst = 1;
     sw  = 0;
     repeat (2) @(posedge clk);
     rst = 0;
     repeat (2000) @(posedge clk);
-    repeat (4) send_byte(8'd0);
+    repeat (XLEN / 8) send_byte(8'd0);
 
     wait (branches >= 30_000);
     $display("PROBE branches=%0d mispredicts=%0d rate=%0d.%02d%% pc=%08x", branches, mispredicts,

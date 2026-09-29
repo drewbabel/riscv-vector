@@ -3,16 +3,17 @@
 module freertos_boot_tb ();
 
   import cache_pkg::*;
+  localparam int XLEN = arch_pkg::XLEN;
   localparam int DEPTH = 16384;
-  localparam int FastClkHz = 100_000_000;
-  localparam int BaudRate = 28_800;
+  localparam int FastClkHz = arch_pkg::BoardClkHz;
+  localparam int BaudRate = arch_pkg::BaudRate;
   localparam int ClksPerBit = (FastClkHz + BaudRate / 2) / BaudRate;
   localparam int SettleCycles = 6_000_000;
 
   logic clk = 0, rst;
   logic [15:0] sw, led;
   logic uart_rx = 1, uart_tx;
-  logic [31:0] img[DEPTH];
+  logic [XLEN-1:0] img[DEPTH];
   logic [LineBits-1:0] pline;
 
   int checks = 0;
@@ -75,7 +76,7 @@ module freertos_boot_tb ();
       $fatal(1, "freertos_sim.hex missing or empty, run make -C sw/freertos all");
     #1;  // After mem init
     for (int l = 0; l < DEPTH / LineWords; l++) begin
-      for (int w = 0; w < LineWords; w++) pline[32*w+:32] = img[l*LineWords+w];
+      for (int w = 0; w < LineWords; w++) pline[XLEN*w+:XLEN] = img[l*LineWords+w];
       @(negedge clk);
       dut.imem_inst.u_line.bd_idx  = l;
       dut.imem_inst.u_line.bd_data = pline;
@@ -88,11 +89,11 @@ module freertos_boot_tb ();
     dut.imem_inst.u_line.bd_we = 1'b0;
     dut.dmem_inst.u_line.bd_we = 1'b0;
     rst = 1;
-    sw  = 0;
+    sw = 0;
     repeat (2) @(posedge clk);
     rst = 0;
     repeat (2000) @(posedge clk);
-    repeat (4) send_byte(8'd0);
+    repeat (XLEN / 8) send_byte(8'd0);
     drive_and_check("queue_pattern_a", 16'hA5A5);
     drive_and_check("queue_pattern_b", 16'h3C3C);
 
