@@ -34,6 +34,7 @@ module vec_mem_formal ();
   logic [  VLEN-1:0] mem_wdata;
   logic [VLEN/8-1:0] mem_wstrb;
   logic [       7:0] dbg_elem;
+  logic              dbg_n_ok;
   logic              busy;
   logic              done;
 
@@ -52,6 +53,7 @@ module vec_mem_formal ();
       .VLEN(VLEN)
   ) dut (
       .dbg_elem(dbg_elem),
+      .dbg_n_ok(dbg_n_ok),
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en),
@@ -151,6 +153,7 @@ module vec_mem_formal ();
       if (mem_req && width == 2'd1) assert (!mem_addr[0]);
       if (load) assert (mem_wstrb == '0);
       if (wen) assert (load && mem_req && mem_ready);
+      assert (dbg_n_ok);
     end
 
   // Covers

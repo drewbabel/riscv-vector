@@ -8,10 +8,11 @@ module vec_mem #(
 ) (
 `ifdef RISCV_FORMAL
     output logic [7:0] dbg_elem,
+    output logic       dbg_n_ok,
 `endif
-    input wire clk,
-    input wire rst_n,
-    input wire core_en,
+    input  wire        clk,
+    input  wire        rst_n,
+    input  wire        core_en,
 
     // Issued instruction
     input wire              start,
@@ -72,20 +73,32 @@ module vec_mem #(
   assign line_off = addr[OffW-1:0];
   assign shift = line_off - reg_off;
 
-  // Elements this beat
-  assign left = count - elem;
-  assign fit_line = (Bytes8 - 8'(line_off)) >> width;
-  assign fit_reg = (Bytes8 - 8'(reg_off)) >> width;
-  always_comb begin
-    n = 8'd1;
-    if (unit) begin
-      n = left;
-      if (fit_line < n) n = fit_line;
-      if (fit_reg < n) n = fit_reg;
-    end
-  end
+  // Next beat position
+  logic [ 7:0] elem_d;
+  logic [31:0] addr_d;
+  logic [ 7:0] n_d;
+
   assign beat_bytes = n << width;
   assign next_elem = elem + n;
+  assign elem_d = busy ? next_elem : 8'd0;
+  assign addr_d = busy ? (addr + (unit ? 32'(beat_bytes) : stride)) : base;
+
+  // Elements next beat
+  assign left = count - elem_d;
+  assign fit_line = (Bytes8 - 8'(addr_d[OffW-1:0])) >> width;
+  assign fit_reg = (Bytes8 - 8'(OffW'(elem_d << width))) >> width;
+  always_comb begin
+    n_d = 8'd1;
+    if (unit) begin
+      n_d = left;
+      if (fit_line < n_d) n_d = fit_line;
+      if (fit_reg < n_d) n_d = fit_reg;
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (core_en && (busy ? mem_ready : start)) n <= n_d;
+  end
 
   // Register bytes moved
   assign in_beat = Bytes'(((33'd1 << beat_bytes) - 33'd1) << reg_off);
@@ -132,7 +145,7 @@ module vec_mem #(
         end
       end else if (mem_ready) begin
         elem <= next_elem;
-        addr <= addr + (unit ? 32'(beat_bytes) : stride);
+        addr <= addr_d;
         if (next_elem == count) begin
           busy <= 1'b0;
           done <= 1'b1;
@@ -143,6 +156,18 @@ module vec_mem #(
 
 `ifdef RISCV_FORMAL
   assign dbg_elem = elem;
+
+  // Lookahead matches now
+  logic [7:0] n_now;
+  always_comb begin
+    n_now = 8'd1;
+    if (unit) begin
+      n_now = count - elem;
+      if (((Bytes8 - 8'(line_off)) >> width) < n_now) n_now = (Bytes8 - 8'(line_off)) >> width;
+      if (((Bytes8 - 8'(reg_off)) >> width) < n_now) n_now = (Bytes8 - 8'(reg_off)) >> width;
+    end
+  end
+  assign dbg_n_ok = !busy || (n == n_now);
 `endif
 
 endmodule
