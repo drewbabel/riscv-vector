@@ -23,6 +23,7 @@ module vec_busy_bits_tb ();
   logic              clear = 1'b0;
   logic [ AddrW-1:0] clear_addr = '0;
   logic              ready;
+  logic              any;
 
   always #5 clk = ~clk;
 
@@ -42,7 +43,8 @@ module vec_busy_bits_tb ();
       .masked(masked),
       .clear(clear),
       .clear_addr(clear_addr),
-      .ready(ready)
+      .ready(ready),
+      .any(any)
   );
 
   // Reference model
@@ -78,6 +80,15 @@ module vec_busy_bits_tb ();
              group_busy(int'(vs2), int'(vs2_regs)) || (masked && model[0]));
   endfunction
 
+  function automatic logic exp_any();
+    logic hit;
+    hit = 1'b0;
+    for (int i = 0; i < NREGS; i++) begin
+      if (model[i]) hit = 1'b1;
+    end
+    return hit;
+  endfunction
+
   task automatic operands(input int d, input int dn, input int a, input int an, input int b,
                           input int bn, input logic m);
     vd = AddrW'(d);
@@ -95,6 +106,7 @@ module vec_busy_bits_tb ();
     clear_addr = AddrW'(addr);
     #1;
     check("Ready", ready, exp_ready());
+    check("Any", any, exp_any());
     started = want_start && ready;
     start   = started;
     do @(posedge clk); while (!core_en);
