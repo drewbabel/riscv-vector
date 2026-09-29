@@ -2,37 +2,37 @@
 
 module dmem_arb_formal ();
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int LatMax = 4;
   localparam int WaitMax = 2 * LatMax + 1;
   localparam int CtrW = 5;
 
-  logic clk;
+  logic              clk;
 
   // Free requester stimulus
-  (* anyseq *)logic            core_en;
-  (* anyseq *)logic            s_req;
-  (* anyseq *)logic [Xlen-1:0] s_addr;
-  (* anyseq *)logic [Xlen-1:0] s_wdata;
-  (* anyseq *)logic [     3:0] s_wstrb;
-  (* anyseq *)logic            v_req;
-  (* anyseq *)logic [Xlen-1:0] v_addr;
-  (* anyseq *)logic [Xlen-1:0] v_wdata;
-  (* anyseq *)logic [     3:0] v_wstrb;
+  (* anyseq *)logic              core_en;
+  (* anyseq *)logic              s_req;
+  (* anyseq *)logic [  Xlen-1:0] s_addr;
+  (* anyseq *)logic [  Xlen-1:0] s_wdata;
+  (* anyseq *)logic [Xlen/8-1:0] s_wstrb;
+  (* anyseq *)logic              v_req;
+  (* anyseq *)logic [  Xlen-1:0] v_addr;
+  (* anyseq *)logic [  Xlen-1:0] v_wdata;
+  (* anyseq *)logic [Xlen/8-1:0] v_wstrb;
 
   // Free memory stimulus
-  (* anyseq *)logic            ready;
+  (* anyseq *)logic              ready;
 
-  logic            s_ready;
-  logic            v_ready;
-  logic            req;
-  logic [Xlen-1:0] addr;
-  logic [Xlen-1:0] wdata;
-  logic [     3:0] wstrb;
+  logic              s_ready;
+  logic              v_ready;
+  logic              req;
+  logic [  Xlen-1:0] addr;
+  logic [  Xlen-1:0] wdata;
+  logic [Xlen/8-1:0] wstrb;
 
-  logic            rst_n;
-  logic [     1:0] t = 2'd0;
-  logic            f_past_valid = 1'b0;
+  logic              rst_n;
+  logic [       1:0] t = 2'd0;
+  logic              f_past_valid = 1'b0;
 
   initial assume (t == 2'd0);
   always @(posedge clk) begin
@@ -65,11 +65,11 @@ module dmem_arb_formal ();
   );
 
   // Memory latch model
-  logic            m_busy;
-  logic [Xlen-1:0] m_addr;
-  logic [Xlen-1:0] m_wdata;
-  logic [     3:0] m_wstrb;
-  logic [CtrW-1:0] m_age;
+  logic              m_busy;
+  logic [  Xlen-1:0] m_addr;
+  logic [  Xlen-1:0] m_wdata;
+  logic [Xlen/8-1:0] m_wstrb;
+  logic [  CtrW-1:0] m_age;
 
   always @(posedge clk) begin
     if (!rst_n) begin
