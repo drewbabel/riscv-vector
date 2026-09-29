@@ -4,6 +4,7 @@ module vec_write_slots_tb ();
 
   localparam int DEPTH  = 4;
   localparam int DepthW = $clog2(DEPTH + 1);
+  localparam int Slots  = 1 << DepthW;
 
   int                checks = 0;
   int                errors = 0;
@@ -28,8 +29,9 @@ module vec_write_slots_tb ();
       .free(free)
   );
 
-  logic [$bits(depth)-1:0] timer[DEPTH];
-  logic writing[DEPTH];
+  logic [$bits(depth)-1:0] timer[Slots];
+  logic writing[Slots];
+  logic books[Slots];  // Depth above one
   int count;
 
   task automatic do_reset();
@@ -58,7 +60,10 @@ module vec_write_slots_tb ();
     if (start) begin
       i = add_timer();
       check("Max timers", i >= 0, 1'b1);
-      if (i >= 0) timer[i] = time_amount;
+      if (i >= 0) begin
+        timer[i] = time_amount;
+        books[i] = time_amount > 1;
+      end
     end
     start = 1'b0;
   endtask  // Automatic
@@ -69,7 +74,7 @@ module vec_write_slots_tb ();
     #1;
     exp_free = 1'b1;
     for (int i = 0; i < $size(timer); i++) begin
-      if (timer[i] == time_amount + 1) exp_free = 1'b0;
+      if (books[i] && timer[i] == time_amount + 1) exp_free = 1'b0;
     end
     check("Load free", free, exp_free);
   endtask  // Automatic
@@ -155,6 +160,26 @@ module vec_write_slots_tb ();
     idle(DEPTH);
   endtask  // Automatic
 
+  task automatic test_every_depth();
+    for (int d = 0; d < Slots; d++) begin
+      expect_free(DepthW'(d), 1'b1);
+      load(DepthW'(d));
+      repeat (Slots) begin
+        for (int p = 0; p < Slots; p++) load_free(DepthW'(p));
+        idle(1);
+      end
+    end
+
+    // Every depth pair
+    for (int a = 0; a < Slots; a++) begin
+      for (int b = 0; b < Slots; b++) begin
+        load(DepthW'(a));
+        load(DepthW'(b));
+        idle(Slots);
+      end
+    end
+  endtask  // Automatic
+
   task automatic test_random();
     repeat (2000) begin
       case ($urandom_range(
@@ -162,7 +187,7 @@ module vec_write_slots_tb ();
       ))
         0: idle(1);
         1: pause(1);
-        default: load(DepthW'($urandom_range(1, DEPTH)));
+        default: load(DepthW'($urandom_range(0, Slots - 1)));
       endcase
     end
     idle(DEPTH);
@@ -185,6 +210,7 @@ module vec_write_slots_tb ();
     test_depth_one();
     test_reset_mid();
     test_core_paused();
+    test_every_depth();
     test_random();
 
     verdict();
