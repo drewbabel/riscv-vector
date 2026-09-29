@@ -79,6 +79,11 @@ module datapath
     output logic [LineBytes-1:0] vmem_wstrb
 );
 
+  // Vector port is line
+  if (VLEN != LineBits) begin : g_vlen_line
+    $error("VLEN must equal LineBits");
+  end
+
   logic                   [    XLEN-1:0] pc_next;
   logic                   [    XLEN-1:0] pc_plus4;
   logic                   [    XLEN-1:0] rs1_data;
