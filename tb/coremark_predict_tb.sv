@@ -5,6 +5,7 @@ module coremark_predict_tb ();
   import cache_pkg::*;
   localparam int XLEN = arch_pkg::XLEN;
   localparam int DEPTH = 16384;
+  localparam int IdxW = $clog2(DEPTH / LineWords);
   localparam int ClkDiv = arch_pkg::ClkDiv;
   localparam int FastClkHz = arch_pkg::BoardClkHz;
   localparam int BaudRate = arch_pkg::BaudRate;
@@ -66,10 +67,10 @@ module coremark_predict_tb ();
     for (int l = 0; l < DEPTH / LineWords; l++) begin
       for (int w = 0; w < LineWords; w++) pline[XLEN*w+:XLEN] = img[l*LineWords+w];
       @(negedge clk);
-      dut.imem_inst.u_line.bd_idx  = l;
+      dut.imem_inst.u_line.bd_idx  = IdxW'(l);
       dut.imem_inst.u_line.bd_data = pline;
       dut.imem_inst.u_line.bd_we   = 1'b1;
-      dut.dmem_inst.u_line.bd_idx  = l;
+      dut.dmem_inst.u_line.bd_idx  = IdxW'(l);
       dut.dmem_inst.u_line.bd_data = pline;
       dut.dmem_inst.u_line.bd_we   = 1'b1;
     end
