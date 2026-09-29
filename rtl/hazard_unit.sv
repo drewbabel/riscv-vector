@@ -1,7 +1,7 @@
 `default_nettype none
 
 module hazard_unit #(
-    parameter int XLEN = 32
+    parameter int XLEN = arch_pkg::XLEN
 ) (
     input wire clk,
     input wire core_en,

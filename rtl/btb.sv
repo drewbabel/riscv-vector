@@ -3,7 +3,7 @@
 module btb
   import bp_pkg::*;
 #(
-    parameter  int XLEN   = 32,
+    parameter  int XLEN   = arch_pkg::XLEN,
     localparam int TagLen = XLEN - 2 - BtbIdxLen
 ) (
     input wire clk,

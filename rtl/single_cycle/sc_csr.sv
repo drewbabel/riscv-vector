@@ -3,7 +3,7 @@
 module sc_csr
   import csr_pkg::*;
 #(
-    parameter int XLEN = 32
+    parameter int XLEN = arch_pkg::XLEN
 ) (
     input wire clk,
     input wire core_en,
@@ -69,13 +69,12 @@ module sc_csr
       default:                   csr_wdata = csr_rdata;
     endcase
   end
-  assign trap_taken  = exc_illegal | exc_ecall | exc_ebreak | exc_instr_misaligned
-                        | exc_load_misaligned | exc_store_misaligned
-                        | (timer_irq & mstatus[MstatusMie] & mie[Mtie]);
+  assign trap_taken = exc_illegal | exc_ecall | exc_ebreak | exc_instr_misaligned |
+      exc_load_misaligned | exc_store_misaligned | (timer_irq & mstatus[MstatusMie] & mie[Mtie]);
   // Reject zero-source clears
   assign csr_write_en = csr_access && !trap_taken &&
-                        !((funct3[1:0] == 2'b10 || funct3[1:0] == 2'b11) && (csr_wsrc == '0));
-  assign trap_vector = {mtvec[31:2], 2'b00};  // Clear low bits
+      !((funct3[1:0] == 2'b10 || funct3[1:0] == 2'b11) && (csr_wsrc == '0));
+  assign trap_vector = {mtvec[XLEN-1:2], 2'b00};  // Clear low bits
   assign mret_taken = is_mret;
   assign mepc_out = mepc;
 
@@ -89,19 +88,19 @@ module sc_csr
   // Read mux
   always_comb begin
     case (csr_addr)
-      MstatusAddr:  csr_rdata = mstatus;
-      MieAddr:      csr_rdata = mie;
-      MtvecAddr:    csr_rdata = mtvec;
-      MscratchAddr: csr_rdata = mscratch;
-      MepcAddr:     csr_rdata = mepc;
-      McauseAddr:   csr_rdata = mcause;
-      MtvalAddr:    csr_rdata = mtval;
-      MipAddr:      csr_rdata = mip_read;
-      McycleAddr:   csr_rdata = mcycle;
-      MinstretAddr: csr_rdata = minstret;
+      MstatusAddr:   csr_rdata = mstatus;
+      MieAddr:       csr_rdata = mie;
+      MtvecAddr:     csr_rdata = mtvec;
+      MscratchAddr:  csr_rdata = mscratch;
+      MepcAddr:      csr_rdata = mepc;
+      McauseAddr:    csr_rdata = mcause;
+      MtvalAddr:     csr_rdata = mtval;
+      MipAddr:       csr_rdata = mip_read;
+      McycleAddr:    csr_rdata = mcycle;
+      MinstretAddr:  csr_rdata = minstret;
       McyclehAddr:   csr_rdata = mcycleh;
       MinstrethAddr: csr_rdata = minstreth;
-      default:      csr_rdata = '0;
+      default:       csr_rdata = '0;
     endcase
   end
 
@@ -124,15 +123,15 @@ module sc_csr
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      mstatus  <= '0;
-      mtvec    <= '0;
-      mepc     <= '0;
-      mcause   <= '0;
-      mtval    <= '0;
-      mie      <= '0;
-      mip      <= '0;
-      mscratch <= '0;
-      minstret <= '0;
+      mstatus   <= '0;
+      mtvec     <= '0;
+      mepc      <= '0;
+      mcause    <= '0;
+      mtval     <= '0;
+      mie       <= '0;
+      mip       <= '0;
+      mscratch  <= '0;
+      minstret  <= '0;
       minstreth <= '0;
     end else if (core_en) begin
       if (!trap_taken) begin  // Retired only
@@ -142,28 +141,28 @@ module sc_csr
 
       if (trap_taken) begin
         mstatus[MstatusMpie] <= mstatus[MstatusMie];
-        mstatus[MstatusMie]  <= 1'b0;
+        mstatus[MstatusMie] <= 1'b0;
         mepc <= pc;
         if (exc_instr_misaligned) begin
-          mcause <= {1'b0, 31'(CauseInstrMisaligned)};
+          mcause <= {1'b0, (XLEN - 1)'(CauseInstrMisaligned)};
           mtval  <= bad_addr;
         end else if (exc_illegal) begin
-          mcause <= {1'b0, 31'(CauseIllegalInstr)};
+          mcause <= {1'b0, (XLEN - 1)'(CauseIllegalInstr)};
           mtval  <= '0;
         end else if (exc_ecall) begin
-          mcause <= {1'b0, 31'(CauseEcallM)};
+          mcause <= {1'b0, (XLEN - 1)'(CauseEcallM)};
           mtval  <= '0;
         end else if (exc_ebreak) begin
-          mcause <= {1'b0, 31'(CauseBreakpoint)};
+          mcause <= {1'b0, (XLEN - 1)'(CauseBreakpoint)};
           mtval  <= '0;
         end else if (exc_load_misaligned) begin
-          mcause <= {1'b0, 31'(CauseLoadMisaligned)};
+          mcause <= {1'b0, (XLEN - 1)'(CauseLoadMisaligned)};
           mtval  <= bad_addr;
         end else if (exc_store_misaligned) begin
-          mcause <= {1'b0, 31'(CauseStoreMisaligned)};
+          mcause <= {1'b0, (XLEN - 1)'(CauseStoreMisaligned)};
           mtval  <= bad_addr;
         end else begin
-          mcause <= {1'b1, 31'(CauseMachineTimerIrq)};
+          mcause <= {1'b1, (XLEN - 1)'(CauseMachineTimerIrq)};
           mtval  <= '0;
         end
       end else if (is_mret) begin
@@ -173,17 +172,17 @@ module sc_csr
 
       if (csr_write_en) begin
         case (csr_addr)
-          MstatusAddr:  mstatus <= csr_wdata;
-          MieAddr:      mie <= csr_wdata;
-          MtvecAddr:    mtvec <= csr_wdata;
-          MscratchAddr: mscratch <= csr_wdata;
-          MepcAddr:     mepc <= csr_wdata;
-          McauseAddr:   mcause <= csr_wdata;
-          MtvalAddr:    mtval <= csr_wdata;
-          MipAddr:      mip <= csr_wdata & ~(XLEN'(1) << Mtip);  // Mtip read-only
-          MinstretAddr: minstret <= csr_wdata;
+          MstatusAddr:   mstatus <= csr_wdata;
+          MieAddr:       mie <= csr_wdata;
+          MtvecAddr:     mtvec <= csr_wdata;
+          MscratchAddr:  mscratch <= csr_wdata;
+          MepcAddr:      mepc <= csr_wdata;
+          McauseAddr:    mcause <= csr_wdata;
+          MtvalAddr:     mtval <= csr_wdata;
+          MipAddr:       mip <= csr_wdata & ~(XLEN'(1) << Mtip);  // Mtip read-only
+          MinstretAddr:  minstret <= csr_wdata;
           MinstrethAddr: minstreth <= csr_wdata;
-          default:      ;
+          default:       ;
         endcase
       end
     end

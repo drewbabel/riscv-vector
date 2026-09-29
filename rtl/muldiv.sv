@@ -3,7 +3,7 @@
 module muldiv
   import muldiv_pkg::*;
 #(
-    parameter int XLEN = 32
+    parameter int XLEN = arch_pkg::XLEN
 ) (
     input  wire                                    clk,
     input  wire                                    core_en,
@@ -52,7 +52,7 @@ module muldiv
 
   logic overflow;
   assign overflow = ((stored_op == MD_DIV) || (stored_op == MD_REM)) &&
-                    (stored_a == {1'b1, {(XLEN - 1) {1'b0}}}) && (&stored_b);
+      (stored_a == {1'b1, {(XLEN - 1) {1'b0}}}) && (&stored_b);
 
   logic op_complete;
   always_comb begin

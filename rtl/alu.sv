@@ -3,7 +3,7 @@
 module alu
   import alu_pkg::*;
 #(
-    parameter int XLEN = 32
+    parameter int XLEN = arch_pkg::XLEN
 ) (
     input wire [XLEN-1:0] a,
     input wire [XLEN-1:0] b,

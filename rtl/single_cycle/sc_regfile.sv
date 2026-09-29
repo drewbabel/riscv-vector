@@ -1,8 +1,8 @@
 `default_nettype none
 
 module sc_regfile #(
-    parameter int AWIDTH = 5,
-    parameter int XLEN   = 32
+    parameter int AWIDTH = arch_pkg::RegAddrW,
+    parameter int XLEN   = arch_pkg::XLEN
 ) (
     input wire clk,
     input wire core_en,
