@@ -2,7 +2,7 @@
 
 module mem_order_formal ();
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
 
   logic                            clk;
 
