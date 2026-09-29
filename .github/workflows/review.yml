@@ -58,8 +58,8 @@ jobs:
             top=$(basename "$f" | sed 's/\.s\?v$//')
             pkgs=$(echo $PKGS | tr ' ' '\n' | grep -vx "$f" | tr '\n' ' ')
             opts="--top-module $top"
-            case "$f" in tb/cosim.sv) opts="$opts --timing -DRISCV_FORMAL" ;; tb/*) opts="$opts --timing" ;; formal/*) opts="$opts -DRISCV_FORMAL" ;; *_pkg.sv) opts="" ;; esac
-            verilator --lint-only -Wno-TIMESCALEMOD $opts -y rtl +libext+.v+.sv \
+            case "$f" in tb/cosim.sv) opts="$opts --timing -DRISCV_FORMAL" ;; tb/*) opts="$opts --timing -DSIM_BACKDOOR" ;; formal/*) opts="$opts -DRISCV_FORMAL" ;; *_pkg.sv) opts="" ;; esac
+            verilator --lint-only -Wno-TIMESCALEMOD $opts -y rtl -y rtl/boards/bram +libext+.v+.sv \
               $pkgs "$f" 2>&1 || true
           done < "$RUNNER_TEMP/sv" \
             | reviewdog -efm='%%%tarning-%*[A-Z0-9_]: %f:%l:%c: %m' -efm='%%%trror-%*[A-Z0-9_]: %f:%l:%c: %m' \
@@ -74,7 +74,7 @@ jobs:
             others=$(echo "$rtl" | grep -vx "$f" | tr '\n' ' ')
             case "$f" in *_pkg.sv) others="" ;; esac
             defs=""
-            case "$f" in formal/*|tb/cosim.sv) defs="-DRISCV_FORMAL" ;; esac
+            case "$f" in formal/*|tb/cosim.sv) defs="-DRISCV_FORMAL" ;; tb/*) defs="-DSIM_BACKDOOR" ;; esac
             iverilog -g2012 $defs -o /dev/null $pkgs $others "$f" 2>&1 || true
           done < "$RUNNER_TEMP/sv" \
             | { grep -vE '^formal/[^:]+:[0-9]+: warning: (System task \(\$[a-z]+\) cannot be synthesized in an always_(comb|ff)|always_comb process has no sensitivities)' || true; } \
