@@ -59,9 +59,12 @@ foreach c $seq { if {[lsearch -exact $free $c] < 0} { lappend gated $c } }
 set_multicycle_path $clkdiv            -setup -from $gated -to $gated
 set_multicycle_path [expr {$clkdiv-1}] -hold  -from $gated -to $gated
 
-place_design
-phys_opt_design
-route_design
+place_design -directive ExtraTimingOpt
+phys_opt_design -directive AggressiveExplore
+route_design -directive AggressiveExplore
+if {[get_property SLACK [get_timing_paths -delay_type max -max_paths 1]] < 0} {
+  phys_opt_design -directive AggressiveExplore
+}
 
 write_checkpoint -force  [file join $outdir board_top_routed.dcp]
 report_utilization -file [file join $outdir utilization.rpt]
