@@ -3,22 +3,26 @@
 module vec_sequencer
   import vec_pkg::*;
 #(
-    parameter int AWIDTH = 5,
-    parameter int VLEN = 128,
-    parameter int ELEN = 32,
+    parameter int AWIDTH = arch_pkg::RegAddrW,
+    parameter int VLEN = arch_pkg::VLEN,
+    parameter int ELEN = arch_pkg::ELEN,
+    parameter int MUL_LANES = arch_pkg::MulLanes,
     localparam int MaxElems = VLEN / 8,
     localparam int Widths = $clog2(ELEN / 8) + 1,
-    localparam int SelW = $clog2(Widths)
+    localparam int SelW = $clog2(Widths),
+    localparam int VlW = $clog2(VLEN + 1),
+    localparam int OffW = $clog2(VLEN),
+    localparam int CntW = $clog2(MaxElems + 1)
 ) (
     input wire                clk,
     input wire                rst_n,
     input wire                core_en,
     input wire                start,
-    input wire [         4:0] vs1,
-    input wire [         4:0] vs2,
-    input wire [         4:0] vd,
+    input wire [  AWIDTH-1:0] vs1,
+    input wire [  AWIDTH-1:0] vs2,
+    input wire [  AWIDTH-1:0] vd,
     input wire                reads_vd,
-    input wire [         7:0] vl,
+    input wire [     VlW-1:0] vl,
     input wire [         2:0] vsew,
     input wire [         2:0] vlmul,
     input wire                vm,
@@ -44,11 +48,11 @@ module vec_sequencer
     output logic              wen,
 
     // Element slices
-    output logic [         6:0] s1_off,
-    output logic [         6:0] s2_off,
-    output logic [         6:0] d_off,
-    output logic [         7:0] elem_base,
-    output logic [         4:0] elem_count,
+    output logic [    OffW-1:0] s1_off,
+    output logic [    OffW-1:0] s2_off,
+    output logic [    OffW-1:0] d_off,
+    output logic [     VlW-1:0] elem_base,
+    output logic [    CntW-1:0] elem_count,
     output logic [MaxElems-1:0] elem_active,
 
     output logic last,
@@ -57,19 +61,25 @@ module vec_sequencer
     output logic done
 );
 
+  localparam int LnW   = $clog2(OffW + 1);
+  localparam int MulLn = $clog2(MUL_LANES);
+  localparam int ProdW = VlW + $clog2(ELEN);
+  localparam int DbW   = $clog2(ELEN + 1);
+  localparam int DiffW = VlW + 1;
+
   // Element widths
-  logic [2:0] lsew;
-  logic [2:0] ld;
-  logic [2:0] ls1;
-  logic [2:0] ls2;
-  logic [2:0] lmax;
-  logic [2:0] ln;
+  logic [    2:0] lsew;
+  logic [    2:0] ld;
+  logic [    2:0] ls1;
+  logic [    2:0] ls2;
+  logic [    2:0] lmax;
+  logic [LnW-1:0] ln;
 
   assign lsew = vsew + 3'd3;
 
-  assign ld  = vec_rel_log2(d_rel, lsew);
-  assign ls1 = vec_rel_log2(s1_rel, lsew);
-  assign ls2 = vec_rel_log2(s2_rel, lsew);
+  assign ld   = vec_rel_log2(d_rel, lsew);
+  assign ls1  = vec_rel_log2(s1_rel, lsew);
+  assign ls2  = vec_rel_log2(s2_rel, lsew);
 
   // Widest port
   always_comb begin
@@ -91,70 +101,71 @@ module vec_sequencer
 
   // Elements per phase
   always_comb begin
-    ln = 3'd7 - lmax;
-    if (mul_rate && (ln > 3'd2)) ln = 3'd2;
+    ln = LnW'(OffW) - LnW'(lmax);
+    if (mul_rate && (ln > LnW'(MulLn))) ln = LnW'(MulLn);
   end
 
-  assign elem_count = mask_whole ? 5'd1 : 5'(5'd1 << ln);
+  assign elem_count = mask_whole ? CntW'(1) : CntW'(CntW'(1) << ln);
 
   // Group geometry
-  logic [4:0] regs_per_group;
-  logic [7:0] total_elems;
+  logic [    4:0] regs_per_group;
+  logic [VlW-1:0] total_elems;
 
   assign regs_per_group = vlmul[2] ? 5'd1 : 5'(5'd1 << vlmul[1:0]);
-  assign total_elems = mask_whole ? 8'd1 : (8'(regs_per_group) << (3'd7 - lsew));
+  assign total_elems = mask_whole ? VlW'(1) : (VlW'(regs_per_group) << (LnW'(OffW) - LnW'(lsew)));
 
   // Element counter
-  logic [7:0] elem_q;
-  logic [7:0] elem_next;
+  logic [VlW-1:0] elem_q;
+  logic [VlW-1:0] elem_next;
 
   assign elem_base = elem_q;
-  assign elem_next = elem_q + 8'(elem_count);
+  assign elem_next = elem_q + VlW'(elem_count);
   assign last = (elem_next >= total_elems);
 
   // Port offsets
-  logic [12:0] prod1;
-  logic [12:0] prod2;
-  logic [12:0] prodd;
+  logic [ProdW-1:0] prod1;
+  logic [ProdW-1:0] prod2;
+  logic [ProdW-1:0] prodd;
 
-  assign prod1 = (single_write || mask_src) ? 13'd0 : (13'(elem_base) << ls1);
-  assign prod2 = mask_src ? 13'd0 : (13'(elem_base) << ls2);
-  assign prodd = single_write ? 13'd0
-      : (mask_dest ? 13'(elem_base) : (13'(elem_base) << ld));
+  assign prod1  = (single_write || mask_src) ? '0 : (ProdW'(elem_base) << ls1);
+  assign prod2  = mask_src ? '0 : (ProdW'(elem_base) << ls2);
+  assign prodd  = single_write ? '0 : (mask_dest ? ProdW'(elem_base) : (ProdW'(elem_base) << ld));
 
-  assign s1_off = prod1[6:0];
-  assign s2_off = prod2[6:0];
-  assign d_off  = prodd[6:0];
+  assign s1_off = prod1[OffW-1:0];
+  assign s2_off = prod2[OffW-1:0];
+  assign d_off  = prodd[OffW-1:0];
 
-  assign raddr1 = vs1 + AWIDTH'(prod1[12:7]);
-  assign raddr2 = vs2 + AWIDTH'(prod2[12:7]);
-  assign raddr3 = reads_vd ? (vd + AWIDTH'(prodd[12:7])) : '0;
-  assign waddr = vd + AWIDTH'(prodd[12:7]);
+  assign raddr1 = vs1 + AWIDTH'(prod1[ProdW-1:OffW]);
+  assign raddr2 = vs2 + AWIDTH'(prod2[ProdW-1:OffW]);
+  assign raddr3 = reads_vd ? (vd + AWIDTH'(prodd[ProdW-1:OffW])) : '0;
+  assign waddr  = vd + AWIDTH'(prodd[ProdW-1:OffW]);
 
   // Register finished
-  logic [12:0] prodd_next;
-  assign prodd_next = single_write ? 13'd0 : (mask_dest ? 13'(elem_next) : (13'(elem_next) << ld));
-  assign reg_done = busy && (last || (prodd_next[12:7] != prodd[12:7]));
+  logic [ProdW-1:0] prodd_next;
+  assign
+      prodd_next = single_write ? '0 : (mask_dest ? ProdW'(elem_next) : (ProdW'(elem_next) << ld));
+  assign reg_done = busy && (last || (prodd_next[ProdW-1:OffW] != prodd[ProdW-1:OffW]));
   assign wen = busy && (wstrb != '0);
 
   // Destination bits
-  logic [5:0] dbits;
-  assign dbits = mask_dest ? 6'd1 : 6'(6'd1 << ld);
+  logic [DbW-1:0] dbits;
+  assign dbits = mask_dest ? DbW'(1) : DbW'(DbW'(1) << ld);
 
   // The live prefix
   logic [VLEN-1:0] vl_mask;
-  assign vl_mask = VLEN'({VLEN{1'b1}} >> (9'(VLEN) - 9'(vl)));
+  assign vl_mask = VLEN'({VLEN{1'b1}} >> (DiffW'(VLEN) - DiffW'(vl)));
 
   // Live elements
   always_comb begin
     for (int e = 0; e < MaxElems; e++) begin
-      elem_active[e] = (5'(e) < elem_count) && ((elem_base + 8'(e)) < vl) && (vm || mask_bits[e]);
+      elem_active[e] = (CntW'(e) < elem_count) && ((elem_base + VlW'(e)) < vl) &&
+          (vm || mask_bits[e]);
     end
   end
 
   // One element wide
   logic [VLEN-1:0] unit_mask;
-  assign unit_mask = VLEN'({32{1'b1}} >> (6'd32 - dbits));
+  assign unit_mask = VLEN'({ELEN{1'b1}} >> (DbW'(ELEN) - dbits));
 
   // Active elements spread
   logic [VLEN-1:0] spread_w[Widths];
@@ -168,7 +179,7 @@ module vec_sequencer
     end
   end
 
-  assign dsel   = (ld >= 3'd3 && 32'(ld - 3'd3) < Widths) ? SelW'(ld - 3'd3) : SelW'(Widths - 1);
+  assign dsel = (ld >= 3'd3 && 32'(ld - 3'd3) < Widths) ? SelW'(ld - 3'd3) : SelW'(Widths - 1);
   always_comb begin
     spread = mask_dest ? VLEN'(elem_active) : '0;
     for (int g = 0; g < Widths; g++) begin
@@ -191,15 +202,15 @@ module vec_sequencer
   // Walk the group
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      elem_q <= 8'd0;
+      elem_q <= '0;
       busy   <= 1'b0;
       done   <= 1'b0;
     end else if (core_en) begin
       done <= 1'b0;
       if (!busy) begin
         if (start) begin
-          elem_q <= 8'd0;
-          if (vl == 8'd0) done <= 1'b1;
+          elem_q <= '0;
+          if (vl == '0) done <= 1'b1;
           else busy <= 1'b1;
         end
       end else begin

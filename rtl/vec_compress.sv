@@ -1,8 +1,9 @@
 `default_nettype none
 
 module vec_compress #(
-    parameter int AWIDTH = 5,
-    parameter int VLEN   = 128
+    parameter  int AWIDTH = arch_pkg::RegAddrW,
+    parameter  int VLEN   = arch_pkg::VLEN,
+    localparam int VlW    = $clog2(VLEN + 1)
 ) (
     input wire clk,
     input wire rst_n,
@@ -13,7 +14,7 @@ module vec_compress #(
     input wire [AWIDTH-1:0] vs1,
     input wire [AWIDTH-1:0] vs2,
     input wire [AWIDTH-1:0] vd,
-    input wire [       7:0] vl,
+    input wire [   VlW-1:0] vl,
     input wire [       2:0] vsew,
 
     // Register file
