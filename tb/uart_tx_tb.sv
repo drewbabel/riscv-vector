@@ -2,8 +2,8 @@
 
 module uart_tx_tb ();
 
-  int   checks = 0;
-  int   errors = 0;
+  int checks = 0;
+  int errors = 0;
 
   logic clk = 1'b0;
   logic core_en;
@@ -13,17 +13,17 @@ module uart_tx_tb ();
   logic tx_ready;
   logic tx_serial;
 
-  localparam int ClkFreqHz = 3_125_000;
-  localparam int BaudRate = 28_800;
   localparam int ClkDiv = 32;
+  localparam int ClkFreqHz = arch_pkg::BoardClkHz / ClkDiv;
+  localparam int BaudRate = arch_pkg::BaudRate;
   localparam int BitFast = ((ClkFreqHz + BaudRate / 2) / BaudRate) * ClkDiv;
 
   always #5 clk = ~clk;
 
   // Core enable pulse
-  logic [4:0] div = '0;
+  logic [$clog2(ClkDiv)-1:0] div = '0;
   always_ff @(posedge clk) div <= div + 1'b1;
-  assign core_en = (div == 5'd0);
+  assign core_en = (div == '0);
 
   uart_tx #(
       .CLK_FREQ_HZ(ClkFreqHz),
@@ -82,7 +82,7 @@ module uart_tx_tb ();
     $finish;
   endtask  // Automatic
 
-  logic [7:0] pat[4];
+  logic [7:0] pat [4];
   logic [7:0] got;
 
   initial begin
@@ -94,7 +94,7 @@ module uart_tx_tb ();
     pat[3] = 8'hFF;
     do_reset();
 
-    check("idle_high", tx_serial, 1'b1);
+    check("idle_high", 8'(tx_serial), 8'h01);
     check("ready_after_reset", {7'b0, tx_ready}, 8'h01);
 
     fork
