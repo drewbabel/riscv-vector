@@ -77,6 +77,7 @@ jobs:
             case "$f" in formal/*|tb/cosim.sv) defs="-DRISCV_FORMAL" ;; esac
             iverilog -g2012 $defs -o /dev/null $pkgs $others "$f" 2>&1 || true
           done < "$RUNNER_TEMP/sv" \
+            | { grep -vE '^formal/[^:]+:[0-9]+: warning: (System task \(\$[a-z]+\) cannot be synthesized in an always_(comb|ff)|always_comb process has no sensitivities)' || true; } \
             | reviewdog -efm='%f:%l: %trror: %m' -efm='%f:%l: %tarning: %m' -efm='%-G%.%#' \
                 -name=iverilog -reporter=github-pr-review -filter-mode=added -fail-level=none
       - name: Ruff lint
