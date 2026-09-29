@@ -3,7 +3,10 @@
 module vec_issue
   import vec_pkg::*;
 #(
-    parameter int AWIDTH = 5
+    parameter  int XLEN   = arch_pkg::XLEN,
+    parameter  int AWIDTH = arch_pkg::RegAddrW,
+    parameter  int VLEN   = arch_pkg::VLEN,
+    localparam int VlW    = $clog2(VLEN + 1)
 ) (
     input wire clk,
     input wire rst_n,
@@ -22,8 +25,8 @@ module vec_issue
     input wire                        vm,
     input wire                        reads_vd,
     input wire           [       4:0] simm,
-    input wire           [      31:0] xdata,
-    input wire           [      31:0] xstride,
+    input wire           [  XLEN-1:0] xdata,
+    input wire           [  XLEN-1:0] xstride,
 
     // Register groups
     input wire [  AWIDTH:0] wr_regs,
@@ -36,7 +39,7 @@ module vec_issue
     input wire [AWIDTH-1:0] clear_addr,
 
     // Live configuration
-    input wire [7:0] vl,
+    input wire [VlW-1:0] vl,
     input wire [2:0] vsew,
     input wire [2:0] vlmul,
     input wire [1:0] vxrm,
@@ -58,9 +61,9 @@ module vec_issue
     output logic                  seq_vm,
     output logic                  seq_reads_vd,
     output logic     [       4:0] seq_simm,
-    output logic     [      31:0] seq_xdata,
-    output logic     [      31:0] seq_xstride,
-    output logic     [       7:0] seq_vl,
+    output logic     [  XLEN-1:0] seq_xdata,
+    output logic     [  XLEN-1:0] seq_xstride,
+    output logic     [   VlW-1:0] seq_vl,
     output logic     [       2:0] seq_vsew,
     output logic     [       2:0] seq_vlmul,
     output logic     [       1:0] seq_vxrm,
@@ -84,9 +87,9 @@ module vec_issue
   logic                  q_vm;
   logic                  q_reads_vd;
   logic     [       4:0] q_simm;
-  logic     [      31:0] q_xdata;
-  logic     [      31:0] q_xstride;
-  logic     [       7:0] q_vl;
+  logic     [  XLEN-1:0] q_xdata;
+  logic     [  XLEN-1:0] q_xstride;
+  logic     [   VlW-1:0] q_vl;
   logic     [       2:0] q_vsew;
   logic     [       2:0] q_vlmul;
   logic     [       1:0] q_vxrm;
