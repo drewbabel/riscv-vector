@@ -6,7 +6,7 @@ mkdir -p build
 CELLS=$(find "$(dirname "$(command -v yosys)")/.." -name cells_sim.v -path '*xilinx*' 2>/dev/null | head -1)
 PKGS="rtl/alu_pkg.sv rtl/csr_pkg.sv rtl/opcode_pkg.sv rtl/cache_pkg.sv"
 REST=$(ls rtl/*.sv | grep -vE 'alu_pkg|csr_pkg|opcode_pkg|cache_pkg')
-BOARD_TOP=rtl/boards/basys3/board_top.sv
+BOARD_TOP=rtl/boards/bram/board_top.sv
 
 riscv64-elf-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/coremark/link.ld \
   -o build/jalret.elf tests/jalret.s

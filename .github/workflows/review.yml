@@ -67,7 +67,7 @@ jobs:
                 -name=verilator -reporter=github-pr-review -filter-mode=added -fail-level=none
       - name: iverilog lint
         run: |
-          rtl=$(ls rtl/*.sv rtl/boards/basys3/*.sv rtl/single_cycle/*.sv | grep -v '_pkg\.sv$')
+          rtl=$(ls rtl/*.sv rtl/boards/bram/*.sv rtl/single_cycle/*.sv | grep -v '_pkg\.sv$')
           while read -r f; do
             case "$f" in formal/rvfi/*|rtl/boards/nexys_video/*) continue ;; esac
             pkgs=$(echo $PKGS | tr ' ' '\n' | grep -vx "$f" | tr '\n' ' ')
