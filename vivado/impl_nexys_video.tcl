@@ -52,7 +52,7 @@ opt_design
 # Gated cells only
 set seq   [get_cells -hier -quiet -filter {IS_SEQUENTIAL}]
 set free  [get_cells -hier -quiet -filter \
-             {NAME =~ *mig_inst* || NAME =~ *mem_arb_inst* || NAME =~ *core_en_inst*}]
+             {NAME =~ *mig_inst* || (NAME =~ mem_arb_inst/* && NAME !~ mem_arb_inst/req_* && NAME !~ mem_arb_inst/src_reg*) || NAME =~ *core_en_inst*}]
 set gated {}
 foreach c $seq { if {[lsearch -exact $free $c] < 0} { lappend gated $c } }
 
