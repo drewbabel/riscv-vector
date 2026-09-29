@@ -4,7 +4,7 @@ module muldiv_formal
   import muldiv_pkg::*;
 ();
 
-  localparam int XLEN = 32;
+  localparam int XLEN = arch_pkg::XLEN;
 
   logic                              clk;
   logic                              core_en;
@@ -59,9 +59,9 @@ module muldiv_formal
   logic        [2*XLEN-1:0] prod_uu;
   assign sa      = ref_a;
   assign sb      = ref_b;
-  assign prod_ss = $signed(64'(sa)) * $signed(64'(sb));
-  assign prod_su = $signed(64'(sa)) * $signed({32'b0, ref_b});
-  assign prod_uu = {32'b0, ref_a} * {32'b0, ref_b};
+  assign prod_ss = $signed((2 * XLEN)'(sa)) * $signed((2 * XLEN)'(sb));
+  assign prod_su = $signed((2 * XLEN)'(sa)) * $signed({{XLEN{1'b0}}, ref_b});
+  assign prod_uu = {{XLEN{1'b0}}, ref_a} * {{XLEN{1'b0}}, ref_b};
 
   logic [XLEN-1:0] mul_exp;
   always_comb begin

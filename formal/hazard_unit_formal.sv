@@ -2,7 +2,7 @@
 
 module hazard_unit_formal ();
 
-  localparam int XLEN = 32;
+  localparam int XLEN = arch_pkg::XLEN;
 
   localparam logic [1:0] FwdNone = 2'b00;
   localparam logic [1:0] FwdMem = 2'b01;
