@@ -1,19 +1,19 @@
 `default_nettype none
 
 module uart_ctrl #(
-    parameter int XLEN = 32
+    parameter int XLEN = arch_pkg::XLEN
 ) (
     input wire clk,
     input wire core_en,
     input wire rst_n,
 
     // Bus
-    input  wire             sel,
-    input  wire             req,
-    input  wire  [     3:0] wstrb,
-    input  wire  [XLEN-1:0] addr,
-    input  wire  [XLEN-1:0] wdata,
-    output logic [XLEN-1:0] rdata,
+    input  wire               sel,
+    input  wire               req,
+    input  wire  [XLEN/8-1:0] wstrb,
+    input  wire  [  XLEN-1:0] addr,
+    input  wire  [  XLEN-1:0] wdata,
+    output logic [  XLEN-1:0] rdata,
 
     // Receiver
     input wire       rx_valid,
@@ -31,7 +31,7 @@ module uart_ctrl #(
   localparam logic [1:0] TxDataOff = 2'd0;
   localparam logic [1:0] StatusOff = 2'd1;
   localparam logic [1:0] RxDataOff = 2'd2;
-  localparam logic [1:0] CtrlOff = 2'd3;
+  localparam logic [1:0] CtrlOff   = 2'd3;
 
   logic [1:0] off;
   logic       wr_stb;
@@ -52,10 +52,10 @@ module uart_ctrl #(
 
   always_comb begin
     case (off)
-      StatusOff: rdata = {29'b0, rx_overrun, rx_full, tx_ready};
-      RxDataOff: rdata = {24'b0, rx_byte};
-      CtrlOff:   rdata = {31'b0, rx_ie};
-      default:   rdata = {31'b0, tx_ready};
+      StatusOff: rdata = XLEN'({rx_overrun, rx_full, tx_ready});
+      RxDataOff: rdata = XLEN'(rx_byte);
+      CtrlOff:   rdata = XLEN'(rx_ie);
+      default:   rdata = XLEN'(tx_ready);
     endcase
   end
 

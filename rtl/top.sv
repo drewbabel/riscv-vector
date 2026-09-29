@@ -3,7 +3,7 @@
 module top
   import cache_pkg::*;
 #(
-    parameter int XLEN  = 32,
+    parameter int XLEN  = arch_pkg::XLEN,
     parameter int DEPTH = 64
 ) (
     input  wire             clk,

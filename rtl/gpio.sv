@@ -1,18 +1,18 @@
 `default_nettype none
 
 module gpio #(
-    parameter int XLEN  = 32,
+    parameter int XLEN  = arch_pkg::XLEN,
     parameter int WIDTH = 16
 ) (
     input wire clk,
     input wire core_en,
     input wire rst_n,
 
-    input  wire             sel,
-    input  wire  [     3:0] wstrb,
-    input  wire  [XLEN-1:0] addr,
-    input  wire  [XLEN-1:0] wdata,
-    output logic [XLEN-1:0] rdata,
+    input  wire               sel,
+    input  wire  [XLEN/8-1:0] wstrb,
+    input  wire  [  XLEN-1:0] addr,
+    input  wire  [  XLEN-1:0] wdata,
+    output logic [  XLEN-1:0] rdata,
 
     input  wire  [WIDTH-1:0] sw,
     output logic [WIDTH-1:0] led

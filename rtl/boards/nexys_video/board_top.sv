@@ -3,10 +3,10 @@
 module board_top
   import cache_pkg::*;
 #(
-    parameter int XLEN         = 32,
+    parameter int XLEN         = arch_pkg::XLEN,
     parameter int DEPTH        = 4194304,
-    parameter int ClkDiv       = 2,
-    parameter int BoardClkHz   = 100_000_000,
+    parameter int ClkDiv       = arch_pkg::ClkDiv,
+    parameter int BoardClkHz   = arch_pkg::BoardClkHz,
     parameter bit UNCACHED     = 1'b0,
     parameter bit GSHARE_EN    = 1'b1,
     parameter bit SINGLE_CYCLE = 1'b0
@@ -34,11 +34,6 @@ module board_top
     inout  wire  [ 1:0] ddr3_dqs_n
 );
 
-  localparam logic [7:0] ClintTag = 8'h02;
-  localparam logic [7:0] GpioTag = 8'h03;
-  localparam logic [7:0] UartTag = 8'h04;
-  localparam logic [7:0] PmuTag = 8'h05;
-
   localparam int AppAddrWidth = 29;
   localparam int MaskBits = LineBits / 8;
 
@@ -46,7 +41,7 @@ module board_top
   logic [        XLEN-1:0] instr;
   logic [        XLEN-1:0] pc;
   logic [        XLEN-1:0] mem_addr;
-  logic [             3:0] store_wstrb;
+  logic [      XLEN/8-1:0] store_wstrb;
   logic [        XLEN-1:0] store_data;
 
   logic [        XLEN-1:0] read_data;
@@ -230,10 +225,10 @@ module board_top
   assign core_rst_n = rst_n & ~loading;
 
   // Decode on mem_addr
-  assign clint_sel  = mem_addr[31:24] == ClintTag;
-  assign gpio_sel   = mem_addr[31:24] == GpioTag;
-  assign uart_sel   = mem_addr[31:24] == UartTag;
-  assign pmu_sel    = mem_addr[31:24] == PmuTag;
+  assign clint_sel  = mem_addr[XLEN-1:XLEN-8] == arch_pkg::ClintTag;
+  assign gpio_sel   = mem_addr[XLEN-1:XLEN-8] == arch_pkg::GpioTag;
+  assign uart_sel   = mem_addr[XLEN-1:XLEN-8] == arch_pkg::UartTag;
+  assign pmu_sel    = mem_addr[XLEN-1:XLEN-8] == arch_pkg::PmuTag;
   assign periph_sel = clint_sel || gpio_sel || uart_sel || pmu_sel;
 
   // Peripheral read mux
@@ -279,7 +274,7 @@ module board_top
 
   uart_rx #(
       .CLK_FREQ_HZ(CoreClkHz),
-      .BAUD_RATE  (28_800)
+      .BAUD_RATE  (arch_pkg::BaudRate)
   ) uart_rx_inst (
       .clk      (core_clk),
       .core_en  (core_en),
@@ -292,7 +287,7 @@ module board_top
 
   uart_tx #(
       .CLK_FREQ_HZ(CoreClkHz),
-      .BAUD_RATE  (28_800)
+      .BAUD_RATE  (arch_pkg::BaudRate)
   ) uart_tx_inst (
       .clk      (core_clk),
       .core_en  (core_en),
