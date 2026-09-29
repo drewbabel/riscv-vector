@@ -87,34 +87,67 @@ module vec_reduce
 
   // Fold tree
   localparam int Levels = $clog2(MaxElems);
-  logic [31:0] node[Levels+1][MaxElems];
-  logic [31:0] folded;
+  localparam int Cut = Levels / 2;
+  localparam int Half = MaxElems >> Cut;
+  logic [31:0] node[Cut+1][MaxElems];
 
   always_comb begin
     for (int e = 0; e < MaxElems; e++) node[0][e] = val[e];
-    for (int l = 1; l <= Levels; l++) begin
+    for (int l = 1; l <= Cut; l++) begin
       for (int e = 0; e < MaxElems; e++) begin
         node[l][e] = (e < (MaxElems >> l)) ? combine(op, node[l-1][2*e], node[l-1][2*e+1]) : 32'd0;
       end
     end
   end
 
-  assign folded = node[Levels][0];
+  // Mid tree cut
+  logic    [31:0] half_q     [Half];
+  logic    [31:0] seed_q;
+  vec_op_e        op_q;
+  logic    [ 5:0] acc_bits_q;
+  logic           first_q;
+  logic           step_q;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      step_q <= 1'b0;
+    end else if (core_en) begin
+      for (int e = 0; e < Half; e++) half_q[e] <= node[Cut][e];
+      seed_q     <= widen_val(sign_ext, vs1_data[31:0], acc_bits);
+      op_q       <= op;
+      acc_bits_q <= acc_bits;
+      first_q    <= first;
+      step_q     <= step;
+    end
+  end
+
+  // Rest of tree
+  logic [31:0] rest[Levels-Cut+1][Half];
+  logic [31:0] folded;
+
+  always_comb begin
+    for (int e = 0; e < Half; e++) rest[0][e] = half_q[e];
+    for (int l = 1; l <= Levels - Cut; l++) begin
+      for (int e = 0; e < Half; e++) begin
+        rest[l][e] = (e < (Half >> l)) ? combine(op_q, rest[l-1][2*e], rest[l-1][2*e+1]) : 32'd0;
+      end
+    end
+  end
+
+  assign folded = rest[Levels-Cut][0];
 
   // Carried accumulator
   logic [31:0] acc_q;
   logic [31:0] acc_next;
-  logic [31:0] seed;
 
-  assign seed = widen_val(sign_ext, vs1_data[31:0], acc_bits);
-  assign acc_next = first ? combine(op, seed, folded) : combine(op, acc_q, folded);
+  assign acc_next = first_q ? combine(op_q, seed_q, folded) : combine(op_q, acc_q, folded);
 
   always_ff @(posedge clk) begin
     if (!rst_n) acc_q <= 32'd0;
-    else if (core_en && step) acc_q <= acc_next;
+    else if (core_en && step_q) acc_q <= acc_next;
   end
 
-  assign result = DLEN'(32'(acc_next & (32'hFFFF_FFFF >> (6'd32 - acc_bits))));
+  assign result = DLEN'(32'(acc_next & (32'hFFFF_FFFF >> (6'd32 - acc_bits_q))));
 
 endmodule
 
