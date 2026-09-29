@@ -2,7 +2,7 @@
 
 module predict_tb ();
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 64;
   localparam int MaxCycles = 400;
 

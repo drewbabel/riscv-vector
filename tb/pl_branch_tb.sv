@@ -2,7 +2,7 @@
 
 module pl_branch_tb ();
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 64;
   localparam int MaxCycles = 50;
 
@@ -13,8 +13,8 @@ module pl_branch_tb ();
   logic [Xlen-1:0] write_data;
   logic            mem_write;
 
-  int checks = 0;
-  int errors = 0;
+  int              checks = 0;
+  int              errors = 0;
 
   always #5 clk = ~clk;
 
@@ -60,10 +60,14 @@ module pl_branch_tb ();
 
     check("x1", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[1], 32'd5);
     check("x2", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[2], 32'd5);
-    check("x5", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[5], 32'd42);   // taken landed
-    check("x10", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[10], 32'd0);  // poison flushed
-    check("x11", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[11], 32'd0);  // poison flushed
-    check("x12", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[12], 32'd7);  // not-taken fall-through
+    check("x5", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[5],
+          32'd42);  // taken landed
+    check("x10", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[10],
+          32'd0);  // poison flushed
+    check("x11", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[11],
+          32'd0);  // poison flushed
+    check("x12", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[12],
+          32'd7);  // not-taken fall-through
     check("x13", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[13], 32'd8);
 
     verdict();

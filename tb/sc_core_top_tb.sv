@@ -4,7 +4,7 @@ module sc_core_top_tb;
 
   import cache_pkg::*;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int MemLines = 256;
   localparam int ProgWords = 17;
   localparam int MaxTicks = 20000;
@@ -23,7 +23,7 @@ module sc_core_top_tb;
   logic [     Xlen-1:0] read_data;
   logic [     Xlen-1:0] pc;
   logic [     Xlen-1:0] mem_addr;
-  logic [          3:0] store_wstrb;
+  logic [   Xlen/8-1:0] store_wstrb;
   logic [     Xlen-1:0] store_data;
   logic                 imem_req;
   logic                 imem_ready;
@@ -132,7 +132,7 @@ module sc_core_top_tb;
   int              periph_writes = 0;
 
   // Board decode
-  assign periph_sel = mem_addr[31:24] == PeriphTag;
+  assign periph_sel = mem_addr[Xlen-1-:8] == PeriphTag;
   assign dmem_ready = periph_sel ? 1'b1 : dc_ready;
   assign read_data  = periph_sel ? periph_reg : dc_rdata;
 
@@ -151,11 +151,11 @@ module sc_core_top_tb;
   logic [    Xlen-1:0] img[ProgWords];
 
   function automatic int line_of(input logic [Xlen-1:0] a);
-    line_of = (int'(a) >> 4) % MemLines;
+    line_of = (int'(a) >> IdxLsb) % MemLines;
   endfunction  // Automatic
 
   function automatic int word_of(input logic [Xlen-1:0] a);
-    word_of = (int'(a) >> 2) % LineWords;
+    word_of = (int'(a) >> WordLsb) % LineWords;
   endfunction  // Automatic
 
   // Instruction responder
@@ -296,7 +296,7 @@ module sc_core_top_tb;
     $readmemh("tests/sc_smoke.hex", img);
     if ($isunknown(img[0]) || img[0] == 32'h0)
       $fatal(1, "sc_smoke.hex missing or empty, run make hex PROG=sc_smoke");
-    for (int i = 0; i < ProgWords; i++) mem[i/LineWords][(i%LineWords)*32+:32] = img[i];
+    for (int i = 0; i < ProgWords; i++) mem[i/LineWords][(i%LineWords)*Xlen+:Xlen] = img[i];
 
     rst_n = 1'b0;
     repeat (4) @(posedge clk);
@@ -334,8 +334,8 @@ module sc_core_top_tb;
     end
 
     checks++;
-    if (mem[64][31:0] !== 32'h0000_ABCD) begin
-      $error("store did not reach memory, line holds 0x%08h", mem[64][31:0]);
+    if (mem[64][Xlen-1:0] !== 32'h0000_ABCD) begin
+      $error("store did not reach memory, line holds 0x%08h", mem[64][Xlen-1:0]);
       errors++;
     end
 

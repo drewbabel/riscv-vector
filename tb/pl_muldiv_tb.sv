@@ -2,7 +2,7 @@
 
 module pl_muldiv_tb ();
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 64;
   localparam int MaxCycles = 300;
 
@@ -13,12 +13,12 @@ module pl_muldiv_tb ();
   logic [Xlen-1:0] write_data;
   logic            mem_write;
 
-  int checks = 0;
-  int errors = 0;
+  int              checks = 0;
+  int              errors = 0;
 
   int              hold_run = 0;
   logic [Xlen-1:0] drain_x10, drain_x11;
-  logic            drain_seen = 1'b0;
+  logic drain_seen = 1'b0;
 
   always #5 clk = ~clk;
 
@@ -76,7 +76,8 @@ module pl_muldiv_tb ();
     check("x3 mul", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[3], 32'd42);
     check("x6 divu", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[6], 32'd6);
     check("x7 remu", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[7], 32'd2);
-    check("x9 div", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[9], 32'hFFFFFFFA);
+    check("x9 div", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[9],
+          32'hFFFFFFFA);
     check("drain seen", 32'(drain_seen), 32'd1);
     check("x10 drained", drain_x10, 32'd99);
     check("x11 drained", drain_x11, 32'd88);

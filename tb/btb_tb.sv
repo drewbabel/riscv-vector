@@ -4,7 +4,7 @@ module btb_tb;
 
   import bp_pkg::*;
 
-  localparam int Xlen = 32;
+  localparam int Xlen   = arch_pkg::XLEN;
   localparam int TagLen = Xlen - 2 - BtbIdxLen;
 
   logic clk;
@@ -46,7 +46,7 @@ module btb_tb;
       .update_is_cond(update_is_cond)
   );
 
-  task automatic check(input string name, input logic [31:0] got, input logic [31:0] exp);
+  task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
     checks++;
     if (got !== exp) begin
       $error("%s: got %08x exp %08x", name, got, exp);
@@ -85,10 +85,10 @@ module btb_tb;
     lookup_pc = pc;
     #1;
     exp_hit = ref_valid[pc[2+:BtbIdxLen]] && (ref_tag[pc[2+:BtbIdxLen]] == pc[BtbIdxLen+2+:TagLen]);
-    check("hit", 32'(hit), 32'(exp_hit));
+    check("hit", Xlen'(hit), Xlen'(exp_hit));
     if (exp_hit) begin
       check("target", target, ref_targ[pc[2+:BtbIdxLen]]);
-      check("is_cond", 32'(is_cond), 32'(ref_cond[pc[2+:BtbIdxLen]]));
+      check("is_cond", Xlen'(is_cond), Xlen'(ref_cond[pc[2+:BtbIdxLen]]));
     end
   endtask  // Automatic
 
@@ -134,8 +134,8 @@ module btb_tb;
 
     // Random sweep
     for (int i = 0; i < 400; i++) begin
-      install({16'b0, 16'($urandom)} & 32'hFFFF_FFFC, $urandom, 1'($urandom));
-      probe({16'b0, 16'($urandom)} & 32'hFFFF_FFFC);
+      install(Xlen'(16'($urandom)) & ~Xlen'(3), $urandom, 1'($urandom));
+      probe(Xlen'(16'($urandom)) & ~Xlen'(3));
     end
 
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);

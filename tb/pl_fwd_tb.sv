@@ -2,7 +2,7 @@
 
 module pl_fwd_tb ();
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 64;
   localparam int MaxCycles = 60;
 
@@ -13,8 +13,8 @@ module pl_fwd_tb ();
   logic [Xlen-1:0] write_data;
   logic            mem_write;
 
-  int checks = 0;
-  int errors = 0;
+  int              checks = 0;
+  int              errors = 0;
 
   always #5 clk = ~clk;
 
@@ -62,12 +62,16 @@ module pl_fwd_tb ();
     check("x2", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[2], 32'd3);
     check("x5", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[5], 32'd1);
     check("x3", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[3], 32'd13);
-    check("x4", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[4], 32'd12);  // dist-1 MEM fwd
+    check("x4", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[4],
+          32'd12);  // dist-1 MEM fwd
     check("x6", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[6], 32'd13);
-    check("x7", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[7], 32'd12);  // dist-2 WB fwd
+    check("x7", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[7],
+          32'd12);  // dist-2 WB fwd
     check("x8", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[8], 32'd13);
-    check("x9", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[9], 32'd12);  // dist-3 write-first
-    check("x21", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[21], 32'd13);  // store-data forward
+    check("x9", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[9],
+          32'd12);  // dist-3 write-first
+    check("x21", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[21],
+          32'd13);  // store-data forward
 
     verdict();
   end
