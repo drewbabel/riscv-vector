@@ -20,17 +20,14 @@ DBROOT="$NEXTPNR_XILINX_DIR/xilinx/external/prjxray-db/artix7"
 PARTYAML="$DBROOT/xc7a35tcpg236-1/part.yaml"
 PART=xc7a35tcpg236-1
 
-PKGS="rtl/alu_pkg.sv rtl/csr_pkg.sv rtl/opcode_pkg.sv"
-REST=$(ls rtl/*.sv | grep -vE 'alu_pkg|csr_pkg|opcode_pkg')
-PATCHED="build/board_top_div${CLKDIV}.sv"
-sed -E "s/parameter int ClkDiv = [0-9]+/parameter int ClkDiv = ${CLKDIV}/" \
-  rtl/boards/basys3/board_top.sv > "$PATCHED"
+PKGS="rtl/arch_pkg.sv $(ls rtl/*_pkg.sv | grep -v arch_pkg)"
+REST=$(ls rtl/*.sv | grep -v '_pkg\.sv$')
 
 echo "sv2v"
-sv2v -D SYNTHESIS $PKGS $REST "$PATCHED" > build/design.v
+sv2v -D SYNTHESIS $PKGS $REST rtl/boards/basys3/board_top.sv > build/design.v
 echo "synth (ClkDiv=${CLKDIV}, keep pc_plus4)"
 # Keep pc_plus4 nets
-yosys -q -p "read_verilog build/design.v; hierarchy -top board_top; setattr -set keep 1 w:*pc_plus4*; synth_xilinx -top board_top -flatten; write_json build/design.json"
+yosys -q -p "read_verilog build/design.v; hierarchy -top board_top -chparam ClkDiv ${CLKDIV}; setattr -set keep 1 w:*pc_plus4*; synth_xilinx -top board_top -flatten; write_json build/design.json"
 echo "pnr"
 nextpnr-xilinx --chipdb "$CHIPDB" --xdc constraints/basys3.xdc \
   --json build/design.json --fasm build/design.fasm --router router2 2>&1 | grep -iE "Max frequency for clock"
