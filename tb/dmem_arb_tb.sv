@@ -2,8 +2,11 @@
 
 module dmem_arb_tb ();
 
-  localparam int XLEN = 32;
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int StrbW = XLEN / 8;
+  localparam int WordLsb = $clog2(StrbW);
   localparam int Words = 16;
+  localparam int WordHi = $clog2(Words) + WordLsb - 1;
   localparam int Timeout = 200000;
 
   int checks = 0;
@@ -15,19 +18,19 @@ module dmem_arb_tb ();
   logic s_req = 1'b0;
   logic [XLEN-1:0] s_addr = '0;
   logic [XLEN-1:0] s_wdata = '0;
-  logic [3:0] s_wstrb = '0;
+  logic [StrbW-1:0] s_wstrb = '0;
   logic s_ready;
 
   logic v_req = 1'b0;
   logic [XLEN-1:0] v_addr = '0;
   logic [XLEN-1:0] v_wdata = '0;
-  logic [3:0] v_wstrb = '0;
+  logic [StrbW-1:0] v_wstrb = '0;
   logic v_ready;
 
   logic req;
   logic [XLEN-1:0] addr;
   logic [XLEN-1:0] wdata;
-  logic [3:0] wstrb;
+  logic [StrbW-1:0] wstrb;
   logic ready;
   logic [XLEN-1:0] rdata;
 
@@ -46,7 +49,7 @@ module dmem_arb_tb ();
   int m_next;
   logic [XLEN-1:0] m_addr;
   logic [XLEN-1:0] m_wdata;
-  logic [3:0] m_wstrb;
+  logic [StrbW-1:0] m_wstrb;
 
   always #5 clk = ~clk;
 
@@ -89,7 +92,7 @@ module dmem_arb_tb ();
   task automatic check_first_grant(input logic exp_vec);
     @(negedge clk);
     while (!(s_ready || v_ready)) @(negedge clk);
-    check("first grant vector", 32'(v_ready), 32'(exp_vec));
+    check("first grant vector", XLEN'(v_ready), XLEN'(exp_vec));
   endtask  // Automatic
 
   task automatic verdict();
@@ -118,10 +121,10 @@ module dmem_arb_tb ();
   endtask  // Automatic
 
   task automatic s_access(input logic [XLEN-1:0] a, input logic [XLEN-1:0] d,
-                          input logic [3:0] st);
+                          input logic [StrbW-1:0] st);
     #1;
-    s_req = 1'b1;
-    s_addr = a;
+    s_req   = 1'b1;
+    s_addr  = a;
     s_wdata = d;
     s_wstrb = st;
     @(negedge clk);
@@ -132,10 +135,10 @@ module dmem_arb_tb ();
   endtask  // Automatic
 
   task automatic v_access(input logic [XLEN-1:0] a, input logic [XLEN-1:0] d,
-                          input logic [3:0] st);
+                          input logic [StrbW-1:0] st);
     #1;
-    v_req = 1'b1;
-    v_addr = a;
+    v_req   = 1'b1;
+    v_addr  = a;
     v_wdata = d;
     v_wstrb = st;
     @(negedge clk);
@@ -146,11 +149,11 @@ module dmem_arb_tb ();
   endtask  // Automatic
 
   function automatic logic [XLEN-1:0] rand_addr();
-    return XLEN'({$urandom_range(Words - 1), 2'b00});
+    return XLEN'($urandom_range(Words - 1) << WordLsb);
   endfunction
 
-  function automatic logic [3:0] rand_strobe();
-    logic [3:0] choices[4] = '{4'h0, 4'h0, 4'hF, 4'b0011};
+  function automatic logic [StrbW-1:0] rand_strobe();
+    logic [StrbW-1:0] choices[4] = '{4'h0, 4'h0, {StrbW{1'b1}}, 4'b0011};
     return choices[$urandom_range(3)];
   endfunction
 
@@ -224,23 +227,24 @@ module dmem_arb_tb ();
 
   // Memory model
   function automatic logic [XLEN-1:0] apply(input logic [XLEN-1:0] old, input logic [XLEN-1:0] d,
-                                            input logic [3:0] st);
+                                            input logic [StrbW-1:0] st);
     logic [XLEN-1:0] result;
     result = old;
-    for (int b = 0; b < 4; b++) if (st[b]) result[b*8+:8] = d[b*8+:8];
+    for (int b = 0; b < StrbW; b++) if (st[b]) result[b*8+:8] = d[b*8+:8];
     return result;
   endfunction
 
   assign ready = m_busy ? (m_left == 0) : (req && m_next == 0);
-  assign rdata = m_busy ? mem[m_addr[5:2]] : mem[addr[5:2]];
+  assign rdata = m_busy ? mem[m_addr[WordHi:WordLsb]] : mem[addr[WordHi:WordLsb]];
 
   always @(posedge clk) begin
     if (!rst_n) begin
       m_busy <= 1'b0;
       m_next <= 0;
     end else if (ready) begin
-      if (m_busy) mem[m_addr[5:2]] <= apply(mem[m_addr[5:2]], m_wdata, m_wstrb);
-      else mem[addr[5:2]] <= apply(mem[addr[5:2]], wdata, wstrb);
+      if (m_busy)
+        mem[m_addr[WordHi:WordLsb]] <= apply(mem[m_addr[WordHi:WordLsb]], m_wdata, m_wstrb);
+      else mem[addr[WordHi:WordLsb]] <= apply(mem[addr[WordHi:WordLsb]], wdata, wstrb);
       m_busy <= 1'b0;
       m_next <= $urandom_range(lat_max, lat_min);
     end else if (!m_busy && req) begin
@@ -259,24 +263,24 @@ module dmem_arb_tb ();
   // Comparison
   always @(negedge clk) begin
     if (rst_n) begin
-      check("one ready", 32'(s_ready && v_ready), 32'h0);
-      check("scalar ready unasked", 32'(s_ready && !s_req), 32'h0);
-      check("vector ready unasked", 32'(v_ready && !v_req), 32'h0);
+      check("one ready", XLEN'(s_ready && v_ready), 32'h0);
+      check("scalar ready unasked", XLEN'(s_ready && !s_req), 32'h0);
+      check("vector ready unasked", XLEN'(v_ready && !v_req), 32'h0);
       if (s_req && s_ready) begin
-        if (s_wstrb == 4'h0) check("scalar read", rdata, golden[s_addr[5:2]]);
-        golden[s_addr[5:2]] = apply(golden[s_addr[5:2]], s_wdata, s_wstrb);
+        if (s_wstrb == 4'h0) check("scalar read", rdata, golden[s_addr[WordHi:WordLsb]]);
+        golden[s_addr[WordHi:WordLsb]] = apply(golden[s_addr[WordHi:WordLsb]], s_wdata, s_wstrb);
         if (v_req) v_passed++;
         s_passed = 0;
         last_vec = 1'b0;
-        check("vector wait bound", 32'(v_passed > 1), 32'h0);
+        check("vector wait bound", XLEN'(v_passed > 1), 32'h0);
       end
       if (v_req && v_ready) begin
-        if (v_wstrb == 4'h0) check("vector read", rdata, golden[v_addr[5:2]]);
-        golden[v_addr[5:2]] = apply(golden[v_addr[5:2]], v_wdata, v_wstrb);
+        if (v_wstrb == 4'h0) check("vector read", rdata, golden[v_addr[WordHi:WordLsb]]);
+        golden[v_addr[WordHi:WordLsb]] = apply(golden[v_addr[WordHi:WordLsb]], v_wdata, v_wstrb);
         if (s_req) s_passed++;
         v_passed = 0;
         last_vec = 1'b1;
-        check("scalar wait bound", 32'(s_passed > 1), 32'h0);
+        check("scalar wait bound", XLEN'(s_passed > 1), 32'h0);
       end
     end
   end

@@ -4,7 +4,7 @@ module mem_arb_tb;
 
   import cache_pkg::*;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int AppAddrW = 29;
   localparam int MaskW = LineBits / 8;
   localparam int MemLines = 1024;
@@ -226,7 +226,7 @@ module mem_arb_tb;
   always @(posedge clk) begin
     if (rst_n) begin
       if (app_en && !calib_done) fail("app_en asserted before calib_done rose");
-      if (app_en && app_addr[3:0] != 4'h0)
+      if (app_en && app_addr[IdxLsb-1:0] != '0)
         fail("app_addr not aligned to the 16 byte transaction size");
       if (ic_resp_ready && dc_resp_ready)
         fail("instruction and data response ready both high in one cycle");
@@ -321,7 +321,7 @@ module mem_arb_tb;
     @(posedge clk);
   endtask  // Automatic
 
-  task automatic dc_word_write(input logic [Xlen-1:0] addr, input logic [3:0] strb,
+  task automatic dc_word_write(input logic [Xlen-1:0] addr, input logic [WordBytes-1:0] strb,
                                input logic [Xlen-1:0] data);
     #1;
     dc_req_valid = 1'b1;
@@ -436,23 +436,23 @@ module mem_arb_tb;
           32'h2222_0003, 32'h2222_0002, 32'h2222_0001, 32'h2222_0000});
 
     // Word lane sweep
-    for (int w = 0; w < 4; w++) begin
+    for (int w = 0; w < LineWords; w++) begin
       logic [LineBits-1:0] base;
       logic [LineBits-1:0] want;
       base = {32'h8888_0003, 32'h8888_0002, 32'h8888_0001, 32'h8888_0000};
       dc_write(32'h0000_0400, base);
       want = base;
-      want[w*32+:32] = 32'h9999_0000 + Xlen'(w);
-      dc_word_write(32'h0000_0400 + Xlen'(w * 4), 4'hF, 32'h9999_0000 + Xlen'(w));
+      want[w*Xlen+:Xlen] = 32'h9999_0000 + Xlen'(w);
+      dc_word_write(32'h0000_0400 + Xlen'(w * WordBytes), '1, 32'h9999_0000 + Xlen'(w));
       ic_read(32'h0000_0400, got);
       check($sformatf("data cache word write hit the wrong word, word %0d", w), got, want);
     end
 
     // Byte strobe sweep
     begin
-      logic [LineBits-1:0] base;
-      logic [LineBits-1:0] want;
-      logic [         3:0] strobes[4];
+      logic [ LineBits-1:0] base;
+      logic [ LineBits-1:0] want;
+      logic [WordBytes-1:0] strobes[4];
       strobes[0] = 4'b0001;
       strobes[1] = 4'b1100;
       strobes[2] = 4'b0110;
@@ -461,8 +461,8 @@ module mem_arb_tb;
         base = {32'hABAB_0003, 32'hABAB_0002, 32'hABAB_0001, 32'hABAB_0000};
         dc_write(32'h0000_0500, base);
         want = base;
-        for (int b = 0; b < 4; b++) begin
-          if (strobes[s][b]) want[32+b*8+:8] = 8'h5A + 8'(b);
+        for (int b = 0; b < WordBytes; b++) begin
+          if (strobes[s][b]) want[Xlen+b*8+:8] = 8'h5A + 8'(b);
         end
         dc_word_write(32'h0000_0504, strobes[s], {8'h5D, 8'h5C, 8'h5B, 8'h5A});
         dc_read(32'h0000_0500, got);
@@ -473,7 +473,7 @@ module mem_arb_tb;
     // Word write neighbours
     dc_write(32'h0000_0600, {32'hFEED_0003, 32'hFEED_0002, 32'hFEED_0001, 32'hFEED_0000});
     dc_write(32'h0000_0610, {32'hF00D_0003, 32'hF00D_0002, 32'hF00D_0001, 32'hF00D_0000});
-    dc_word_write(32'h0000_0608, 4'hF, 32'h0BAD_0000);
+    dc_word_write(32'h0000_0608, '1, 32'h0BAD_0000);
     ic_read(32'h0000_0610, got);
     check("data cache word write disturbed the next line up", got, {
           32'hF00D_0003, 32'hF00D_0002, 32'hF00D_0001, 32'hF00D_0000});
@@ -484,12 +484,12 @@ module mem_arb_tb;
     wdf_pct   = 30;
     for (int i = 0; i < 8; i++) begin
       logic [Xlen-1:0] a;
-      a = 32'h0000_0700 + Xlen'((i % 4) * 4);
+      a = 32'h0000_0700 + Xlen'((i % LineWords) * WordBytes);
       dc_write(32'h0000_0700, '0);
-      dc_word_write(a, 4'hF, 32'hC0DE_0000 + Xlen'(i));
+      dc_word_write(a, '1, 32'hC0DE_0000 + Xlen'(i));
       ic_read(32'h0000_0700, got);
       check($sformatf("data cache word write lost under a stalling controller, pass %0d", i), got,
-            LineBits'(32'hC0DE_0000 + Xlen'(i)) << ((i % 4) * 32));
+            LineBits'(32'hC0DE_0000 + Xlen'(i)) << ((i % LineWords) * Xlen));
     end
     en_period = 1;
     rdy_pct   = 100;
@@ -525,7 +525,7 @@ module mem_arb_tb;
     for (int i = 0; i < 24; i++) begin
       logic [Xlen-1:0] a;
       logic [LineBits-1:0] d;
-      a = 32'h0000_1000 + (i * 16);
+      a = 32'h0000_1000 + (i * LineBytes);
       d = {32'h4444_0003 + i, 32'h4444_0002 + i, 32'h4444_0001 + i, 32'h4444_0000 + i};
       dc_write(a, d);
       ic_read(a, got);
@@ -542,7 +542,7 @@ module mem_arb_tb;
     for (int i = 0; i < 12; i++) begin
       logic [Xlen-1:0] a;
       logic [LineBits-1:0] d;
-      a = 32'h0000_2000 + (i * 16);
+      a = 32'h0000_2000 + (i * LineBytes);
       d = {32'h5555_0003 + i, 32'h5555_0002 + i, 32'h5555_0001 + i, 32'h5555_0000 + i};
       dc_write(a, d);
       ic_read(a, got);
@@ -559,15 +559,15 @@ module mem_arb_tb;
       logic [Xlen-1:0] a;
       logic [LineBits-1:0] d;
       rd_lat = L;
-      a = 32'h0000_3000 + ((L + 1) * 16);
+      a = 32'h0000_3000 + ((L + 1) * LineBytes);
       d = {32'h6666_0003 + L, 32'h6666_0002 + L, 32'h6666_0001 + L, 32'h6666_0000 + L};
       dc_write(a, d);
       ic_read(a, got);
       check($sformatf("read after write reads back wrong at a read latency of %0d", L), got, d);
-      boot_word(a + 4, 32'h7777_0000 + Xlen'(L));
+      boot_word(a + WordBytes, 32'h7777_0000 + Xlen'(L));
       dc_read(a, got);
       check($sformatf("boot word write did not land at a read latency of %0d", L), got, {
-            d[127:64], 32'h7777_0000 + Xlen'(L), d[31:0]});
+            d[LineBits-1:2*Xlen], 32'h7777_0000 + Xlen'(L), d[Xlen-1:0]});
     end
     rd_lat = RdLat;
 
@@ -582,10 +582,11 @@ module mem_arb_tb;
       for (int h = 0; h < 5; h++) begin
         boot_word(highs[h], 32'hB007_0000 + Xlen'(h));
         check_addr($sformatf("boot word address truncated above the old block ram cap, %h", highs[h]
-                   ), last_wr_addr, {highs[h][AppAddrW-1:4], 4'h0});
+                   ), last_wr_addr, {highs[h][AppAddrW-1:IdxLsb], {IdxLsb{1'b0}}});
         ic_read(highs[h], got);
         check($sformatf("boot word write did not land at %h", highs[h]),
-              LineBits'(got[highs[h][3:2]*32+:32]), LineBits'(32'hB007_0000 + Xlen'(h)));
+              LineBits'(got[highs[h][WordLsb+:BlkOffLen]*Xlen+:Xlen]),
+              LineBits'(32'hB007_0000 + Xlen'(h)));
       end
     end
 
