@@ -4,8 +4,12 @@ module vec_mask_tb
   import vec_pkg::*;
 ();
 
-  localparam int DLEN = 128;
+  localparam int DLEN = arch_pkg::VLEN;
+  localparam int ELEN = arch_pkg::ELEN;
+  localparam int XLEN = arch_pkg::XLEN;
   localparam int MaxElems = DLEN / 8;
+  localparam int VlW = $clog2(DLEN + 1);
+  localparam int Words = DLEN / 32;
 
   int                  checks = 0;
   int                  errors = 0;
@@ -17,16 +21,18 @@ module vec_mask_tb
   logic     [DLEN-1:0] vs2_data;
   logic     [DLEN-1:0] vs1_data;
   logic     [DLEN-1:0] v0_bits;
-  logic     [    31:0] xdata;
+  logic     [XLEN-1:0] xdata;
   logic     [     4:0] simm;
-  logic     [     7:0] elem_base;
-  logic     [     7:0] vl;
+  logic     [ VlW-1:0] elem_base;
+  logic     [ VlW-1:0] vl;
 
   logic     [DLEN-1:0] result;
-  logic     [    31:0] xresult;
+  logic     [XLEN-1:0] xresult;
 
   vec_mask #(
-      .DLEN(DLEN)
+      .DLEN(DLEN),
+      .ELEN(ELEN),
+      .XLEN(XLEN)
   ) dut (
       .op       (op),
       .src      (src),
@@ -42,6 +48,12 @@ module vec_mask_tb
       .result   (result),
       .xresult  (xresult)
   );
+
+  // Random register data
+  function automatic logic [DLEN-1:0] rand_data();
+    rand_data = '0;
+    for (int i = 0; i < Words; i++) rand_data = (rand_data << 32) | DLEN'($urandom);
+  endfunction
 
   task automatic note(input string tag, input logic [DLEN-1:0] got, input logic [DLEN-1:0] want);
     checks = checks + 1;
@@ -62,37 +74,37 @@ module vec_mask_tb
     v0_bits   = '0;
     xdata     = '0;
     simm      = '0;
-    elem_base = 8'd0;
-    vl        = 8'd0;
+    elem_base = '0;
+    vl        = '0;
   endtask
 
   // One element out
-  function automatic logic signed [32:0] pick(input logic [DLEN-1:0] data, input int bits,
-                                              input int idx, input logic sgn);
-    logic [31:0] raw;
-    int          i;
+  function automatic logic signed [ELEN:0] pick(input logic [DLEN-1:0] data, input int bits,
+                                                input int idx, input logic sgn);
+    logic [ELEN-1:0] raw;
+    int              i;
     begin
-      raw = 32'd0;
+      raw = '0;
       for (i = 0; i < bits; i++) raw[i] = data[idx*bits+i];
       if (sgn && raw[bits-1]) begin
-        for (i = bits; i < 32; i++) raw[i] = 1'b1;
+        for (i = bits; i < ELEN; i++) raw[i] = 1'b1;
       end
-      pick = sgn ? {raw[31], raw} : {1'b0, raw};
+      pick = sgn ? {raw[ELEN-1], raw} : {1'b0, raw};
     end
   endfunction
 
   // A trimmed scalar
-  function automatic logic signed [32:0] pick_scalar(input logic [31:0] val, input int bits,
-                                                     input logic sgn);
-    logic [31:0] raw;
-    int          i;
+  function automatic logic signed [ELEN:0] pick_scalar(input logic [ELEN-1:0] val, input int bits,
+                                                       input logic sgn);
+    logic [ELEN-1:0] raw;
+    int              i;
     begin
-      raw = 32'd0;
+      raw = '0;
       for (i = 0; i < bits; i++) raw[i] = val[i];
       if (sgn && raw[bits-1]) begin
-        for (i = bits; i < 32; i++) raw[i] = 1'b1;
+        for (i = bits; i < ELEN; i++) raw[i] = 1'b1;
       end
-      pick_scalar = sgn ? {raw[31], raw} : {1'b0, raw};
+      pick_scalar = sgn ? {raw[ELEN-1], raw} : {1'b0, raw};
     end
   endfunction
 
@@ -101,17 +113,17 @@ module vec_mask_tb
   endfunction
 
   // Compare by subtraction
-  function automatic logic ref_cmp(input vec_op_e o, input logic signed [32:0] a,
-                                   input logic signed [32:0] b);
-    logic signed [33:0] diff;
+  function automatic logic ref_cmp(input vec_op_e o, input logic signed [ELEN:0] a,
+                                   input logic signed [ELEN:0] b);
+    logic signed [ELEN+1:0] diff;
     begin
-      diff = 34'(a) - 34'(b);
+      diff = (ELEN + 2)'(a) - (ELEN + 2)'(b);
       case (o)
-        VEC_MSEQ:            ref_cmp = (diff == 34'sd0);
-        VEC_MSNE:            ref_cmp = (diff != 34'sd0);
-        VEC_MSLTU, VEC_MSLT: ref_cmp = (diff < 34'sd0);
-        VEC_MSLEU, VEC_MSLE: ref_cmp = (diff <= 34'sd0);
-        VEC_MSGTU, VEC_MSGT: ref_cmp = (diff > 34'sd0);
+        VEC_MSEQ:            ref_cmp = (diff == 0);
+        VEC_MSNE:            ref_cmp = (diff != 0);
+        VEC_MSLTU, VEC_MSLT: ref_cmp = (diff < 0);
+        VEC_MSLEU, VEC_MSLE: ref_cmp = (diff <= 0);
+        VEC_MSGTU, VEC_MSGT: ref_cmp = (diff > 0);
         default:             ref_cmp = 1'b0;
       endcase
     end
@@ -164,8 +176,9 @@ module vec_mask_tb
       want = '0;
       for (int e = 0; e < n; e++) begin
         if (s == VEC_SRC_VV) b = pick(vs1_data, bits, e, ref_signed(o));
-        else if (s == VEC_SRC_VI) b = pick_scalar({{27{simm[4]}}, simm}, bits, ref_signed(o));
-        else b = pick_scalar(xdata, bits, ref_signed(o));
+        else if (s == VEC_SRC_VI)
+          b = pick_scalar({{(ELEN - 5) {simm[4]}}, simm}, bits, ref_signed(o));
+        else b = pick_scalar(ELEN'(xdata), bits, ref_signed(o));
         want[e] = ref_cmp(o, pick(vs2_data, bits, e, ref_signed(o)), b);
       end
       for (int e = 0; e < n; e++) note(tag, DLEN'(result[e]), DLEN'(want[e]));
@@ -178,8 +191,8 @@ module vec_mask_tb
     begin
       list = '{VEC_MSEQ, VEC_MSNE, VEC_MSLTU, VEC_MSLT, VEC_MSLEU, VEC_MSLE, VEC_MSGTU, VEC_MSGT};
       for (int r = 0; r < 60; r++) begin
-        vs2_data = {$urandom, $urandom, $urandom, $urandom};
-        vs1_data = {$urandom, $urandom, $urandom, $urandom};
+        vs2_data = rand_data();
+        vs1_data = rand_data();
         xdata    = $urandom;
         simm     = 5'($urandom);
         if (r % 4 == 0) vs1_data = vs2_data;
@@ -197,16 +210,16 @@ module vec_mask_tb
   // Edges and extremes
   task automatic check_compare_edges();
     begin
-      vs2_data = 128'h00000000_00000000_80000000_7fffffff;
-      vs1_data = 128'h00000000_00000000_7fffffff_80000000;
+      vs2_data = DLEN'(64'h80000000_7fffffff);
+      vs1_data = DLEN'(64'h7fffffff_80000000);
       run_cmp(VEC_MSLT, VEC_SRC_VV, 3'd2, "cmp signed edge");
       run_cmp(VEC_MSLTU, VEC_SRC_VV, 3'd2, "cmp unsigned edge");
       run_cmp(VEC_MSLE, VEC_SRC_VV, 3'd2, "cmp signed le edge");
-      vs2_data = 128'hffffffff_ffffffff_ffffffff_ffffffff;
+      vs2_data = '1;
       vs1_data = '0;
       run_cmp(VEC_MSGT, VEC_SRC_VV, 3'd0, "cmp byte gt");
       run_cmp(VEC_MSGTU, VEC_SRC_VV, 3'd0, "cmp byte gtu");
-      xdata = 32'hffff_ffff;
+      xdata = '1;
       run_cmp(VEC_MSEQ, VEC_SRC_VX, 3'd1, "cmp half eq");
       simm = 5'b11111;
       run_cmp(VEC_MSLE, VEC_SRC_VI, 3'd0, "cmp byte imm");
@@ -221,8 +234,8 @@ module vec_mask_tb
     begin
       list = '{VEC_MAND, VEC_MNAND, VEC_MANDN, VEC_MOR, VEC_MNOR, VEC_MORN, VEC_MXOR, VEC_MXNOR};
       for (int r = 0; r < 40; r++) begin
-        vs2_data = {$urandom, $urandom, $urandom, $urandom};
-        vs1_data = {$urandom, $urandom, $urandom, $urandom};
+        vs2_data = rand_data();
+        vs1_data = rand_data();
         for (int i = 0; i < 8; i++) begin
           op = list[i];
           #1;
@@ -239,10 +252,10 @@ module vec_mask_tb
     logic [DLEN-1:0] want;
     begin
       for (int r = 0; r < 60; r++) begin
-        vs2_data = {$urandom, $urandom, $urandom, $urandom};
-        v0_bits  = {$urandom, $urandom, $urandom, $urandom};
+        vs2_data = rand_data();
+        v0_bits  = rand_data();
         vm       = 1'($urandom);
-        vl       = 8'($urandom % (DLEN + 1));
+        vl       = VlW'($urandom % (DLEN + 1));
         if (r % 5 == 0) vs2_data = '0;
         for (int k = 0; k < 3; k++) begin
           op = (k == 0) ? VEC_MSBF : ((k == 1) ? VEC_MSIF : VEC_MSOF);
@@ -265,18 +278,18 @@ module vec_mask_tb
     int bits;
     int n;
     int count;
-    logic [31:0] val;
+    logic [ELEN-1:0] val;
     logic [DLEN-1:0] want;
     begin
       for (int r = 0; r < 40; r++) begin
-        vs2_data = {$urandom, $urandom, $urandom, $urandom};
-        v0_bits  = {$urandom, $urandom, $urandom, $urandom};
+        vs2_data = rand_data();
+        v0_bits  = rand_data();
         vm       = 1'($urandom);
-        vl       = 8'($urandom % (DLEN + 1));
+        vl       = VlW'($urandom % (DLEN + 1));
         for (int sew = 0; sew < 3; sew++) begin
           bits      = 8 << sew;
           n         = DLEN / bits;
-          elem_base = 8'(n * ($urandom % 4));
+          elem_base = VlW'(n * ($urandom % 4));
           for (int k = 0; k < 2; k++) begin
             op   = (k == 0) ? VEC_IOTA : VEC_ID;
             vsew = 3'(sew);
@@ -288,7 +301,7 @@ module vec_mask_tb
                 for (int j = 0; j < int'(elem_base) + e; j++) begin
                   if (ref_active(j) && vs2_data[j]) count = count + 1;
                 end
-                val = (op == VEC_ID) ? 32'(int'(elem_base) + e) : 32'(count);
+                val = (op == VEC_ID) ? ELEN'(int'(elem_base) + e) : ELEN'(count);
                 for (int b = 0; b < bits; b++) begin
                   want[e*bits+b] = val[b];
                 end
@@ -307,20 +320,20 @@ module vec_mask_tb
     int f;
     begin
       for (int r = 0; r < 60; r++) begin
-        vs2_data = {$urandom, $urandom, $urandom, $urandom};
-        v0_bits  = {$urandom, $urandom, $urandom, $urandom};
+        vs2_data = rand_data();
+        v0_bits  = rand_data();
         vm       = 1'($urandom);
-        vl       = 8'($urandom % (DLEN + 1));
+        vl       = VlW'($urandom % (DLEN + 1));
         if (r % 7 == 0) vs2_data = '0;
         op = VEC_CPOP;
         #1;
         count = 0;
         for (int i = 0; i < DLEN; i++) if (ref_active(i) && vs2_data[i]) count = count + 1;
-        note("cpop", DLEN'(xresult), DLEN'(32'(count)));
+        note("cpop", DLEN'(xresult), DLEN'(XLEN'(count)));
         op = VEC_FIRST;
         #1;
         f = ref_first();
-        note("first", DLEN'(xresult), DLEN'((f < 0) ? 32'hFFFF_FFFF : 32'(f)));
+        note("first", DLEN'(xresult), DLEN'((f < 0) ? {XLEN{1'b1}} : XLEN'(f)));
       end
     end
   endtask

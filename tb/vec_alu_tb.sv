@@ -4,8 +4,11 @@ module vec_alu_tb
   import vec_pkg::*;
 ();
 
-  localparam int DLEN = 128;
+  localparam int DLEN = arch_pkg::VLEN;
+  localparam int ELEN = arch_pkg::ELEN;
+  localparam int XLEN = arch_pkg::XLEN;
   localparam int MaxElems = DLEN / 8;
+  localparam int Words = DLEN / 32;
 
   int checks = 0;
   int errors = 0;
@@ -17,12 +20,13 @@ module vec_alu_tb
   logic [MaxElems-1:0] mask_bits;
   logic [DLEN-1:0] vs2_data;
   logic [DLEN-1:0] vs1_data;
-  logic [31:0] xdata;
+  logic [XLEN-1:0] xdata;
   logic [4:0] simm;
   logic [DLEN-1:0] result;
 
   vec_alu #(
-      .DLEN(DLEN)
+      .DLEN(DLEN),
+      .XLEN(XLEN)
   ) dut (
       .op(op),
       .src(src),
@@ -37,11 +41,11 @@ module vec_alu_tb
   );
 
   // Width helpers
-  function automatic logic [31:0] mask_of(input int w);
-    mask_of = (32'h1 << w) - 32'h1;
+  function automatic logic [ELEN-1:0] mask_of(input int w);
+    mask_of = (ELEN'(1'b1) << w) - ELEN'(1'b1);
   endfunction
 
-  function automatic logic [31:0] sext(input logic [31:0] v, input int w);
+  function automatic logic [ELEN-1:0] sext(input logic [ELEN-1:0] v, input int w);
     sext = v[w-1] ? (v | ~mask_of(w)) : (v & mask_of(w));
   endfunction
 
@@ -50,15 +54,15 @@ module vec_alu_tb
   endfunction
 
   // Reference model
-  function automatic logic [31:0] ref_lane(input vec_op_e o, input int w, input logic [31:0] ra,
-                                           input logic [31:0] rb, input logic mbit,
-                                           input logic vmi);
-    logic [31:0] m;
-    logic [31:0] a;
-    logic [31:0] b;
-    logic [31:0] sa;
-    logic [31:0] sb;
-    logic [31:0] sr;
+  function automatic logic [ELEN-1:0] ref_lane(input vec_op_e o, input int w,
+                                               input logic [ELEN-1:0] ra, input logic [ELEN-1:0] rb,
+                                               input logic mbit, input logic vmi);
+    logic [ELEN-1:0] m;
+    logic [ELEN-1:0] a;
+    logic [ELEN-1:0] b;
+    logic [ELEN-1:0] sa;
+    logic [ELEN-1:0] sb;
+    logic [ELEN-1:0] sr;
     int sh;
     begin
       m  = mask_of(w);
@@ -82,25 +86,31 @@ module vec_alu_tb
         VEC_MIN:   ref_lane = ($signed(sa) < $signed(sb)) ? a : b;
         VEC_MAXU:  ref_lane = (a > b) ? a : b;
         VEC_MAX:   ref_lane = ($signed(sa) > $signed(sb)) ? a : b;
-        VEC_ADC:   ref_lane = (a + b + {31'd0, mbit}) & m;
-        VEC_SBC:   ref_lane = (a - b - {31'd0, mbit}) & m;
+        VEC_ADC:   ref_lane = (a + b + ELEN'(mbit)) & m;
+        VEC_SBC:   ref_lane = (a - b - ELEN'(mbit)) & m;
         VEC_MERGE: ref_lane = (vmi || mbit) ? b : a;
-        default:   ref_lane = 32'd0;
+        default:   ref_lane = '0;
       endcase
     end
   endfunction
 
-  function automatic logic [31:0] elem_of(input logic [DLEN-1:0] v, input int w, input int e);
-    elem_of = 32'(v >> (e * w)) & mask_of(w);
+  function automatic logic [ELEN-1:0] elem_of(input logic [DLEN-1:0] v, input int w, input int e);
+    elem_of = ELEN'(v >> (e * w)) & mask_of(w);
   endfunction
 
-  function automatic logic [31:0] ref_second(input int w, input int e);
-    logic [31:0] raw;
+  // Random register data
+  function automatic logic [DLEN-1:0] rand_data();
+    rand_data = '0;
+    for (int i = 0; i < Words; i++) rand_data = (rand_data << 32) | DLEN'($urandom);
+  endfunction
+
+  function automatic logic [ELEN-1:0] ref_second(input int w, input int e);
+    logic [ELEN-1:0] raw;
     begin
       case (src)
-        VEC_SRC_VV: raw = 32'(vs1_data >> (e * w));
-        VEC_SRC_VI: raw = {{27{simm[4]}}, simm};
-        default:    raw = xdata;
+        VEC_SRC_VV: raw = ELEN'(vs1_data >> (e * w));
+        VEC_SRC_VI: raw = {{(ELEN - 5) {simm[4]}}, simm};
+        default:    raw = ELEN'(xdata);
       endcase
       ref_second = raw & mask_of(w);
     end
@@ -122,7 +132,7 @@ module vec_alu_tb
   // The one primitive
   task automatic drive(input vec_op_e o, input vec_src_e s, input logic [2:0] sew, input logic m,
                        input logic [MaxElems-1:0] mb, input logic [DLEN-1:0] d2,
-                       input logic [DLEN-1:0] d1, input logic [31:0] xd, input logic [4:0] im);
+                       input logic [DLEN-1:0] d1, input logic [XLEN-1:0] xd, input logic [4:0] im);
     op        = o;
     src       = s;
     vsew      = sew;
@@ -138,8 +148,8 @@ module vec_alu_tb
   task automatic check_elems();
     int w;
     int n;
-    logic [31:0] got;
-    logic [31:0] want;
+    logic [ELEN-1:0] got;
+    logic [ELEN-1:0] want;
     begin
       w = width_of(vsew);
       n = DLEN / w;
@@ -160,7 +170,8 @@ module vec_alu_tb
 
   task automatic run_case(input vec_op_e o, input vec_src_e s, input logic [2:0] sew, input logic m,
                           input logic [MaxElems-1:0] mb, input logic [DLEN-1:0] d2,
-                          input logic [DLEN-1:0] d1, input logic [31:0] xd, input logic [4:0] im);
+                          input logic [DLEN-1:0] d1, input logic [XLEN-1:0] xd,
+                          input logic [4:0] im);
     drive(o, s, sew, m, mb, d2, d1, xd, im);
     check_elems();
   endtask
@@ -199,8 +210,8 @@ module vec_alu_tb
                 1: s = VEC_SRC_VX;
                 default: s = VEC_SRC_VI;
               endcase
-              d2 = {$urandom, $urandom, $urandom, $urandom};
-              d1 = {$urandom, $urandom, $urandom, $urandom};
+              d2 = rand_data();
+              d1 = rand_data();
               run_case(o, s, 3'(sw), 1'b0, MaxElems'($urandom), d2, d1, $urandom, 5'($urandom));
               run_case(o, s, 3'(sw), 1'b1, MaxElems'($urandom), d2, d1, $urandom, 5'($urandom));
             end
@@ -213,10 +224,13 @@ module vec_alu_tb
   // Shift boundaries
   task automatic shift_edges();
     for (int sw = 0; sw < 3; sw++) begin
-      for (int sh = 0; sh < 32; sh++) begin
-        run_case(VEC_SLL, VEC_SRC_VX, 3'(sw), 1'b1, '0, {4{32'h8001_7FFE}}, '0, 32'(sh), 5'd0);
-        run_case(VEC_SRL, VEC_SRC_VX, 3'(sw), 1'b1, '0, {4{32'h8001_7FFE}}, '0, 32'(sh), 5'd0);
-        run_case(VEC_SRA, VEC_SRC_VX, 3'(sw), 1'b1, '0, {4{32'h8001_7FFE}}, '0, 32'(sh), 5'd0);
+      for (int sh = 0; sh < ELEN; sh++) begin
+        run_case(VEC_SLL, VEC_SRC_VX, 3'(sw), 1'b1, '0, {Words{32'h8001_7FFE}}, '0, XLEN'(sh),
+                 5'd0);
+        run_case(VEC_SRL, VEC_SRC_VX, 3'(sw), 1'b1, '0, {Words{32'h8001_7FFE}}, '0, XLEN'(sh),
+                 5'd0);
+        run_case(VEC_SRA, VEC_SRC_VX, 3'(sw), 1'b1, '0, {Words{32'h8001_7FFE}}, '0, XLEN'(sh),
+                 5'd0);
       end
     end
   endtask
@@ -226,8 +240,8 @@ module vec_alu_tb
     logic [DLEN-1:0] lo;
     logic [DLEN-1:0] hi;
     begin
-      lo = {4{32'h8000_0000}};
-      hi = {4{32'h7FFF_FFFF}};
+      lo = {Words{32'h8000_0000}};
+      hi = {Words{32'h7FFF_FFFF}};
       for (int sw = 0; sw < 3; sw++) begin
         run_case(VEC_MIN, VEC_SRC_VV, 3'(sw), 1'b1, '0, lo, hi, '0, 5'd0);
         run_case(VEC_MAX, VEC_SRC_VV, 3'(sw), 1'b1, '0, lo, hi, '0, 5'd0);
@@ -244,8 +258,8 @@ module vec_alu_tb
   // Carry and borrow
   task automatic carry_edges();
     for (int sw = 0; sw < 3; sw++) begin
-      run_case(VEC_ADC, VEC_SRC_VV, 3'(sw), 1'b0, '1, {4{32'hFFFF_FFFF}}, '0, '0, 5'd0);
-      run_case(VEC_ADC, VEC_SRC_VV, 3'(sw), 1'b0, '0, {4{32'hFFFF_FFFF}}, '0, '0, 5'd0);
+      run_case(VEC_ADC, VEC_SRC_VV, 3'(sw), 1'b0, '1, {Words{32'hFFFF_FFFF}}, '0, '0, 5'd0);
+      run_case(VEC_ADC, VEC_SRC_VV, 3'(sw), 1'b0, '0, {Words{32'hFFFF_FFFF}}, '0, '0, 5'd0);
       run_case(VEC_SBC, VEC_SRC_VV, 3'(sw), 1'b0, '1, '0, '0, '0, 5'd0);
       run_case(VEC_SBC, VEC_SRC_VV, 3'(sw), 1'b0, '0, '0, '0, '0, 5'd0);
     end
@@ -256,8 +270,8 @@ module vec_alu_tb
     logic [DLEN-1:0] d2;
     logic [DLEN-1:0] d1;
     begin
-      d2 = {4{32'hAAAA_AAAA}};
-      d1 = {4{32'h5555_5555}};
+      d2 = {Words{32'hAAAA_AAAA}};
+      d1 = {Words{32'h5555_5555}};
       for (int sw = 0; sw < 3; sw++) begin
         run_case(VEC_MERGE, VEC_SRC_VV, 3'(sw), 1'b0, '0, d2, d1, '0, 5'd0);
         run_case(VEC_MERGE, VEC_SRC_VV, 3'(sw), 1'b0, '1, d2, d1, '0, 5'd0);
@@ -272,9 +286,9 @@ module vec_alu_tb
   task automatic imm_cases();
     for (int sw = 0; sw < 3; sw++) begin
       for (int im = 0; im < 32; im++) begin
-        run_case(VEC_ADD, VEC_SRC_VI, 3'(sw), 1'b1, '0, {4{32'h0F0F_0F0F}}, '0, '0, 5'(im));
-        run_case(VEC_RSUB, VEC_SRC_VI, 3'(sw), 1'b1, '0, {4{32'h0F0F_0F0F}}, '0, '0, 5'(im));
-        run_case(VEC_AND, VEC_SRC_VI, 3'(sw), 1'b1, '0, {4{32'hFFFF_FFFF}}, '0, '0, 5'(im));
+        run_case(VEC_ADD, VEC_SRC_VI, 3'(sw), 1'b1, '0, {Words{32'h0F0F_0F0F}}, '0, '0, 5'(im));
+        run_case(VEC_RSUB, VEC_SRC_VI, 3'(sw), 1'b1, '0, {Words{32'h0F0F_0F0F}}, '0, '0, 5'(im));
+        run_case(VEC_AND, VEC_SRC_VI, 3'(sw), 1'b1, '0, {Words{32'hFFFF_FFFF}}, '0, '0, 5'(im));
       end
     end
   endtask

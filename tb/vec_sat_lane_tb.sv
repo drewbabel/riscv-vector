@@ -4,7 +4,7 @@ module vec_sat_lane_tb
   import vec_pkg::*;
 ();
 
-  localparam int ELEN = 32;
+  localparam int ELEN = arch_pkg::ELEN;
 
   int checks = 0;
   int errors = 0;
@@ -52,11 +52,11 @@ module vec_sat_lane_tb
     umask = (64'sd1 <<< w) - 64'sd1;
   endfunction
 
-  function automatic longint uval(input logic [31:0] x, input int w);
+  function automatic longint uval(input logic [ELEN-1:0] x, input int w);
     uval = longint'({32'd0, x}) & umask(w);
   endfunction
 
-  function automatic longint sval(input logic [31:0] x, input int w);
+  function automatic longint sval(input logic [ELEN-1:0] x, input int w);
     longint u;
     u = uval(x, w);
     sval = u[w-1] ? (u - (64'sd1 <<< w)) : u;
@@ -79,8 +79,9 @@ module vec_sat_lane_tb
   endfunction
 
   // Reference model
-  task automatic ref_lane(input vec_op_e o, input int w, input logic [31:0] x, input logic [31:0] y,
-                          input logic [1:0] mode, output logic [31:0] res, output logic s);
+  task automatic ref_lane(input vec_op_e o, input int w, input logic [ELEN-1:0] x,
+                          input logic [ELEN-1:0] y, input logic [1:0] mode,
+                          output logic [ELEN-1:0] res, output logic s);
     longint ux;
     longint uy;
     longint sx;
@@ -154,27 +155,27 @@ module vec_sat_lane_tb
         end
       end
     endcase
-    if ((o == VEC_NCLIPU || o == VEC_NCLIP) && w == 32) begin
+    if ((o == VEC_NCLIPU || o == VEC_NCLIP) && w == ELEN) begin
       t = 0;
       s = 1'b0;
     end
-    res = 32'(t & umask(w));
+    res = ELEN'(t & umask(w));
   endtask
 
   // Product with junk
-  function automatic logic [63:0] full_product(input logic [31:0] x, input logic [31:0] y,
-                                               input int w);
-    logic [63:0] keep;
-    logic [63:0] prod;
-    keep = (w == 32) ? '1 : 64'(umask(2 * w));
-    prod = 64'(sval(x, w) * sval(y, w));
+  function automatic logic [2*ELEN-1:0] full_product(input logic [ELEN-1:0] x,
+                                                     input logic [ELEN-1:0] y, input int w);
+    logic [2*ELEN-1:0] keep;
+    logic [2*ELEN-1:0] prod;
+    keep = (w == ELEN) ? '1 : (2 * ELEN)'(umask(2 * w));
+    prod = (2 * ELEN)'(sval(x, w) * sval(y, w));
     full_product = (prod & keep) | ({$urandom, $urandom} & ~keep);
   endfunction
 
   // One check
   task automatic check(input vec_op_e o, input logic [2:0] sew, input logic [1:0] mode,
-                       input logic [31:0] x, input logic [31:0] y);
-    logic [31:0] exp_res;
+                       input logic [ELEN-1:0] x, input logic [ELEN-1:0] y);
+    logic [ELEN-1:0] exp_res;
     logic exp_sat;
     op = o;
     vsew = sew;
@@ -223,22 +224,22 @@ module vec_sat_lane_tb
   endtask
 
   // Edge values
-  function automatic logic [31:0] edge_val(input int idx, input int w);
+  function automatic logic [ELEN-1:0] edge_val(input int idx, input int w);
     longint m;
     m = umask(w);
     case (idx)
-      0: edge_val = 32'(0);
-      1: edge_val = 32'(1);
-      2: edge_val = 32'(2);
-      3: edge_val = 32'(m);
-      4: edge_val = 32'(m - 1);
-      5: edge_val = 32'(m >> 1);
-      6: edge_val = 32'((m >> 1) + 1);
-      7: edge_val = 32'((m >> 1) - 1);
-      8: edge_val = 32'((m >> 1) + 2);
-      9: edge_val = 32'(w - 1);
-      10: edge_val = 32'(3);
-      default: edge_val = 32'(m >> 2);
+      0: edge_val = ELEN'(0);
+      1: edge_val = ELEN'(1);
+      2: edge_val = ELEN'(2);
+      3: edge_val = ELEN'(m);
+      4: edge_val = ELEN'(m - 1);
+      5: edge_val = ELEN'(m >> 1);
+      6: edge_val = ELEN'((m >> 1) + 1);
+      7: edge_val = ELEN'((m >> 1) - 1);
+      8: edge_val = ELEN'((m >> 1) + 2);
+      9: edge_val = ELEN'(w - 1);
+      10: edge_val = ELEN'(3);
+      default: edge_val = ELEN'(m >> 2);
     endcase
   endfunction
 
