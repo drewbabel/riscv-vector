@@ -324,6 +324,11 @@ module vec_issue_tb
     instr_valid = 1'b1;
     #1;
     while (vec_hold) @(negedge clk);
+    checks = checks + 1;
+    if (!cancel && !dut.accept) begin
+      errors = errors + 1;
+      $display("FAIL released without accept at %0t", $time);
+    end
     @(posedge clk);
     #1 instr_valid = 1'b0;
     cancel = 1'b0;
