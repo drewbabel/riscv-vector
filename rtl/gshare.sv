@@ -3,7 +3,7 @@
 module gshare
   import bp_pkg::*;
 #(
-    parameter int XLEN = 32
+    parameter int XLEN = arch_pkg::XLEN
 ) (
     input wire clk,
     input wire core_en,
@@ -24,8 +24,7 @@ module gshare
   logic [         1:0] pht [PhtDepth];
 
   // Weakly not taken cold state
-  initial
-    for (int i = 0; i < PhtDepth; i++) pht[i] = 2'b01;
+  initial for (int i = 0; i < PhtDepth; i++) pht[i] = 2'b01;
 
   assign predict_index = ($bits(predict_index))'(predict_pc >> 2) ^ ghr;
 

@@ -1,7 +1,7 @@
 `default_nettype none
 
 module pc #(
-    parameter int XLEN = 32,
+    parameter int XLEN = arch_pkg::XLEN,
     parameter logic [XLEN-1:0] RESET_ADDR = '0
 ) (
     input  wire             clk,

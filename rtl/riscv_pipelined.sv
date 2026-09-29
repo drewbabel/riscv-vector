@@ -4,73 +4,77 @@ module riscv_pipelined
   import alu_pkg::*;
   import cache_pkg::*;
 #(
-    parameter int XLEN      = 32,
-    parameter bit GSHARE_EN = 1'b1
+    parameter  int XLEN      = arch_pkg::XLEN,
+    parameter  int VLEN      = arch_pkg::VLEN,
+    parameter  bit GSHARE_EN = 1'b1,
+    localparam int VlW       = $clog2(VLEN + 1),
+    localparam int VstartW   = $clog2(VLEN),
+    localparam int StrbW     = XLEN / 8
 ) (
 `ifdef RISCV_FORMAL
-    output logic                 dbg_valid,
-    output logic [     XLEN-1:0] dbg_insn,
-    output logic [     XLEN-1:0] dbg_pc_rdata,
-    output logic [     XLEN-1:0] dbg_pc_wdata,
-    output logic [     XLEN-1:0] dbg_rs1_rdata,
-    output logic [     XLEN-1:0] dbg_rs2_rdata,
-    output logic [     XLEN-1:0] dbg_rd_wdata,
-    output logic                 dbg_reg_write,
-    output logic [     XLEN-1:0] dbg_mem_addr,
-    output logic [          3:0] dbg_mem_wmask,
-    output logic [     XLEN-1:0] dbg_mem_wdata,
-    output logic [     XLEN-1:0] dbg_mem_rdata,
-    output logic                 dbg_trap,
-    output logic [     XLEN-1:0] dbg_csr_wdata,
-    output logic [     XLEN-1:0] dbg_mscratch,
-    output logic [     XLEN-1:0] dbg_mstatus,
-    output logic [     XLEN-1:0] dbg_mtvec,
-    output logic [     XLEN-1:0] dbg_mepc,
-    output logic [     XLEN-1:0] dbg_mcause,
-    output logic [     XLEN-1:0] dbg_mtval,
-    output logic [     XLEN-1:0] dbg_mie,
-    output logic [     XLEN-1:0] dbg_mip,
-    output logic [     XLEN-1:0] dbg_mcycle,
-    output logic [     XLEN-1:0] dbg_minstret,
-    output logic [     XLEN-1:0] dbg_mcycleh,
-    output logic [     XLEN-1:0] dbg_minstreth,
-    output logic [          7:0] dbg_vl,
-    output logic [          7:0] dbg_vtype_bits,
-    output logic                 dbg_vtype_ill,
-    output logic [          6:0] dbg_vstart,
-    output logic [          7:0] dbg_vec_tag,
-    output logic                 dbg_vec_retire,
-    output logic [         31:0] dbg_vec_wregs,
-    output logic                 dbg_vec_idle,
-    output logic                 dbg_ex_commit,
-    output logic [     XLEN-1:0] dbg_ex_insn,
-    output logic                 dbg_s_take,
-    output logic                 dbg_v_take,
+    output logic                         dbg_valid,
+    output logic [             XLEN-1:0] dbg_insn,
+    output logic [             XLEN-1:0] dbg_pc_rdata,
+    output logic [             XLEN-1:0] dbg_pc_wdata,
+    output logic [             XLEN-1:0] dbg_rs1_rdata,
+    output logic [             XLEN-1:0] dbg_rs2_rdata,
+    output logic [             XLEN-1:0] dbg_rd_wdata,
+    output logic                         dbg_reg_write,
+    output logic [             XLEN-1:0] dbg_mem_addr,
+    output logic [            StrbW-1:0] dbg_mem_wmask,
+    output logic [             XLEN-1:0] dbg_mem_wdata,
+    output logic [             XLEN-1:0] dbg_mem_rdata,
+    output logic                         dbg_trap,
+    output logic [             XLEN-1:0] dbg_csr_wdata,
+    output logic [             XLEN-1:0] dbg_mscratch,
+    output logic [             XLEN-1:0] dbg_mstatus,
+    output logic [             XLEN-1:0] dbg_mtvec,
+    output logic [             XLEN-1:0] dbg_mepc,
+    output logic [             XLEN-1:0] dbg_mcause,
+    output logic [             XLEN-1:0] dbg_mtval,
+    output logic [             XLEN-1:0] dbg_mie,
+    output logic [             XLEN-1:0] dbg_mip,
+    output logic [             XLEN-1:0] dbg_mcycle,
+    output logic [             XLEN-1:0] dbg_minstret,
+    output logic [             XLEN-1:0] dbg_mcycleh,
+    output logic [             XLEN-1:0] dbg_minstreth,
+    output logic [              VlW-1:0] dbg_vl,
+    output logic [                  7:0] dbg_vtype_bits,
+    output logic                         dbg_vtype_ill,
+    output logic [          VstartW-1:0] dbg_vstart,
+    output logic [                  7:0] dbg_vec_tag,
+    output logic                         dbg_vec_retire,
+    output logic [arch_pkg::NumRegs-1:0] dbg_vec_wregs,
+    output logic                         dbg_vec_idle,
+    output logic                         dbg_ex_commit,
+    output logic [             XLEN-1:0] dbg_ex_insn,
+    output logic                         dbg_s_take,
+    output logic                         dbg_v_take,
 `endif
-    input  wire                  clk,
-    input  wire                  core_en,
-    input  wire                  rst_n,
-    input  wire  [     XLEN-1:0] instr,
-    input  wire  [ LineBits-1:0] read_data,
-    input  wire                  timer_irq,
-    input  wire                  ext_irq,
-    input  wire                  imem_ready,
-    input  wire                  dmem_ready,
-    output logic                 dmem_req,
-    output logic [     XLEN-1:0] pc,
-    output logic                 mem_write,
-    output logic [     XLEN-1:0] alu_result,
-    output logic [     XLEN-1:0] write_data,
-    output logic [LineBytes-1:0] store_wstrb,
-    output logic [ LineBits-1:0] store_data,
-    output logic [     XLEN-1:0] mem_addr
+    input  wire                          clk,
+    input  wire                          core_en,
+    input  wire                          rst_n,
+    input  wire  [             XLEN-1:0] instr,
+    input  wire  [         LineBits-1:0] read_data,
+    input  wire                          timer_irq,
+    input  wire                          ext_irq,
+    input  wire                          imem_ready,
+    input  wire                          dmem_ready,
+    output logic                         dmem_req,
+    output logic [             XLEN-1:0] pc,
+    output logic                         mem_write,
+    output logic [             XLEN-1:0] alu_result,
+    output logic [             XLEN-1:0] write_data,
+    output logic [        LineBytes-1:0] store_wstrb,
+    output logic [         LineBits-1:0] store_data,
+    output logic [             XLEN-1:0] mem_addr
 );
 
   logic                 s_req;
   logic                 s_ready;
   logic [     XLEN-1:0] s_addr;
   logic [     XLEN-1:0] s_wdata;
-  logic [          3:0] s_wstrb;
+  logic [    StrbW-1:0] s_wstrb;
   logic                 v_req;
   logic                 v_ready;
   logic [     XLEN-1:0] v_addr;
@@ -82,6 +86,7 @@ module riscv_pipelined
 
   datapath #(
       .XLEN     (XLEN),
+      .VLEN     (VLEN),
       .GSHARE_EN(GSHARE_EN)
   ) datapath_inst (
 `ifdef RISCV_FORMAL
