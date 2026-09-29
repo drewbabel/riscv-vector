@@ -4,7 +4,11 @@ module cosim ();
 
   int checks = 0;
 
-  localparam int Xlen  = 32;
+  localparam int Xlen = arch_pkg::XLEN;
+  localparam int Vlen = arch_pkg::VLEN;
+  localparam int Vregs = arch_pkg::NumRegs;
+  localparam int VlW = $clog2(Vlen + 1);
+  localparam int VstartW = $clog2(Vlen);
   localparam int Depth = 256;
 
   logic             clk = 1'b0;
@@ -33,19 +37,19 @@ module cosim ();
   );
 
   // RVFI retirement taps
-  logic            r_valid;
-  logic            r_trap;
-  logic [Xlen-1:0] r_pc;
-  logic [Xlen-1:0] r_insn;
-  logic [Xlen-1:0] r_wdata;
-  logic            r_rw;
-  logic [Xlen-1:0] r_maddr;
-  logic [     3:0] r_wmask;
-  logic [Xlen-1:0] r_sdata;
-  logic [     7:0] r_vl;
-  logic [     7:0] r_vtype_bits;
-  logic            r_vtype_ill;
-  logic [     6:0] r_vstart;
+  logic               r_valid;
+  logic               r_trap;
+  logic [   Xlen-1:0] r_pc;
+  logic [   Xlen-1:0] r_insn;
+  logic [   Xlen-1:0] r_wdata;
+  logic               r_rw;
+  logic [   Xlen-1:0] r_maddr;
+  logic [ Xlen/8-1:0] r_wmask;
+  logic [   Xlen-1:0] r_sdata;
+  logic [    VlW-1:0] r_vl;
+  logic [        7:0] r_vtype_bits;
+  logic               r_vtype_ill;
+  logic [VstartW-1:0] r_vstart;
   assign r_valid = dut.riscv_pipelined_inst.dbg_valid;
   assign r_trap = dut.riscv_pipelined_inst.dbg_trap;
   assign r_pc    = dut.riscv_pipelined_inst.dbg_pc_rdata;
@@ -61,14 +65,11 @@ module cosim ();
   assign r_vstart = dut.riscv_pipelined_inst.dbg_vstart;
 
   // Vector retirement taps
-  localparam int Vlen  = 128;
-  localparam int Vregs = 32;
-
-  logic [     7:0] r_vtag;
-  logic            r_vretire;
-  logic [    31:0] r_vwregs;
-  logic            r_vidle;
-  logic [Vlen-1:0] vpeek     [Vregs];
+  logic [      7:0] r_vtag;
+  logic             r_vretire;
+  logic [Vregs-1:0] r_vwregs;
+  logic             r_vidle;
+  logic [ Vlen-1:0] vpeek     [Vregs];
 
   assign r_vtag = dut.riscv_pipelined_inst.dbg_vec_tag;
   assign r_vretire = dut.riscv_pipelined_inst.dbg_vec_retire;

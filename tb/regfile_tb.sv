@@ -2,9 +2,9 @@
 
 module regfile_tb ();
 
-  localparam int AWIDTH = 5;
-  localparam int XLEN = 32;
-  localparam int Depth = 2 ** AWIDTH;
+  localparam int AWIDTH = arch_pkg::RegAddrW;
+  localparam int XLEN   = arch_pkg::XLEN;
+  localparam int Depth  = 2 ** AWIDTH;
 
   int checks = 0;
   int errors = 0;

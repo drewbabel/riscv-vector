@@ -7,8 +7,8 @@ module alu_tb
   int checks = 0;
   int error_count = 0;
 
-  localparam int XLEN = 32;
-  localparam int SHAMT = $clog2(XLEN);  // Shift-amount width
+  localparam int XLEN  = arch_pkg::XLEN;
+  localparam int SHAMT = $clog2(XLEN);    // Shift-amount width
 
   logic [XLEN-1:0] a;
   logic [XLEN-1:0] b;
