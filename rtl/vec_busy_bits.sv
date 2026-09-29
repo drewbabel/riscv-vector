@@ -18,7 +18,8 @@ module vec_busy_bits #(
     input  wire               masked,
     input  wire               clear,
     input  wire  [ AddrW-1:0] clear_addr,
-    output logic              ready
+    output logic              ready,
+    output logic              any
 );
 
   // Group to bits
@@ -39,6 +40,7 @@ module vec_busy_bits #(
   assign vd_bits = group(vd, vd_regs);
   assign need = vd_bits | group(vs1, vs1_regs) | group(vs2, vs2_regs) | NREGS'(masked);
   assign ready = !(|(busy & need));
+  assign any = |busy;
   assign clear_bits = NREGS'(clear) << clear_addr;
 
   always_ff @(posedge clk) begin
