@@ -67,6 +67,11 @@ module vec_sequencer
   localparam int DbW   = $clog2(ELEN + 1);
   localparam int DiffW = VlW + 1;
 
+  // Lanes power of two
+  if (MUL_LANES != (1 << MulLn)) begin : g_mul_lanes
+    $error("MUL_LANES must be a power of two");
+  end
+
   // Element widths
   logic [    2:0] lsew;
   logic [    2:0] ld;
