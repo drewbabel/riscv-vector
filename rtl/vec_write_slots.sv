@@ -12,7 +12,7 @@ module vec_write_slots #(
     output logic              free
 );
 
-  logic [DEPTH:0] booked;  // Index zero stays defined
+  logic [(1<<DepthW)-1:0] booked;  // Slot per depth
   assign free = !booked[depth];
 
   always_ff @(posedge clk) begin
