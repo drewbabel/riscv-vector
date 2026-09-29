@@ -3,7 +3,7 @@
 module dmem
   import cache_pkg::*;
 #(
-    parameter  int XLEN     = 32,
+    parameter  int XLEN     = arch_pkg::XLEN,
     parameter  int DEPTH    = 64,
     localparam int Lines    = DEPTH / LineWords,
     localparam int LineIdxW = $clog2(Lines)

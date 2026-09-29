@@ -3,7 +3,7 @@
 module mem_word_if
   import cache_pkg::*;
 #(
-    parameter  int XLEN     = 32,
+    parameter  int XLEN     = arch_pkg::XLEN,
     parameter  bit RW       = 1'b0,
     parameter  int CPU_W    = XLEN,
     localparam int CpuBytes = CPU_W / 8
@@ -50,7 +50,7 @@ module mem_word_if
   logic [BlkOffLen-1:0] req_word;
   logic                 done;
 
-  assign req_word  = req_addr[IdxLsb-1 : 2];
+  assign req_word  = req_addr[IdxLsb-1 : WordLsb];
   assign done      = (state == ACCESS) && mem_ready;
 
   // Response cycle only

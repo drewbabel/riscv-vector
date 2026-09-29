@@ -3,7 +3,7 @@
 module mem_arb
   import cache_pkg::*;
 #(
-    parameter int XLEN = 32,
+    parameter int XLEN = arch_pkg::XLEN,
     parameter int APP_ADDR_WIDTH = 29,
     localparam int MaskBits = LineBits / 8
 ) (
@@ -126,7 +126,7 @@ module mem_arb
         ISSUE: begin
           // Latch newest values
           if (!cmd_done) begin
-            app_addr <= {req_addr[APP_ADDR_WIDTH-1:4], 4'h0};
+            app_addr <= {req_addr[APP_ADDR_WIDTH-1:IdxLsb], {IdxLsb{1'b0}}};
             app_cmd <= req_rw ? AppWrite : AppRead;
             app_wdf_data <= req_wdata;
             app_wdf_mask <= req_mask;
