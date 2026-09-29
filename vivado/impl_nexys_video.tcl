@@ -16,10 +16,6 @@ file delete -force $ipdir
 file mkdir $ipdir
 
 set src [file join $root rtl boards nexys_video board_top.sv]
-set dst [file join $outdir board_top_div${clkdiv}.sv]
-set fh [open $src r]; set txt [read $fh]; close $fh
-regsub {parameter int ClkDiv = [0-9]+} $txt "parameter int ClkDiv = $clkdiv" txt
-set fh [open $dst w]; puts $fh $txt; close $fh
 
 create_project -in_memory -part $part
 
@@ -41,10 +37,11 @@ foreach f [lsort [glob [file join $root rtl *.sv]]] {
 read_verilog -sv $pkgs
 read_verilog -sv $rest
 if {$single} { read_verilog -sv [lsort [glob [file join $root rtl single_cycle *.sv]]] }
-read_verilog -sv $dst
+read_verilog -sv $src
 read_xdc [file join $root constraints nexys_video.xdc]
 
 synth_design -top board_top -part $part -verilog_define SYNTHESIS \
+             -generic ClkDiv=$clkdiv \
              -generic UNCACHED=$uncached -generic GSHARE_EN=$gshare \
              -generic SINGLE_CYCLE=$single
 opt_design

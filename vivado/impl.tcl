@@ -8,10 +8,6 @@ set outdir [file join $root vivado build]
 file mkdir $outdir
 
 set src [file join $root rtl boards basys3 board_top.sv]
-set dst [file join $outdir board_top_div${clkdiv}.sv]
-set fh [open $src r]; set txt [read $fh]; close $fh
-regsub {parameter int ClkDiv = [0-9]+} $txt "parameter int ClkDiv = $clkdiv" txt
-set fh [open $dst w]; puts $fh $txt; close $fh
 
 set pkgs {}
 set rest {}
@@ -21,10 +17,11 @@ foreach f [lsort [glob [file join $root rtl *.sv]]] {
 }
 read_verilog -sv $pkgs
 read_verilog -sv $rest
-read_verilog -sv $dst
+read_verilog -sv $src
 read_xdc [file join $root constraints basys3.xdc]
 
-synth_design -top board_top -part $part -verilog_define SYNTHESIS
+synth_design -top board_top -part $part -verilog_define SYNTHESIS \
+             -generic ClkDiv=$clkdiv
 opt_design
 
 set seq  [get_cells -hier -quiet -filter {IS_SEQUENTIAL}]
