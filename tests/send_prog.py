@@ -32,7 +32,7 @@ def main():
     if not 1 <= len(words) <= 4194304:
         sys.exit(
             f"word count {len(words)} out of range 1..4194304 "
-            "(nexys_video ceiling; basys3 block RAM caps at 16384)"
+            "(nexys_video ceiling)"
         )
     ser = serial.Serial(port, 28800, timeout=1)
     ser.write(len(words).to_bytes(4, "little"))  # 4-byte count, LSB-first
