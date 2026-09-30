@@ -53,6 +53,10 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
     exit 1
 fi
 
+info_print "Installing git hooks"
+git config core.hooksPath .githooks || exit 1
+chmod +x .githooks/* 2>/dev/null
+
 info_print "Editor settings live in .vscode and .editorconfig"
 info_print "Accept the extension recommendations when VS Code prompts"
 
@@ -61,7 +65,7 @@ report_optional
 if check_required; then
     success_print "riscv-vector setup complete"
 else
-    warn_print "Editor settings are in place"
+    warn_print "Git hooks and editor settings are installed"
     warn_print "Install the tools listed above before building"
     exit 1
 fi

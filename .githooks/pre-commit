@@ -1,0 +1,20 @@
+#!/bin/sh
+# Format staged SystemVerilog
+files=$(git diff --cached --name-only --diff-filter=AM -- '*.sv' '*.v')
+[ -z "$files" ] && exit 0
+if ! command -v verible-verilog-format > /dev/null 2>&1; then
+    echo "pre-commit: verible-verilog-format not found, committing unformatted" >&2
+    exit 0
+fi
+for f in $files; do
+    if [ -n "$(git diff --name-only -- "$f")" ]; then
+        echo "pre-commit: $f is partially staged, stage or stash the rest before committing" >&2
+        exit 1
+    fi
+done
+verible-verilog-format --inplace $files || exit 1
+git add $files
+if git diff --cached --quiet; then
+    echo "pre-commit: nothing left to commit after formatting" >&2
+    exit 1
+fi
