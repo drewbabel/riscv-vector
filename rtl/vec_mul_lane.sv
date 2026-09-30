@@ -21,8 +21,8 @@ module vec_mul_lane
   } vsew_e;
 
 
-  logic signed [ELEN:0] mult_a, mult_b;     //33 bit
-  logic signed [2*ELEN+1:0] full_product;   //66 bit
+  logic signed [ELEN:0] mult_a, mult_b;     //ELEN+1 bit
+  logic signed [2*ELEN+1:0] full_product;   //2*(ELEN+1) bit
 
   //multiplicand and multiplier assign combinational blcok
   always_comb begin
@@ -80,18 +80,18 @@ module vec_mul_lane
       SEW_32: begin
         case (op)
           VEC_MUL, VEC_MULH: begin
-            mult_a = {a[31], a[31:0]};
-            mult_b = {b[31], b[31:0]};
+            mult_a = {{(ELEN+1-32){a[31]}}, a[31:0]};
+            mult_b = {{(ELEN+1-32){b[31]}}, b[31:0]};
           end
 
           VEC_MULHU: begin
-            mult_a = {1'b0, a[31:0]};
-            mult_b = {1'b0, b[31:0]};
+            mult_a = {{(ELEN+1-32){1'b0}}, a[31:0]};
+            mult_b = {{(ELEN+1-32){1'b0}}, b[31:0]};
           end
 
           VEC_MULHSU: begin
-            mult_a = {a[31], a[31:0]};
-            mult_b = {1'b0, b[31:0]};
+            mult_a = {{(ELEN+1-32){a[31]}}, a[31:0]};
+            mult_b = {{(ELEN+1-32){1'b0}}, b[31:0]};
           end
 
           default: begin
