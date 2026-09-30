@@ -1,9 +1,9 @@
 `default_nettype none
 
 module synchronizer (
-    input  logic clk,
-    input  logic core_en,
-    input  logic d,
+    input  wire  clk,
+    input  wire  core_en,
+    input  wire  d,
     output logic q
 );
 

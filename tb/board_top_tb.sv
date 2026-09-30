@@ -12,16 +12,17 @@ module board_top_tb ();
   logic        uart_rx = 1'b1;
   logic        uart_tx;
 
-  localparam int FastClkHz = 100_000_000;
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int FastClkHz = arch_pkg::BoardClkHz;
   localparam int ClkDiv = 32;
   localparam int CoreClkHz = FastClkHz / ClkDiv;
-  localparam int BaudRate = 28_800;
+  localparam int BaudRate = arch_pkg::BaudRate;
 
   // Bit period
   localparam int ClksPerBit = (FastClkHz + BaudRate / 2) / BaudRate;
 
   localparam int NWords = 12;
-  logic [31:0] prog[NWords];
+  logic [XLEN-1:0] prog[NWords];
 
   always #5 clk = ~clk;
 
@@ -57,8 +58,8 @@ module board_top_tb ();
     repeat (ClksPerBit) @(posedge clk);
   endtask
 
-  task automatic send_word(input logic [31:0] w);
-    for (int j = 0; j < 32; j += 8) send_byte(w[j+:8]);
+  task automatic send_word(input logic [XLEN-1:0] w);
+    for (int j = 0; j < XLEN; j += 8) send_byte(w[j+:8]);
   endtask
 
   task automatic wait_led(input logic [15:0] exp, input int cycles);

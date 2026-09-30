@@ -2,7 +2,7 @@
 
 module pl_loaduse_tb ();
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 64;
   localparam int MaxCycles = 40;
 
@@ -13,8 +13,8 @@ module pl_loaduse_tb ();
   logic [Xlen-1:0] write_data;
   logic            mem_write;
 
-  int checks = 0;
-  int errors = 0;
+  int              checks = 0;
+  int              errors = 0;
 
   always #5 clk = ~clk;
 
@@ -60,7 +60,8 @@ module pl_loaduse_tb ();
 
     check("x3", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[3], 32'd42);
     check("x1", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[1], 32'd42);
-    check("x2", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[2], 32'd42);  // load-use stall
+    check("x2", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[2],
+          32'd42);  // load-use stall
 
     verdict();
   end

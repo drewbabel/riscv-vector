@@ -3,23 +3,23 @@
 module icache
   import cache_pkg::*;
 #(
-    parameter int XLEN = 32
+    parameter int XLEN = arch_pkg::XLEN
 ) (
-    input logic clk,
-    input logic core_en,
-    input logic rst_n,
+    input wire clk,
+    input wire core_en,
+    input wire rst_n,
 
     // Core
-    input  logic            cpu_valid,
-    input  logic [XLEN-1:0] cpu_addr,
+    input  wire             cpu_valid,
+    input  wire  [XLEN-1:0] cpu_addr,
     output logic [XLEN-1:0] cpu_rdata,
     output logic            cpu_ready,
 
     // Memory
     output logic                mem_valid,
     output logic [    XLEN-1:0] mem_addr,
-    input  logic [LineBits-1:0] mem_rdata,
-    input  logic                mem_ready,
+    input  wire  [LineBits-1:0] mem_rdata,
+    input  wire                 mem_ready,
 
     // Counters
     output logic [31:0] hit_count,
@@ -59,29 +59,29 @@ module icache
   logic                 fill;
   logic                 init_done;
 
-  assign addr_tag   = req_addr[XLEN-1 : XLEN-IcTagLen];
-  assign addr_idx   = req_addr[XLEN-IcTagLen-1 : XLEN-IcTagLen-IcIdxLen];
-  assign addr_word  = req_addr[XLEN-IcTagLen-IcIdxLen-1 : 2];
+  assign addr_tag  = req_addr[XLEN-1 : XLEN-IcTagLen];
+  assign addr_idx  = req_addr[XLEN-IcTagLen-1 : XLEN-IcTagLen-IcIdxLen];
+  assign addr_word = req_addr[XLEN-IcTagLen-IcIdxLen-1 : WordLsb];
 
-  assign rd_idx     = (state == IDLE) ? cpu_addr[IdxLsb+:IcIdxLen] : addr_idx;
-  assign fill       = (state == ALLOCATE) && mem_ready;
-  assign init_done  = (init_ctr == IcIdxLen'(IcSets - 1));
+  assign rd_idx    = (state == IDLE) ? cpu_addr[IdxLsb+:IcIdxLen] : addr_idx;
+  assign fill      = (state == ALLOCATE) && mem_ready;
+  assign init_done = (init_ctr == IcIdxLen'(IcSets - 1));
 
   // Fill bypasses read
-  assign tag_q      = fill_q ? fill_tag_q : tag_rd;
-  assign line_q     = fill_q ? fill_line_q : line_rd;
+  assign tag_q     = fill_q ? fill_tag_q : tag_rd;
+  assign line_q    = fill_q ? fill_line_q : line_rd;
 
-  assign hit        = tag_q[IcTagLen] && (tag_q[IcTagLen-1:0] == addr_tag);
-  assign cpu_rdata  = line_q[addr_word*32+:32];
+  assign hit       = tag_q[IcTagLen] && (tag_q[IcTagLen-1:0] == addr_tag);
+  assign cpu_rdata = line_q[addr_word*XLEN+:XLEN];
 
   // Walk clears valid
-  assign tag_we     = (state == INIT) || fill;
-  assign tag_widx   = (state == INIT) ? init_ctr : addr_idx;
-  assign tag_wdata  = (state == INIT) ? '0 : {1'b1, addr_tag};
+  assign tag_we    = (state == INIT) || fill;
+  assign tag_widx  = (state == INIT) ? init_ctr : addr_idx;
+  assign tag_wdata = (state == INIT) ? '0 : {1'b1, addr_tag};
 
-  assign cpu_ready  = (state == COMPARE) && hit;
-  assign mem_valid  = (state == ALLOCATE);
-  assign mem_addr   = {addr_tag, addr_idx, {IdxLsb{1'b0}}};
+  assign cpu_ready = (state == COMPARE) && hit;
+  assign mem_valid = (state == ALLOCATE);
+  assign mem_addr  = {addr_tag, addr_idx, {IdxLsb{1'b0}}};
 
   always_ff @(posedge clk) begin
     if (!rst_n) state <= INIT;

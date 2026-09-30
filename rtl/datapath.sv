@@ -2,15 +2,20 @@
 
 module datapath
   import alu_pkg::*;
+  import cache_pkg::*;
   import opcode_pkg::*;
   import muldiv_pkg::*;
   import bp_pkg::*;
   import csr_pkg::VxsatAddr;
   import csr_pkg::VcsrAddr;
 #(
-    parameter int XLEN      = 32,
-    parameter int VLEN      = 128,
-    parameter bit GSHARE_EN = 1'b1
+    parameter  int XLEN      = arch_pkg::XLEN,
+    parameter  int VLEN      = arch_pkg::VLEN,
+    parameter  bit GSHARE_EN = 1'b1,
+    localparam int VlW       = $clog2(VLEN + 1),
+    localparam int VstartW   = $clog2(VLEN),
+    localparam int StrbW     = XLEN / 8,
+    localparam int ByteOffW  = $clog2(StrbW)
 ) (
 `ifdef RISCV_FORMAL
     output logic            dbg_valid,
@@ -22,7 +27,7 @@ module datapath
     output logic [XLEN-1:0] dbg_rd_wdata,
     output logic            dbg_reg_write,
     output logic [XLEN-1:0] dbg_mem_addr,
-    output logic [     3:0] dbg_mem_wmask,
+    output logic [StrbW-1:0] dbg_mem_wmask,
     output logic [XLEN-1:0] dbg_mem_wdata,
     output logic [XLEN-1:0] dbg_mem_rdata,
     output logic            dbg_trap,
@@ -39,40 +44,45 @@ module datapath
     output logic [XLEN-1:0] dbg_minstret,
     output logic [XLEN-1:0] dbg_mcycleh,
     output logic [XLEN-1:0] dbg_minstreth,
-    output logic [     7:0] dbg_vl,
+    output logic [ VlW-1:0] dbg_vl,
     output logic [     7:0] dbg_vtype_bits,
     output logic            dbg_vtype_ill,
-    output logic [     6:0] dbg_vstart,
+    output logic [VstartW-1:0] dbg_vstart,
     output logic [     7:0] dbg_vec_tag,
     output logic            dbg_vec_retire,
-    output logic [    31:0] dbg_vec_wregs,
+    output logic [arch_pkg::NumRegs-1:0] dbg_vec_wregs,
     output logic            dbg_vec_idle,
     output logic            dbg_ex_commit,
     output logic [XLEN-1:0] dbg_ex_insn,
 `endif
-    input  logic            clk,
-    input  logic            core_en,
-    input  logic            rst_n,
-    input  logic [XLEN-1:0] instr,
-    input  logic [XLEN-1:0] read_data,
-    input  logic            timer_irq,
-    input  logic            ext_irq,
-    input  logic            imem_ready,
-    input  logic            dmem_ready,
+    input  wire             clk,
+    input  wire             core_en,
+    input  wire             rst_n,
+    input  wire  [XLEN-1:0] instr,
+    input  wire  [LineBits-1:0] read_line,
+    input  wire             timer_irq,
+    input  wire             ext_irq,
+    input  wire             imem_ready,
+    input  wire             dmem_ready,
     output logic            dmem_req,
     output logic [XLEN-1:0] pc,
     output logic            mem_write,
     output logic [XLEN-1:0] alu_result,
     output logic [XLEN-1:0] write_data,
-    output logic [     3:0] store_wstrb,
+    output logic [StrbW-1:0] store_wstrb,
     output logic [XLEN-1:0] store_data,
     output logic [XLEN-1:0] mem_addr,
-    input  logic            vmem_ready,
+    input  wire             vmem_ready,
     output logic            vmem_req,
     output logic [XLEN-1:0] vmem_addr,
-    output logic [XLEN-1:0] vmem_wdata,
-    output logic [     3:0] vmem_wstrb
+    output logic [ LineBits-1:0] vmem_wdata,
+    output logic [LineBytes-1:0] vmem_wstrb
 );
+
+  // Vector port is line
+  if (VLEN != LineBits) begin : g_vlen_line
+    $error("VLEN must equal LineBits");
+  end
 
   logic                   [    XLEN-1:0] pc_next;
   logic                   [    XLEN-1:0] pc_plus4;
@@ -86,6 +96,7 @@ module datapath
   logic                   [    XLEN-1:0] result;
   logic                   [    XLEN-1:0] result_ex;
   logic                   [    XLEN-1:0] load_data;
+  logic                   [    XLEN-1:0] read_data;
   logic                   [         7:0] ld_byte;
   logic                   [        15:0] ld_half;
 
@@ -623,9 +634,9 @@ module datapath
   end
 
   logic            is_vset;
-  logic [     7:0] vl_d;
+  logic [ VlW-1:0] vl_d;
   logic [XLEN-1:0] vtype_d;
-  logic [     7:0] vl_q;
+  logic [ VlW-1:0] vl_q;
   logic [XLEN-1:0] vtype_q;
   logic            exc_vec_encoding;
 
@@ -653,6 +664,7 @@ module datapath
 
   /* verilator lint_off PINCONNECTEMPTY */
   vec_unit #(
+      .XLEN(XLEN),
       .VLEN(VLEN)
   ) vec_unit_inst (
 `ifdef RISCV_FORMAL
@@ -679,7 +691,7 @@ module datapath
       .csr_wait   (vec_csr_wait),
       .vxrm       (vec_vxrm),
       .vxsat      (vec_vxsat),
-      .mem_rdata  (read_data),
+      .mem_rdata  (read_line),
       .mem_ready  (vmem_ready),
       .mem_req    (vmem_req),
       .mem_addr   (vmem_addr),
@@ -700,7 +712,7 @@ module datapath
 `ifdef RISCV_FORMAL
   logic [7:0] csr_vtype_bits;
   logic       csr_vtype_ill;
-  logic [6:0] csr_vstart;
+  logic [VstartW-1:0] csr_vstart;
 `endif
 
   csr #(
@@ -766,7 +778,7 @@ module datapath
   always_comb begin
     if (is_muldiv_ex) result_ex = muldiv_result;
     else if (vec_xreg_valid) result_ex = vec_xreg_result;
-    else if (is_vset) result_ex = {{XLEN - 8{1'b0}}, vl_d};
+    else if (is_vset) result_ex = {{XLEN - VlW{1'b0}}, vl_d};
     else if (csr_access_ex) result_ex = csr_rdata;
     else result_ex = alu_result;
   end
@@ -820,35 +832,38 @@ module datapath
   assign mem_write  = mem_write_mem;
   assign mem_addr   = alu_result_mem;
 
+  // Addressed word of line
+  assign read_data  = read_line[alu_result_mem[WordLsb+:BlkOffLen]*XLEN+:XLEN];
+
   // Memory access
   always_comb begin
     // Load data
-    ld_byte = read_data[{alu_result_mem[1:0], 3'b000}+:8];
-    ld_half = read_data[{alu_result_mem[1], 4'b0000}+:16];
+    ld_byte = read_data[{alu_result_mem[ByteOffW-1:0], 3'b000}+:8];
+    ld_half = read_data[{alu_result_mem[ByteOffW-1:1], 4'b0000}+:16];
     case (funct3_mem)
-      3'b000:  load_data = {{24{ld_byte[7]}}, ld_byte};  // lb
-      3'b100:  load_data = {24'b0, ld_byte};  // lbu
-      3'b001:  load_data = {{16{ld_half[15]}}, ld_half};  // lh
-      3'b101:  load_data = {16'b0, ld_half};  // lhu
+      3'b000:  load_data = XLEN'($signed(ld_byte));  // lb
+      3'b100:  load_data = XLEN'(ld_byte);  // lbu
+      3'b001:  load_data = XLEN'($signed(ld_half));  // lh
+      3'b101:  load_data = XLEN'(ld_half);  // lhu
       default: load_data = read_data;  // lw
     endcase
 
     // Store data
     store_data  = write_data_mem;
-    store_wstrb = 4'h0;
+    store_wstrb = '0;
     if (mem_write_mem) begin
       case (funct3_mem)
         3'b000: begin  // sb
-          store_data  = {4{write_data_mem[7:0]}};
-          store_wstrb = 4'b0001 << alu_result_mem[1:0];
+          store_data  = {StrbW{write_data_mem[7:0]}};
+          store_wstrb = StrbW'(1) << alu_result_mem[ByteOffW-1:0];
         end
         3'b001: begin  // sh
-          store_data  = {2{write_data_mem[15:0]}};
-          store_wstrb = 4'b0011 << alu_result_mem[1:0];
+          store_data  = {(StrbW / 2){write_data_mem[15:0]}};
+          store_wstrb = StrbW'(3) << alu_result_mem[ByteOffW-1:0];
         end
         3'b010: begin  // sw
           store_data  = write_data_mem;
-          store_wstrb = 4'b1111;
+          store_wstrb = '1;
         end
         default: ;
       endcase
@@ -900,13 +915,13 @@ module datapath
   logic [XLEN-1:0] rvfi_rs1d_mem, rvfi_rs1d_wb;
   logic [XLEN-1:0] rvfi_rs2d_mem, rvfi_rs2d_wb;
   logic [XLEN-1:0] rvfi_memrd_wb;
-  logic [     3:0] rvfi_wstrb_wb;
+  logic [StrbW-1:0] rvfi_wstrb_wb;
   logic [XLEN-1:0] rvfi_wdata_wb;
   logic rvfi_trap_mem, rvfi_trap_wb;
-  logic [     7:0] rvfi_vl_wb;
+  logic [ VlW-1:0] rvfi_vl_wb;
   logic [     7:0] rvfi_vtype_bits_wb;
   logic            rvfi_vtype_ill_wb;
-  logic [     6:0] rvfi_vstart_wb;
+  logic [VstartW-1:0] rvfi_vstart_wb;
 
   // Follows stage enables
   always_ff @(posedge clk) begin
@@ -980,7 +995,7 @@ module datapath
   (* keep *) logic [XLEN-1:0] dbg_rf_wdata;
   (* keep *) logic dbg_bus_req;
   (* keep *) logic [XLEN-1:0] dbg_bus_addr;
-  (* keep *) logic [3:0] dbg_bus_wstrb;
+  (* keep *) logic [StrbW-1:0] dbg_bus_wstrb;
   (* keep *) logic [XLEN-1:0] dbg_bus_wdata;
 
   assign dbg_pc_f      = pc;

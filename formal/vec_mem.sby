@@ -4,6 +4,8 @@ cover
 
 [options]
 prove: mode prove
+prove: depth 4
+prove: timeout 1800
 cover: mode cover
 cover: depth 40
 

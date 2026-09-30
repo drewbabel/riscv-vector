@@ -2,43 +2,48 @@
 
 module vec_mem_formal ();
 
-  localparam int VLEN = 128;
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int AWIDTH = arch_pkg::RegAddrW;
+  localparam int VLEN = arch_pkg::VLEN;
+  localparam int VlW = $clog2(VLEN + 1);
 
-  logic            clk;
+  logic              clk;
 
   // Free issue stimulus
-  (* anyseq *)logic            core_en;
-  (* anyseq *)logic            start;
-  (* anyseq *)logic            load;
-  (* anyseq *)logic            vm;
-  (* anyseq *)logic [     4:0] vd;
-  (* anyseq *)logic [     7:0] count;
-  (* anyseq *)logic [     1:0] width;
-  (* anyseq *)logic [    31:0] base;
-  (* anyseq *)logic [    31:0] stride;
+  (* anyseq *)logic              core_en;
+  (* anyseq *)logic              start;
+  (* anyseq *)logic              load;
+  (* anyseq *)logic              vm;
+  (* anyseq *)logic [AWIDTH-1:0] vd;
+  (* anyseq *)logic [   VlW-1:0] count;
+  (* anyseq *)logic [       1:0] width;
+  (* anyseq *)logic [  XLEN-1:0] base;
+  (* anyseq *)logic [  XLEN-1:0] stride;
 
   // Free register stimulus
-  (* anyseq *)logic [VLEN-1:0] v0;
-  (* anyseq *)logic [VLEN-1:0] rdata;
+  (* anyseq *)logic [  VLEN-1:0] v0;
+  (* anyseq *)logic [  VLEN-1:0] rdata;
 
   // Free memory stimulus
-  (* anyseq *)logic            mem_ready;
-  (* anyseq *)logic [    31:0] mem_rdata;
+  (* anyseq *)logic              mem_ready;
+  (* anyseq *)logic [  VLEN-1:0] mem_rdata;
 
-  logic [     4:0] raddr;
-  logic            wen;
-  logic [VLEN-1:0] wstrb;
-  logic [VLEN-1:0] wdata;
-  logic            mem_req;
-  logic [    31:0] mem_addr;
-  logic [    31:0] mem_wdata;
-  logic [     3:0] mem_wstrb;
-  logic            busy;
-  logic            done;
+  logic [AWIDTH-1:0] raddr;
+  logic              wen;
+  logic [  VLEN-1:0] wstrb;
+  logic [  VLEN-1:0] wdata;
+  logic              mem_req;
+  logic [  XLEN-1:0] mem_addr;
+  logic [  VLEN-1:0] mem_wdata;
+  logic [VLEN/8-1:0] mem_wstrb;
+  logic [   VlW-1:0] dbg_elem;
+  logic              dbg_n_ok;
+  logic              busy;
+  logic              done;
 
-  logic            rst_n;
-  logic [     1:0] t = 2'd0;
-  logic            f_past_valid = 1'b0;
+  logic              rst_n;
+  logic [       1:0] t = 2'd0;
+  logic              f_past_valid = 1'b0;
 
   initial assume (t == 2'd0);
   always @(posedge clk) begin
@@ -48,8 +53,12 @@ module vec_mem_formal ();
   assign rst_n = (t != 2'd0);
 
   vec_mem #(
-      .VLEN(VLEN)
+      .XLEN  (XLEN),
+      .AWIDTH(AWIDTH),
+      .VLEN  (VLEN)
   ) dut (
+      .dbg_elem(dbg_elem),
+      .dbg_n_ok(dbg_n_ok),
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en),
@@ -78,21 +87,21 @@ module vec_mem_formal ();
   );
 
   // Instruction tracker
-  logic       f_active;
-  logic [7:0] f_beats;
-  logic [7:0] f_count;
+  logic           f_active;
+  logic [VlW-1:0] f_beats;
+  logic [VlW-1:0] f_count;
 
   always @(posedge clk) begin
     if (!rst_n) begin
       f_active <= 1'b0;
-      f_beats  <= 8'd0;
+      f_beats  <= '0;
     end else if (core_en) begin
       if (!f_active && start) begin
         f_active <= 1'b1;
-        f_beats  <= 8'd0;
+        f_beats  <= '0;
         f_count  <= count;
       end else if (f_active) begin
-        if (mem_req && mem_ready) f_beats <= f_beats + 8'd1;
+        if (mem_req && mem_ready) f_beats <= f_beats + VlW'(1);
         if (done) f_active <= 1'b0;
       end
     end
@@ -119,9 +128,11 @@ module vec_mem_formal ();
     if (rst_n) begin
       if (f_active) assume (!start);
       assume (width != 2'd3);
-      if (width == 2'd0) assume (count <= 8'd128);
-      if (width == 2'd1) assume (count <= 8'd64);
-      if (width == 2'd2) assume (count <= 8'd32);
+      if (width == 2'd0) assume (count <= VlW'(VLEN));
+      if (width == 2'd1) assume (count <= VlW'(VLEN / 2));
+      if (width == 2'd2) assume (count <= VlW'(VLEN / 4));
+      if (width == 2'd2) assume (base[1:0] == 2'b00 && stride[1:0] == 2'b00);
+      if (width == 2'd1) assume (!base[0] && !stride[0]);
     end
 
   // Handshake safety
@@ -131,21 +142,23 @@ module vec_mem_formal ();
         assert (mem_req);
         assert (mem_addr == $past(mem_addr));
         assert (mem_wstrb == $past(mem_wstrb));
-        if (mem_wstrb != 4'h0) assert (mem_wdata == $past(mem_wdata));
+        if (mem_wstrb != '0) assert (mem_wdata == $past(mem_wdata));
       end
       if (!$past(core_en)) assert (done == $past(done));
+      if ($past(mem_req && mem_ready && core_en)) assert (dbg_elem > $past(dbg_elem));
     end
 
   // Beat accounting
   always @(posedge clk)
     if (rst_n) begin
-      assert (!mem_req || f_active);
-      assert (f_beats <= f_count || !f_active);
-      if (done) assert (f_active && f_beats == f_count);
-      if (f_active && f_beats == f_count) assert (!mem_req);
-      assert (mem_addr[1:0] == 2'b00);
-      if (load) assert (mem_wstrb == 4'h0);
+      if (mem_req) assert (f_active && dbg_elem < f_count);
+      if (done) assert (f_active && dbg_elem == f_count);
+      if (f_active) assert (dbg_elem <= f_count && f_count == count);
+      if (mem_req && width == 2'd2) assert (mem_addr[1:0] == 2'b00);
+      if (mem_req && width == 2'd1) assert (!mem_addr[0]);
+      if (load) assert (mem_wstrb == '0);
       if (wen) assert (load && mem_req && mem_ready);
+      assert (dbg_n_ok);
     end
 
   // Covers
@@ -154,6 +167,8 @@ module vec_mem_formal ();
       cover (done && f_count == 8'd0);
       cover (done && f_count == 8'd3 && !load && !vm);
       cover (done && f_count == 8'd4 && load && width == 2'd2);
+      cover (done && f_count == 8'd4 && f_beats == 8'd1 && width == 2'd2);
+      cover (done && f_count == 8'd4 && f_beats == 8'd2 && width == 2'd2 && stride == 32'd4);
       cover (mem_req && !mem_ready && $past(mem_req) && !$past(core_en));
     end
 

@@ -2,40 +2,42 @@
 
 module vec_config_tb ();
 
-  localparam int Xlen = 32;
-  localparam int Vlen = 128;
-  localparam int Elen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
+  localparam int Vlen = arch_pkg::VLEN;
+  localparam int Elen = arch_pkg::ELEN;
+  localparam int VlW = $clog2(Vlen + 1);
 
   localparam logic [6:0] OpcodeOpV = 7'b1010111;
   localparam logic [2:0] Funct3Opcfg = 3'b111;
-  localparam logic [31:0] Poison = 32'h8000_0000;
-  localparam logic [31:0] AllOnes = 32'hFFFF_FFFF;
+  localparam logic [Xlen-1:0] Poison = {1'b1, {Xlen - 1{1'b0}}};
+  localparam logic [Xlen-1:0] AllOnes = '1;
 
   localparam int FormVsetvli = 0;
   localparam int FormVsetivli = 1;
   localparam int FormVsetvl = 2;
 
-  int          checks = 0;
-  int          errors = 0;
+  int              checks = 0;
+  int              errors = 0;
 
-  logic [31:0] instr;
-  logic [31:0] rs1_data;
-  logic [31:0] rs2_data;
-  logic [ 7:0] vl_q;
-  logic [31:0] vtype_q;
-  logic        is_vset;
-  logic [ 7:0] vl_d;
-  logic [31:0] vtype_d;
+  logic [    31:0] instr;
+  logic [Xlen-1:0] rs1_data;
+  logic [Xlen-1:0] rs2_data;
+  logic [ VlW-1:0] vl_q;
+  logic [Xlen-1:0] vtype_q;
+  logic            is_vset;
+  logic [ VlW-1:0] vl_d;
+  logic [Xlen-1:0] vtype_d;
 
   typedef struct packed {
-    logic        is_vset;
-    logic [7:0]  vl;
-    logic [31:0] vtype;
+    logic            is_vset;
+    logic [VlW-1:0]  vl;
+    logic [Xlen-1:0] vtype;
   } answer_t;
 
   vec_config #(
       .XLEN(Xlen),
-      .VLEN(Vlen)
+      .VLEN(Vlen),
+      .ELEN(Elen)
   ) dut (
       .instr   (instr),
       .rs1_data(rs1_data),
@@ -69,22 +71,22 @@ module vec_config_tb ();
     endcase
   endfunction
 
-  function automatic int vlmax_of(input logic [31:0] vtype);
+  function automatic int vlmax_of(input logic [Xlen-1:0] vtype);
     return (lmul_num(vtype[2:0]) * Vlen) / (lmul_den(vtype[2:0]) * sew_of(vtype[5:3]));
   endfunction
 
-  function automatic logic ratio_bad(input logic [31:0] vtype);
+  function automatic logic ratio_bad(input logic [Xlen-1:0] vtype);
     return (sew_of(vtype[5:3]) * lmul_den(vtype[2:0])) / lmul_num(vtype[2:0]) > Elen;
   endfunction
 
-  function automatic answer_t model(input logic [31:0] i, input logic [31:0] r1,
-                                    input logic [31:0] r2, input logic [7:0] vlq,
-                                    input logic [31:0] vtq);
-    answer_t        a;
-    logic    [31:0] vt;
-    logic    [31:0] avl;
-    logic           keep;
-    logic           bad;
+  function automatic answer_t model(input logic [31:0] i, input logic [Xlen-1:0] r1,
+                                    input logic [Xlen-1:0] r2, input logic [VlW-1:0] vlq,
+                                    input logic [Xlen-1:0] vtq);
+    answer_t            a;
+    logic    [Xlen-1:0] vt;
+    logic    [Xlen-1:0] avl;
+    logic               keep;
+    logic               bad;
 
     a.is_vset = 1'b0;
     a.vl      = vlq;
@@ -95,33 +97,34 @@ module vec_config_tb ();
 
     if (i[6:0] != OpcodeOpV || i[14:12] != Funct3Opcfg) return a;
 
-    if (i[31] == 1'b0) vt = {21'b0, i[30:20]};
-    else if (i[31:30] == 2'b11) vt = {22'b0, i[29:20]};
+    if (i[31] == 1'b0) vt = {{Xlen - 11{1'b0}}, i[30:20]};
+    else if (i[31:30] == 2'b11) vt = {{Xlen - 10{1'b0}}, i[29:20]};
     else if (i[31:25] == 7'b1000000) vt = r2;
     else return a;
 
     if (i[31:30] == 2'b11) begin
-      avl = {27'b0, i[19:15]};
+      avl = {{Xlen - 5{1'b0}}, i[19:15]};
     end else if (i[19:15] != 5'b0) begin
       avl = r1;
     end else if (i[11:7] != 5'b0) begin
       avl = AllOnes;
     end else begin
-      avl  = {24'b0, vlq};
+      avl  = {{Xlen - VlW{1'b0}}, vlq};
       keep = 1'b1;
     end
 
     a.is_vset = 1'b1;
 
-    bad = (vt[5:3] > 3'b010) || (vt[2:0] == 3'b100) || ratio_bad(vt) || (vt[30:8] != '0) || vt[31];
-    if (keep) bad = bad || vtq[31] || (vlmax_of(vt) != vlmax_of(vtq));
+    bad = (vt[5:3] > 3'($clog2(Elen / 8))) || (vt[2:0] == 3'b100) || ratio_bad(vt) ||
+        (vt[Xlen-2:8] != '0) || vt[Xlen-1];
+    if (keep) bad = bad || vtq[Xlen-1] || (vlmax_of(vt) != vlmax_of(vtq));
 
     if (bad) begin
-      a.vl    = 8'b0;
+      a.vl    = '0;
       a.vtype = Poison;
     end else begin
-      a.vl    = (avl < vlmax_of(vt)) ? avl[7:0] : 8'(vlmax_of(vt));
-      a.vtype = {24'b0, vt[7:0]};
+      a.vl    = (avl < vlmax_of(vt)) ? avl[VlW-1:0] : VlW'(vlmax_of(vt));
+      a.vtype = {{Xlen - 8{1'b0}}, vt[7:0]};
     end
     return a;
   endfunction
@@ -145,13 +148,13 @@ module vec_config_tb ();
     end
   endtask
 
-  task automatic set_state(input logic [7:0] vlq, input logic [31:0] vtq);
+  task automatic set_state(input logic [VlW-1:0] vlq, input logic [Xlen-1:0] vtq);
     vl_q    = vlq;
     vtype_q = vtq;
   endtask
 
   task automatic do_vsetvli(input logic [10:0] vt, input logic [4:0] rs1, input logic [4:0] rd,
-                            input logic [31:0] a, input string name);
+                            input logic [Xlen-1:0] a, input string name);
     rs1_data = a;
     instr    = {1'b0, vt, rs1, Funct3Opcfg, rd, OpcodeOpV};
     check(name);
@@ -163,8 +166,8 @@ module vec_config_tb ();
     check(name);
   endtask
 
-  task automatic do_vsetvl(input logic [31:0] vt, input logic [4:0] rs1, input logic [4:0] rd,
-                           input logic [31:0] a, input string name);
+  task automatic do_vsetvl(input logic [Xlen-1:0] vt, input logic [4:0] rs1, input logic [4:0] rd,
+                           input logic [Xlen-1:0] a, input string name);
     rs1_data = a;
     rs2_data = vt;
     instr    = {7'b1000000, 5'd2, rs1, Funct3Opcfg, rd, OpcodeOpV};
@@ -172,11 +175,11 @@ module vec_config_tb ();
   endtask
 
   task automatic do_form(input int form, input logic [8:0] vt, input logic [4:0] rs1,
-                         input logic [4:0] rd, input logic [31:0] a, input string name);
+                         input logic [4:0] rd, input logic [Xlen-1:0] a, input string name);
     case (form)
       FormVsetvli:  do_vsetvli({2'b0, vt}, rs1, rd, a, name);
       FormVsetivli: do_vsetivli({1'b0, vt}, a[4:0], rd, name);
-      default:      do_vsetvl({23'b0, vt}, rs1, rd, a, name);
+      default:      do_vsetvl({{Xlen - 9{1'b0}}, vt}, rs1, rd, a, name);
     endcase
   endtask
 
@@ -185,7 +188,7 @@ module vec_config_tb ();
     int unsigned vm;
     int unsigned targets[7];
     for (int v = 0; v < 512; v++) begin
-      vm = vlmax_of({23'b0, 9'(v)});
+      vm = vlmax_of({{Xlen - 9{1'b0}}, 9'(v)});
       targets[0] = 0;
       targets[1] = 1;
       targets[2] = (vm > 0) ? vm - 1 : 0;
@@ -194,7 +197,7 @@ module vec_config_tb ();
       targets[5] = 2 * vm;
       targets[6] = AllOnes;
       for (int t = 0; t < avl_cases; t++) begin
-        do_form(form, 9'(v), rs1, rd, 32'(targets[t]), $sformatf("%s vtype %0d avl %0d", tag, v, t
+        do_form(form, 9'(v), rs1, rd, Xlen'(targets[t]), $sformatf("%s vtype %0d avl %0d", tag, v, t
                 ));
       end
     end
@@ -233,7 +236,7 @@ module vec_config_tb ();
                  ));
     end
     do_vsetvl(32'h4000_0010, 5'd1, 5'd1, 32'd4, "vsetvl high reserved bit");
-    do_vsetvl(32'h8000_0010, 5'd1, 5'd1, 32'd4, "vsetvl poisoned argument");
+    do_vsetvl(Poison | Xlen'('h10), 5'd1, 5'd1, 32'd4, "vsetvl poisoned argument");
     do_vsetvl(Poison, 5'd1, 5'd1, 32'd4, "vsetvl poison bit alone");
   endtask
 

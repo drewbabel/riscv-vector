@@ -4,13 +4,13 @@ module sc_control_unit
   import alu_pkg::*;
   import csr_pkg::*;
 (
-    input  logic             [ 6:0] op,
-    input  logic             [ 2:0] funct3,
-    input  logic             [11:0] funct12,
-    input  logic                    funct7b5,
-    input  logic                    zero,
-    input  logic                    lt,
-    input  logic                    ltu,
+    input  wire              [ 6:0] op,
+    input  wire              [ 2:0] funct3,
+    input  wire              [11:0] funct12,
+    input  wire                     funct7b5,
+    input  wire                     zero,
+    input  wire                     lt,
+    input  wire                     ltu,
     output logic                    reg_write,
     output logic             [ 2:0] imm_src,
     output logic             [ 1:0] alu_a_src,

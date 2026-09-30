@@ -4,7 +4,7 @@ module pc_tb ();
   int checks = 0;
   int errors = 0;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam logic [Xlen-1:0] ResetAddr = '0;
 
   logic clk = 0;

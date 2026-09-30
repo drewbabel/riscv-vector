@@ -6,48 +6,50 @@ module csr_tb;
   int checks = 0;
   int errors = 0;
 
-  localparam int Xlen = 32;
-  localparam int Vlen = 128;
+  localparam int Xlen = arch_pkg::XLEN;
+  localparam int Vlen = arch_pkg::VLEN;
+  localparam int VlW = $clog2(Vlen + 1);
+  localparam int VstartW = $clog2(Vlen);
 
-  logic            clk;
-  logic            rst_n;
-  logic            csr_access;
-  logic [    11:0] csr_addr;
-  logic [     2:0] funct3;
-  logic [Xlen-1:0] rs1_data;
-  logic [     4:0] zimm;
-  logic [     4:0] src_spec = 5'd1;  // rs1 field
-  logic [Xlen-1:0] pc;
-  logic [Xlen-1:0] bad_addr;
-  logic            exc_illegal;
-  logic            exc_ecall;
-  logic            exc_ebreak;
-  logic            exc_instr_misaligned;
-  logic            exc_load_misaligned;
-  logic            exc_store_misaligned;
-  logic            is_mret;
-  logic            timer_irq;
-  logic            ext_irq;
-  logic [Xlen-1:0] csr_rdata;
-  logic            trap_taken;
-  logic [Xlen-1:0] trap_vector;
-  logic            mret_taken;
-  logic [Xlen-1:0] mepc_out;
+  logic               clk;
+  logic               rst_n;
+  logic               csr_access;
+  logic [       11:0] csr_addr;
+  logic [        2:0] funct3;
+  logic [   Xlen-1:0] rs1_data;
+  logic [        4:0] zimm;
+  logic [        4:0] src_spec = 5'd1;  // rs1 field
+  logic [   Xlen-1:0] pc;
+  logic [   Xlen-1:0] bad_addr;
+  logic               exc_illegal;
+  logic               exc_ecall;
+  logic               exc_ebreak;
+  logic               exc_instr_misaligned;
+  logic               exc_load_misaligned;
+  logic               exc_store_misaligned;
+  logic               is_mret;
+  logic               timer_irq;
+  logic               ext_irq;
+  logic [   Xlen-1:0] csr_rdata;
+  logic               trap_taken;
+  logic [   Xlen-1:0] trap_vector;
+  logic               mret_taken;
+  logic [   Xlen-1:0] mepc_out;
 
-  logic            is_vset;
-  logic [     7:0] vl_d;
-  logic [Xlen-1:0] vtype_d;
-  logic            is_vec_instr;
-  logic [     1:0] vec_vxrm;
-  logic            vec_vxsat;
-  logic            vec_csr_we;
-  logic [    11:0] vec_csr_waddr;
-  logic [Xlen-1:0] vec_csr_wdata;
-  logic [     7:0] vl_q;
-  logic [Xlen-1:0] vtype_q;
+  logic               is_vset;
+  logic [    VlW-1:0] vl_d;
+  logic [   Xlen-1:0] vtype_d;
+  logic               is_vec_instr;
+  logic [        1:0] vec_vxrm;
+  logic               vec_vxsat;
+  logic               vec_csr_we;
+  logic [       11:0] vec_csr_waddr;
+  logic [   Xlen-1:0] vec_csr_wdata;
+  logic [    VlW-1:0] vl_q;
+  logic [   Xlen-1:0] vtype_q;
 
-  logic [Xlen-1:0] exp_mscratch;
-  logic [     6:0] exp_vstart;
+  logic [   Xlen-1:0] exp_mscratch;
+  logic [VstartW-1:0] exp_vstart;
 
   initial clk = 0;
   always #5 clk = ~clk;
@@ -104,27 +106,27 @@ module csr_tb;
 
   // Idle inputs, reset
   task automatic do_reset();
-    csr_access   = 0;
-    csr_addr     = 0;
-    funct3       = 0;
-    rs1_data     = 0;
-    zimm         = 0;
-    pc           = 0;
-    bad_addr     = 0;
-    is_mret      = 0;
-    timer_irq    = 0;
-    ext_irq      = 0;
-    is_vset      = 0;
-    is_vec_instr = 0;
-    vec_vxrm = 2'd0;
-    vec_vxsat = 1'b0;
-    vl_d         = 0;
-    vtype_d      = 0;
-    {exc_illegal, exc_ecall, exc_ebreak} = 0;
+    csr_access                                                        = 0;
+    csr_addr                                                          = 0;
+    funct3                                                            = 0;
+    rs1_data                                                          = 0;
+    zimm                                                              = 0;
+    pc                                                                = 0;
+    bad_addr                                                          = 0;
+    is_mret                                                           = 0;
+    timer_irq                                                         = 0;
+    ext_irq                                                           = 0;
+    is_vset                                                           = 0;
+    is_vec_instr                                                      = 0;
+    vec_vxrm                                                          = 2'd0;
+    vec_vxsat                                                         = 1'b0;
+    vl_d                                                              = 0;
+    vtype_d                                                           = 0;
+    {exc_illegal, exc_ecall, exc_ebreak}                              = 0;
     {exc_instr_misaligned, exc_load_misaligned, exc_store_misaligned} = 0;
-    exp_mscratch = 0;
-    exp_vstart   = 0;
-    rst_n        = 0;
+    exp_mscratch                                                      = 0;
+    exp_vstart                                                        = 0;
+    rst_n                                                             = 0;
     @(posedge clk);
     @(posedge clk);
     rst_n = 1;
@@ -172,7 +174,7 @@ module csr_tb;
   endtask
 
   // One vector instruction
-  task automatic vec_instr(input logic set_cfg, input logic [7:0] next_vl,
+  task automatic vec_instr(input logic set_cfg, input logic [VlW-1:0] next_vl,
                            input logic [Xlen-1:0] next_vtype);
     #1;
     is_vec_instr = 1;
@@ -220,9 +222,9 @@ module csr_tb;
   endfunction
 
   // Bitwise reference
-  function automatic logic [6:0] model_vstart(input logic [2:0] op, input logic [6:0] cur,
-                                              input logic [Xlen-1:0] src);
-    for (int i = 0; i < 7; i++) begin
+  function automatic logic [VstartW-1:0] model_vstart(
+      input logic [2:0] op, input logic [VstartW-1:0] cur, input logic [Xlen-1:0] src);
+    for (int i = 0; i < VstartW; i++) begin
       case (op)
         Funct3Csrrw, Funct3Csrrwi: model_vstart[i] = src[i];
         Funct3Csrrs, Funct3Csrrsi: model_vstart[i] = cur[i] | src[i];
@@ -387,8 +389,7 @@ module csr_tb;
     csr_commit();
 
     csr_peek(MstatusAddr);
-    check("fixed_point_write_dirties", Xlen'(csr_rdata[MstatusVsLo+1:MstatusVsLo]),
-          Xlen'(VsDirty));
+    check("fixed_point_write_dirties", Xlen'(csr_rdata[MstatusVsLo+1:MstatusVsLo]), Xlen'(VsDirty));
     vec_vxrm  = 2'd0;
     vec_vxsat = 1'b0;
   endtask

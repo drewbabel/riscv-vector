@@ -2,6 +2,7 @@
 
 module vec_mul_lane
   import vec_pkg::*;
+<<<<<<< HEAD
 #(
   parameter int ELEN = 32
 ) (

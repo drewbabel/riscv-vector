@@ -2,18 +2,20 @@
 
 module vec_div_lane
   import vec_pkg::*;
-(
-    input  logic           clk,
-    input  logic           rst_n,
-    input  logic           core_en,
-    input  logic           start,
-    input  vec_op_e        op,
-    input  logic    [ 2:0] vsew,
-    input  logic    [31:0] a,
-    input  logic    [31:0] b,
-    output logic    [31:0] result,
-    output logic           busy,
-    output logic           done
+#(
+    parameter int ELEN = arch_pkg::ELEN
+) (
+    input  wire                     clk,
+    input  wire                     rst_n,
+    input  wire                     core_en,
+    input  wire                     start,
+    input  wire vec_op_e            op,
+    input  wire          [     2:0] vsew,
+    input  wire          [ELEN-1:0] a,
+    input  wire          [ELEN-1:0] b,
+    output logic         [ELEN-1:0] result,
+    output logic                    busy,
+    output logic                    done
 );
 
 endmodule

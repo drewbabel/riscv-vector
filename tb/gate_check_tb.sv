@@ -2,16 +2,19 @@
 
 module gate_check_tb ();
   import cache_pkg::*;
+  localparam int Xlen  = arch_pkg::XLEN;
   localparam int DEPTH = 16384, ClkDiv = 32, MaxChars = 2;
+  localparam int IdxW  = $clog2(DEPTH / LineWords);
   logic clk = 0, rst;
   logic [15:0] sw, led;
   logic uart_rx = 1, uart_tx;
-  logic [31:0] img[DEPTH];
+  logic [Xlen-1:0] img[DEPTH];
   logic [LineBits-1:0] pline;
   string hexfile;
   int nchars = 0;
   always #5 clk = ~clk;
   board_top #(
+      .XLEN  (Xlen),
       .DEPTH (DEPTH),
       .ClkDiv(ClkDiv)
   ) dut (
@@ -42,12 +45,12 @@ module gate_check_tb ();
     $readmemh(hexfile, img);
     if (img[0] == 32'h0) $fatal(1, "%s missing or empty", hexfile);
     for (int l = 0; l < DEPTH / LineWords; l++) begin
-      for (int w = 0; w < LineWords; w++) pline[32*w+:32] = img[l*LineWords+w];
+      for (int w = 0; w < LineWords; w++) pline[Xlen*w+:Xlen] = img[l*LineWords+w];
       @(negedge clk);
-      dut.imem_inst.u_line.bd_idx  = l;
+      dut.imem_inst.u_line.bd_idx  = IdxW'(l);
       dut.imem_inst.u_line.bd_data = pline;
       dut.imem_inst.u_line.bd_we   = 1'b1;
-      dut.dmem_inst.u_line.bd_idx  = l;
+      dut.dmem_inst.u_line.bd_idx  = IdxW'(l);
       dut.dmem_inst.u_line.bd_data = pline;
       dut.dmem_inst.u_line.bd_we   = 1'b1;
     end
@@ -55,7 +58,7 @@ module gate_check_tb ();
     dut.imem_inst.u_line.bd_we = 1'b0;
     dut.dmem_inst.u_line.bd_we = 1'b0;
     rst = 1;
-    sw  = 0;
+    sw = 0;
     repeat (2) @(posedge clk);
     rst = 0;
     force dut.loading = 1'b0;

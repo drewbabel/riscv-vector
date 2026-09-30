@@ -3,19 +3,21 @@
 module coremark_boot_tb ();
 
   import cache_pkg::*;
+  localparam int XLEN = arch_pkg::XLEN;
   localparam int DEPTH = 16384;
-  localparam int FastClkHz = 100_000_000;
+  localparam int IdxW = $clog2(DEPTH / LineWords);
+  localparam int FastClkHz = arch_pkg::BoardClkHz;
   localparam int ClkDiv = 32;
-  localparam int MemLat = 20;
+  localparam int MemLat = arch_pkg::MemLatency;
   localparam int CoreClkHz = FastClkHz / ClkDiv;
-  localparam int BaudRate = 28_800;
+  localparam int BaudRate = arch_pkg::BaudRate;
   localparam int ClksPerBit = (FastClkHz + BaudRate / 2) / BaudRate;
   localparam int RxBitFast = ((CoreClkHz + BaudRate / 2) / BaudRate) * ClkDiv;
 
   logic clk = 0, rst;
   logic [15:0] sw, led;
   logic uart_rx = 1, uart_tx;
-  logic [31:0] img[DEPTH];
+  logic [XLEN-1:0] img[DEPTH];
   logic [LineBits-1:0] pline;
 
   always #5 clk = ~clk;
@@ -68,12 +70,12 @@ module coremark_boot_tb ();
       $fatal(1, "coremark_sim.hex missing or empty, run make -C sw/coremark all");
     #1;  // After mem init
     for (int l = 0; l < DEPTH / LineWords; l++) begin
-      for (int w = 0; w < LineWords; w++) pline[32*w+:32] = img[l*LineWords+w];
+      for (int w = 0; w < LineWords; w++) pline[XLEN*w+:XLEN] = img[l*LineWords+w];
       @(negedge clk);
-      dut.imem_inst.u_line.bd_idx  = l;
+      dut.imem_inst.u_line.bd_idx  = IdxW'(l);
       dut.imem_inst.u_line.bd_data = pline;
       dut.imem_inst.u_line.bd_we   = 1'b1;
-      dut.dmem_inst.u_line.bd_idx  = l;
+      dut.dmem_inst.u_line.bd_idx  = IdxW'(l);
       dut.dmem_inst.u_line.bd_data = pline;
       dut.dmem_inst.u_line.bd_we   = 1'b1;
     end
@@ -81,11 +83,11 @@ module coremark_boot_tb ();
     dut.imem_inst.u_line.bd_we = 1'b0;
     dut.dmem_inst.u_line.bd_we = 1'b0;
     rst = 1;
-    sw  = 0;
+    sw = 0;
     repeat (2) @(posedge clk);
     rst = 0;
     repeat (2000) @(posedge clk);
-    repeat (4) send_byte(8'd0);
+    repeat (XLEN / 8) send_byte(8'd0);
 
     fork
       monitor();

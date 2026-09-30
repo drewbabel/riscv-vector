@@ -3,22 +3,23 @@
 module vec_mixed
   import vec_pkg::*;
 #(
-    parameter int DLEN = 128
+    parameter int DLEN = arch_pkg::VLEN,
+    parameter int XLEN = arch_pkg::XLEN
 ) (
-    input  vec_op_e             op,
-    input  vec_src_e            src,
-    input  vec_eew_e            eew,
-    input  logic     [     2:0] vsew,
-    input  logic     [DLEN-1:0] vs2_data,
-    input  logic     [DLEN-1:0] vs1_data,
-    input  logic     [    31:0] xdata,
-    input  logic     [     4:0] simm,
-    output logic     [DLEN-1:0] result
+    input  wire vec_op_e             op,
+    input  wire vec_src_e            src,
+    input  wire vec_eew_e            eew,
+    input  wire           [     2:0] vsew,
+    input  wire           [DLEN-1:0] vs2_data,
+    input  wire           [DLEN-1:0] vs1_data,
+    input  wire           [XLEN-1:0] xdata,
+    input  wire           [     4:0] simm,
+    output logic          [DLEN-1:0] result
 );
 
-  logic [DLEN-1:0] res8;
-  logic [DLEN-1:0] res16;
-  logic [DLEN-1:0] res32;
+  logic [  DLEN-1:0] res8;
+  logic [  DLEN-1:0] res16;
+  logic [  DLEN-1:0] res32;
 
   logic [2*DLEN-1:0] vs2_pad;
   logic [2*DLEN-1:0] vs1_pad;
@@ -60,25 +61,27 @@ module vec_mixed
       logic [Quart-1:0] a_quart;
 
       // Source slices
-      assign b_half  = (src == VEC_SRC_VV) ? vs1_pad[e*Half+:Half] : xdata[0+:Half];
+      assign b_half = (src == VEC_SRC_VV) ? vs1_pad[e*Half+:Half] : xdata[0+:Half];
       assign a_quart = vs2_pad[e*Quart+:Quart];
-      assign wsrc    = vs2_pad[e*Wide+:Wide];
+      assign wsrc = vs2_pad[e*Wide+:Wide];
 
       // Widened operands
-      assign a = wide_a ? vs2_pad[e*Dw+:Dw]
-          : (src_signed ? Dw'($signed(vs2_pad[e*Half+:Half])) : Dw'(vs2_pad[e*Half+:Half]));
+      assign a = wide_a ? vs2_pad[e*Dw+:Dw] : (src_signed ? Dw'($signed(
+          vs2_pad[e*Half+:Half]
+      )) : Dw'(vs2_pad[e*Half+:Half]));
       assign b = src_signed ? Dw'($signed(b_half)) : Dw'(b_half);
 
       // Shift amount
-      assign shamt = (src == VEC_SRC_VV) ? Shamt'(vs1_pad[e*Dw+:Dw])
-          : ((src == VEC_SRC_VI) ? Shamt'(simm) : Shamt'(xdata));
+      assign shamt = (src == VEC_SRC_VV) ?
+          Shamt'(vs1_pad[e*Dw+:Dw]) : ((src == VEC_SRC_VI) ? Shamt'(simm) : Shamt'(xdata));
       assign shifted = (op == VEC_NSRA) ? Dw'($signed(wsrc) >>> shamt) : Dw'(wsrc >> shamt);
 
       // Extended element
-      assign extended = quarter
-          ? (ext_signed ? Dw'($signed(a_quart)) : Dw'(a_quart))
-          : (ext_signed ? Dw'($signed(vs2_pad[e*Half+:Half]))
-                        : Dw'(vs2_pad[e*Half+:Half]));
+      assign extended = quarter ? (ext_signed ? Dw'($signed(
+          a_quart
+      )) : Dw'(a_quart)) : (ext_signed ? Dw'($signed(
+          vs2_pad[e*Half+:Half]
+      )) : Dw'(vs2_pad[e*Half+:Half]));
 
       // One element
       always_comb begin

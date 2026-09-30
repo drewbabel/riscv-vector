@@ -3,29 +3,32 @@
 module vec_reduce_tb ();
   import vec_pkg::*;
 
-  localparam int DLEN = 128;
+  localparam int DLEN = arch_pkg::VLEN;
+  localparam int ELEN = arch_pkg::ELEN;
   localparam int MaxElems = DLEN / 8;
+  localparam int Words = DLEN / 32;
 
-  int                  checks = 0;
-  int                  errors = 0;
+  int                     checks = 0;
+  int                     errors = 0;
 
-  logic                clk = 1'b0;
-  logic                rst_n;
-  logic                core_en;
-  vec_op_e             op;
-  logic [         2:0] vsew;
-  logic                widen;
-  logic                first;
-  logic                step;
-  logic [    DLEN-1:0] vs2_data;
-  logic [    DLEN-1:0] vs1_data;
-  logic [MaxElems-1:0] elem_active;
-  logic [    DLEN-1:0] result;
+  logic                   clk = 1'b0;
+  logic                   rst_n;
+  logic                   core_en;
+  vec_op_e                op;
+  logic    [         2:0] vsew;
+  logic                   widen;
+  logic                   first;
+  logic                   step;
+  logic    [    DLEN-1:0] vs2_data;
+  logic    [    DLEN-1:0] vs1_data;
+  logic    [MaxElems-1:0] elem_active;
+  logic    [    DLEN-1:0] result;
 
   always #5 clk = ~clk;
 
   vec_reduce #(
-      .DLEN(DLEN)
+      .DLEN(DLEN),
+      .ELEN(ELEN)
   ) dut (
       .clk        (clk),
       .rst_n      (rst_n),
@@ -42,7 +45,7 @@ module vec_reduce_tb ();
   );
 
   // Reference model
-  logic [31:0] model;
+  logic [ELEN-1:0] model;
 
   function automatic int sew_bits();
     return 8 << vsew;
@@ -56,16 +59,16 @@ module vec_reduce_tb ();
     return (op == VEC_REDMIN) || (op == VEC_REDMAX) || (op == VEC_WREDSUM);
   endfunction
 
-  function automatic logic [31:0] elem_of(input logic [DLEN-1:0] data, input int width,
-                                          input int idx);
-    logic [31:0] out;
-    out = 32'd0;
+  function automatic logic [ELEN-1:0] elem_of(input logic [DLEN-1:0] data, input int width,
+                                              input int idx);
+    logic [ELEN-1:0] out;
+    out = '0;
     for (int b = 0; b < width; b++) out[b] = data[idx*width+b];
-    for (int b = width; b < 32; b++) out[b] = signed_op() ? out[width-1] : 1'b0;
+    for (int b = width; b < ELEN; b++) out[b] = signed_op() ? out[width-1] : 1'b0;
     return out;
   endfunction
 
-  function automatic logic [31:0] fold(input logic [31:0] x, input logic [31:0] y);
+  function automatic logic [ELEN-1:0] fold(input logic [ELEN-1:0] x, input logic [ELEN-1:0] y);
     case (op)
       VEC_REDSUM, VEC_WREDSUM, VEC_WREDSUMU: return x + y;
       VEC_REDAND: return x & y;
@@ -80,20 +83,20 @@ module vec_reduce_tb ();
   endfunction
 
   task automatic ref_phase(input logic is_first);
-    logic [31:0] acc;
+    logic [ELEN-1:0] acc;
     acc = is_first ? elem_of(vs1_data, acc_bits(), 0) : model;
     for (int e = 0; e < MaxElems; e++) begin
-      if (elem_active[e] && (e < (DLEN / sew_bits()))) acc = fold(acc, elem_of(vs2_data,
-                                                                               sew_bits(), e));
+      if (elem_active[e] && (e < (DLEN / sew_bits())))
+        acc = fold(acc, elem_of(vs2_data, sew_bits(), e));
     end
     model = acc;
   endtask
 
   task automatic check_result(input string tag);
-    logic [31:0] want;
-    logic [31:0] got;
-    want   = model & (32'hFFFF_FFFF >> (32 - acc_bits()));
-    got    = result[31:0] & (32'hFFFF_FFFF >> (32 - acc_bits()));
+    logic [ELEN-1:0] want;
+    logic [ELEN-1:0] got;
+    want   = model & ({ELEN{1'b1}} >> (ELEN - acc_bits()));
+    got    = result[ELEN-1:0] & ({ELEN{1'b1}} >> (ELEN - acc_bits()));
     checks = checks + 1;
     if (got !== want) begin
       errors = errors + 1;
@@ -117,22 +120,29 @@ module vec_reduce_tb ();
     @(negedge clk);
   endtask
 
+  // Random register data
+  function automatic logic [DLEN-1:0] rand_data();
+    rand_data = '0;
+    for (int i = 0; i < Words; i++) rand_data = (rand_data << 32) | DLEN'($urandom);
+  endfunction
+
   // Walk one group
   task automatic run_fold(input vec_op_e o, input logic [2:0] sew, input logic wide,
                           input int phases, input logic [MaxElems-1:0] act, input string tag);
     op       = o;
     vsew     = sew;
     widen    = wide;
-    vs1_data = {$urandom, $urandom, $urandom, $urandom};
+    vs1_data = rand_data();
     for (int p = 0; p < phases; p++) begin
-      vs2_data    = {$urandom, $urandom, $urandom, $urandom};
+      vs2_data    = rand_data();
       elem_active = act;
       first       = (p == 0);
       step        = 1'b1;
       #1;
       ref_phase(p == 0);
-      check_result(tag);
       @(posedge clk);
+      #1;
+      check_result(tag);
       @(negedge clk);
     end
     step  = 1'b0;
@@ -157,9 +167,9 @@ module vec_reduce_tb ();
         wide = (i >= 8);
         if (!(wide && (sew == 2))) begin
           run_fold(list[i], 3'(sew), wide, 4, '1, "all live");
-          run_fold(list[i], 3'(sew), wide, 2, 16'h00ff, "half live");
-          run_fold(list[i], 3'(sew), wide, 1, 16'h0001, "one live");
-          run_fold(list[i], 3'(sew), wide, 3, 16'h0000, "none live");
+          run_fold(list[i], 3'(sew), wide, 2, MaxElems'({(MaxElems / 2) {1'b1}}), "half live");
+          run_fold(list[i], 3'(sew), wide, 1, MaxElems'(1), "one live");
+          run_fold(list[i], 3'(sew), wide, 3, '0, "none live");
         end
       end
     end
@@ -170,18 +180,18 @@ module vec_reduce_tb ();
     op          = VEC_REDSUM;
     vsew        = 3'd2;
     widen       = 1'b0;
-    vs1_data    = 128'h0000_0000_0000_0000_0000_0000_0000_0007;
-    vs2_data    = 128'h0000_0004_0000_0003_0000_0002_0000_0001;
+    vs1_data    = DLEN'(32'd7);
+    vs2_data    = DLEN'(128'h0000_0004_0000_0003_0000_0002_0000_0001);
     elem_active = '1;
     first       = 1'b1;
     step        = 1'b1;
+    @(posedge clk);
     #1;
     checks = checks + 1;
     if (result[31:0] !== 32'd17) begin
       errors = errors + 1;
       $display("FAIL directed sum got=%0d want=17", result[31:0]);
     end
-    @(posedge clk);
     @(negedge clk);
     step  = 1'b0;
     first = 1'b0;

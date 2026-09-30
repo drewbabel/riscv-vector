@@ -5,27 +5,27 @@ module uart_ctrl_tb ();
   int checks = 0;
   int errors = 0;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
 
   localparam logic [Xlen-1:0] TxDataAddr = 32'h0400_0000;
   localparam logic [Xlen-1:0] StatusAddr = 32'h0400_0004;
   localparam logic [Xlen-1:0] RxDataAddr = 32'h0400_0008;
   localparam logic [Xlen-1:0] CtrlAddr = 32'h0400_000C;
 
-  logic            clk = 1'b0;
-  logic            rst_n;
-  logic            sel;
-  logic            req;
-  logic [     3:0] wstrb;
-  logic [Xlen-1:0] addr;
-  logic [Xlen-1:0] wdata;
-  logic [Xlen-1:0] rdata;
-  logic            rx_valid;
-  logic [     7:0] rx_data;
-  logic            tx_ready;
-  logic            tx_valid;
-  logic [     7:0] tx_data;
-  logic            irq;
+  logic              clk = 1'b0;
+  logic              rst_n;
+  logic              sel;
+  logic              req;
+  logic [Xlen/8-1:0] wstrb;
+  logic [  Xlen-1:0] addr;
+  logic [  Xlen-1:0] wdata;
+  logic [  Xlen-1:0] rdata;
+  logic              rx_valid;
+  logic [       7:0] rx_data;
+  logic              tx_ready;
+  logic              tx_valid;
+  logic [       7:0] tx_data;
+  logic              irq;
 
   always #5 clk = ~clk;
 
@@ -78,7 +78,7 @@ module uart_ctrl_tb ();
     req   = 1'b1;
     addr  = a;
     wdata = d;
-    wstrb = 4'hF;
+    wstrb = '1;
     @(posedge clk);
     #1;
     sel   = 1'b0;
@@ -125,18 +125,18 @@ module uart_ctrl_tb ();
     sel   = 1'b1;
     req   = 1'b1;
     addr  = TxDataAddr;
-    wdata = {24'b0, b};
-    wstrb = 4'hF;
+    wdata = Xlen'(b);
+    wstrb = '1;
     #1;
-    check("tx_valid", tx_valid, 1'b1);
-    check("tx_data", tx_data, {24'b0, b});
+    check("tx_valid", Xlen'(tx_valid), Xlen'(1'b1));
+    check("tx_data", Xlen'(tx_data), Xlen'(b));
     @(posedge clk);
     #1;
     sel   = 1'b0;
     req   = 1'b0;
     wstrb = 4'h0;
     #1;
-    check("tx_valid_clear", tx_valid, 1'b0);
+    check("tx_valid_clear", Xlen'(tx_valid), Xlen'(1'b0));
   endtask  // Automatic
 
   task automatic take_during_arrival(input logic [7:0] b);
@@ -170,19 +170,19 @@ module uart_ctrl_tb ();
 
     peek(StatusAddr, got);
     check("status_reset", got, 32'h1);
-    check("irq_reset", irq, 1'b0);
+    check("irq_reset", Xlen'(irq), Xlen'(1'b0));
 
     tx_store(8'h41);
 
     arrive(8'h5A);
     peek(StatusAddr, got);
     check("status_full", got, 32'h3);
-    check("irq_masked", irq, 1'b0);
+    check("irq_masked", Xlen'(irq), Xlen'(1'b0));
 
     bus_write(CtrlAddr, 32'h1);
     peek(CtrlAddr, got);
     check("ctrl_readback", got, 32'h1);
-    check("irq_raised", irq, 1'b1);
+    check("irq_raised", Xlen'(irq), Xlen'(1'b1));
 
     arrive(8'h77);
     peek(StatusAddr, got);
@@ -190,7 +190,7 @@ module uart_ctrl_tb ();
 
     bus_read(RxDataAddr, got);
     check("rx_byte", got, 32'h0000_005A);
-    check("irq_cleared", irq, 1'b0);
+    check("irq_cleared", Xlen'(irq), Xlen'(1'b0));
     peek(StatusAddr, got);
     check("status_empty", got, 32'h1);
 
@@ -198,10 +198,10 @@ module uart_ctrl_tb ();
     peek(StatusAddr, got);
     check("status_full_again", got, 32'h3);
     bus_read(StatusAddr, got);
-    check("irq_held", irq, 1'b1);
+    check("irq_held", Xlen'(irq), Xlen'(1'b1));
     bus_read(RxDataAddr, got);
     check("rx_byte_again", got, 32'h0000_002B);
-    check("irq_cleared_again", irq, 1'b0);
+    check("irq_cleared_again", Xlen'(irq), Xlen'(1'b0));
 
     take_during_arrival(8'h99);
     peek(StatusAddr, got);

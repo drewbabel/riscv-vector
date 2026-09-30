@@ -2,8 +2,13 @@
 
 module vec_mem_tb ();
 
-  localparam int VLEN = 128;
-  localparam int Regs = 32;
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int AWIDTH = arch_pkg::RegAddrW;
+  localparam int VLEN = arch_pkg::VLEN;
+  localparam int ELEN = arch_pkg::ELEN;
+  localparam int VlW = $clog2(VLEN + 1);
+  localparam int LineB = VLEN / 8;
+  localparam int Regs = arch_pkg::NumRegs;
   localparam int Bytes = 256;
   localparam int Timeout = 2000000;
 
@@ -17,24 +22,24 @@ module vec_mem_tb ();
   logic start = 1'b0;
   logic load = 1'b0;
   logic vm = 1'b1;
-  logic [4:0] vd = '0;
-  logic [7:0] count = '0;
+  logic [AWIDTH-1:0] vd = '0;
+  logic [VlW-1:0] count = '0;
   logic [1:0] width = '0;
-  logic [31:0] base = '0;
-  logic [31:0] stride = '0;
+  logic [XLEN-1:0] base = '0;
+  logic [XLEN-1:0] stride = '0;
 
   logic [VLEN-1:0] rdata;
-  logic [4:0] raddr;
+  logic [AWIDTH-1:0] raddr;
   logic wen;
   logic [VLEN-1:0] wstrb;
   logic [VLEN-1:0] wdata;
 
-  logic [31:0] mem_rdata;
+  logic [VLEN-1:0] mem_rdata;
   logic mem_ready;
   logic mem_req;
-  logic [31:0] mem_addr;
-  logic [31:0] mem_wdata;
-  logic [3:0] mem_wstrb;
+  logic [XLEN-1:0] mem_addr;
+  logic [VLEN-1:0] mem_wdata;
+  logic [LineB-1:0] mem_wstrb;
   logic busy;
   logic done;
 
@@ -51,14 +56,19 @@ module vec_mem_tb ();
   logic past_req = 1'b0;
   logic past_ready = 1'b0;
   logic past_en = 1'b0;
-  logic [31:0] past_addr;
-  logic [31:0] past_wdata;
-  logic [3:0] past_wstrb;
+  logic [XLEN-1:0] past_addr;
+  logic [VLEN-1:0] past_wdata;
+  logic [XLEN-1:0] line_base;
+
+  assign line_base = mem_addr & ~XLEN'(LineB - 1);
+  logic [LineB-1:0] past_wstrb;
 
   always #5 clk = ~clk;
 
   vec_mem #(
-      .VLEN(VLEN)
+      .XLEN  (XLEN),
+      .AWIDTH(AWIDTH),
+      .VLEN  (VLEN)
   ) dut (
       .clk(clk),
       .rst_n(rst_n),
@@ -121,7 +131,7 @@ module vec_mem_tb ();
 
   task automatic fill_state();
     for (int r = 0; r < Regs; r++) begin
-      regs[r] = {$urandom, $urandom, $urandom, $urandom};
+      for (int k = VLEN / 32 - 1; k >= 0; k--) regs[r][k*32+:32] = $urandom;
       golden_regs[r] = regs[r];
     end
     for (int b = 0; b < Bytes; b++) begin
@@ -133,30 +143,46 @@ module vec_mem_tb ();
   // Reference semantics
   task automatic apply_golden();
     int bytes;
-    logic [31:0] a;
-    logic [31:0] e;
+    logic [XLEN-1:0] a;
+    logic [ELEN-1:0] e;
     int bit0;
     int r;
     bytes = 1 << width;
     for (int i = 0; i < int'(count); i++) begin
-      a = base + 32'(i) * stride;
-      r = (int'(vd) + i / (16 >> width)) % Regs;
-      bit0 = (i % (16 >> width)) * bytes * 8;
+      a = base + XLEN'(i) * stride;
+      r = (int'(vd) + i / (LineB >> width)) % Regs;
+      bit0 = (i % (LineB >> width)) * bytes * 8;
       if (!(vm || golden_regs[0][i])) continue;
       if (load) begin
-        e = 32'h0;
-        for (int k = 0; k < bytes; k++) e[k*8+:8] = golden_mem[(a+32'(k))%Bytes];
+        e = '0;
+        for (int k = 0; k < bytes; k++) e[k*8+:8] = golden_mem[(a+XLEN'(k))%Bytes];
         for (int k = 0; k < bytes * 8; k++) golden_regs[r][bit0+k] = e[k];
       end else begin
         for (int k = 0; k < bytes * 8; k++) e[k] = golden_regs[r][bit0+k];
-        for (int k = 0; k < bytes; k++) golden_mem[(a+32'(k))%Bytes] = e[k*8+:8];
+        for (int k = 0; k < bytes; k++) golden_mem[(a+XLEN'(k))%Bytes] = e[k*8+:8];
       end
     end
   endtask  // Automatic
 
-  task automatic run_one(input logic l, input logic [1:0] w, input logic [7:0] n,
-                         input logic [31:0] b, input logic [31:0] s, input logic m,
-                         input logic [4:0] d);
+  function automatic int want_beats();
+    int n;
+    logic [XLEN-1:0] a;
+    logic [XLEN-1:0] key;
+    logic [XLEN-1:0] last;
+    if (stride != (XLEN'(1) << width)) return int'(count);
+    n = 0;
+    for (int i = 0; i < int'(count); i++) begin
+      a   = base + XLEN'(i) * stride;
+      key = (a / LineB) * XLEN'(VLEN) + XLEN'(i / (LineB >> width));
+      if (i == 0 || key != last) n++;
+      last = key;
+    end
+    return n;
+  endfunction
+
+  task automatic run_one(input logic l, input logic [1:0] w, input logic [VlW-1:0] n,
+                         input logic [XLEN-1:0] b, input logic [XLEN-1:0] s, input logic m,
+                         input logic [AWIDTH-1:0] d);
     int want;
     load = l;
     width = w;
@@ -165,10 +191,10 @@ module vec_mem_tb ();
     stride = s;
     vm = m;
     vd = d;
+    want = want_beats();
     apply_golden();
     beats = 0;
     dones = 0;
-    want  = int'(n);
     @(negedge clk);
     start = 1'b1;
     @(posedge clk);
@@ -182,23 +208,23 @@ module vec_mem_tb ();
     check_state();
   endtask  // Automatic
 
-  function automatic logic [31:0] aligned(input logic [1:0] w);
-    return 32'($urandom_range(Bytes - 1)) & ~((32'd1 << w) - 32'd1);
+  function automatic logic [XLEN-1:0] aligned(input logic [1:0] w);
+    return XLEN'($urandom_range(Bytes - 1)) & ~((XLEN'(1) << w) - XLEN'(1));
   endfunction
 
   task automatic run_random(input logic l, input logic whole, input logic strided);
     logic [1:0] w;
-    logic [7:0] n;
-    logic [31:0] s;
+    logic [VlW-1:0] n;
+    logic [XLEN-1:0] s;
     logic m;
-    logic [4:0] d;
+    logic [AWIDTH-1:0] d;
     w = 2'($urandom_range(2));
-    n = whole ? 8'(VLEN >> (3 + w)) : 8'($urandom_range(16 >> w));
-    if ($urandom_range(7) == 0 && !whole) n = 8'($urandom_range(VLEN >> (3 + w)));
-    s = strided ? 32'($signed($urandom_range(12)) - 6) << w : 32'd1 << w;
+    n = whole ? VlW'(VLEN >> (3 + w)) : VlW'($urandom_range(LineB >> w));
+    if ($urandom_range(7) == 0 && !whole) n = VlW'($urandom_range(VLEN >> (3 + w)));
+    s = strided ? XLEN'($signed($urandom_range(12)) - 6) << w : XLEN'(1) << w;
     m = whole ? 1'b1 : 1'($urandom_range(1));
-    d = (!m && l) ? 5'($urandom_range(23, 1)) : 5'($urandom_range(Regs - 1));
-    if (!m && !l && ($urandom_range(1) == 1)) d = 5'd0;
+    d = (!m && l) ? AWIDTH'($urandom_range(23, 1)) : AWIDTH'($urandom_range(Regs - 1));
+    if (!m && !l && ($urandom_range(1) == 1)) d = '0;
     run_one(l, w, n, aligned(w), s, m, d);
   endtask  // Automatic
 
@@ -215,17 +241,17 @@ module vec_mem_tb ();
   end
 
   assign rdata = regs[raddr];
-  assign mem_rdata = {
-    mem[(mem_addr+3)%Bytes], mem[(mem_addr+2)%Bytes], mem[(mem_addr+1)%Bytes], mem[mem_addr%Bytes]
-  };
+  always_comb begin
+    for (int k = 0; k < LineB; k++) mem_rdata[k*8+:8] = mem[(line_base+XLEN'(k))%Bytes];
+  end
 
   always @(posedge clk) begin
     if (rst_n && core_en) begin
       if (wen) regs[raddr] <= (regs[raddr] & ~wstrb) | (wdata & wstrb);
       if (mem_req && mem_ready) begin
         beats++;
-        for (int k = 0; k < 4; k++)
-        if (mem_wstrb[k]) mem[(mem_addr+32'(k))%Bytes] <= mem_wdata[k*8+:8];
+        for (int k = 0; k < LineB; k++)
+        if (mem_wstrb[k]) mem[(line_base+XLEN'(k))%Bytes] <= mem_wdata[k*8+:8];
       end
       if (done) dones++;
     end
@@ -237,7 +263,9 @@ module vec_mem_tb ();
       check("request while idle", VLEN'(mem_req && !busy), VLEN'(0));
       check("write outside load", VLEN'(wen && !load), VLEN'(0));
       check("write before ready", VLEN'(wen && !mem_ready), VLEN'(0));
-      check("word aligned address", VLEN'(mem_addr[1:0]), VLEN'(0));
+      if (mem_req)
+        check("element aligned address", VLEN'(XLEN'(mem_addr & ((XLEN'(1) << width) - XLEN'(1)))),
+              VLEN'(0));
       if (past_req && past_en && !past_ready) begin
         check("request held", VLEN'(mem_req), VLEN'(1));
         check("address held", VLEN'(mem_addr), VLEN'(past_addr));
@@ -275,6 +303,12 @@ module vec_mem_tb ();
     run_one(1'b0, 2'd0, 8'd16, 32'd40, 32'd1, 1'b1, 5'd4);
     run_one(1'b0, 2'd1, 8'd5, 32'd80, -32'sd2, 1'b0, 5'd5);
     run_one(1'b1, 2'd0, 8'd3, 32'd5, -32'sd2, 1'b0, 5'd6);
+
+    // Whole line beats
+    run_one(1'b1, 2'd2, 8'd4, 32'd32, 32'd4, 1'b1, 5'd9);
+    run_one(1'b0, 2'd0, 8'd16, 32'd48, 32'd1, 1'b1, 5'd10);
+    run_one(1'b1, 2'd2, 8'd4, 32'd40, 32'd4, 1'b0, 5'd11);
+    run_one(1'b0, 2'd1, 8'd24, 32'd70, 32'd2, 1'b0, 5'd12);
 
     // Zero count
     run_one(1'b1, 2'd2, 8'd0, 32'd0, 32'd4, 1'b1, 5'd7);

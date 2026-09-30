@@ -5,17 +5,18 @@ module mem_tb ();
   int checks = 0;
   int errors = 0;
 
-  localparam int XLEN = 32;
+  localparam int XLEN = arch_pkg::XLEN;
   localparam int DEPTH = 8192;
   localparam int AddrWidth = $clog2(DEPTH);
+  localparam int WordLsb = $clog2(XLEN / 8);
 
-  logic            clk = 1'b0;
-  logic [XLEN-1:0] iaddr;
-  logic [XLEN-1:0] instr;
-  logic [     3:0] wstrb;
-  logic [XLEN-1:0] daddr;
-  logic [XLEN-1:0] wdata;
-  logic [XLEN-1:0] rdata;
+  logic              clk = 1'b0;
+  logic [  XLEN-1:0] iaddr;
+  logic [  XLEN-1:0] instr;
+  logic [XLEN/8-1:0] wstrb;
+  logic [  XLEN-1:0] daddr;
+  logic [  XLEN-1:0] wdata;
+  logic [  XLEN-1:0] rdata;
 
   always #5 clk = ~clk;
 
@@ -61,7 +62,7 @@ module mem_tb ();
     #1;
     wdata = data;
     daddr = addr;
-    wstrb = 4'hF;
+    wstrb = '1;
     @(negedge clk);
     #1;
     wstrb = '0;
@@ -72,14 +73,14 @@ module mem_tb ();
     #1;
     daddr = addr;
     wdata = data;
-    wstrb = 4'hF;
+    wstrb = '1;
     @(negedge clk);
     #1;
     wstrb = '0;
   endtask  // Automatic
 
   task automatic write_byte_lane(input logic [XLEN-1:0] addr, input logic [XLEN-1:0] data,
-                                 input logic [3:0] mask);
+                                 input logic [XLEN/8-1:0] mask);
     #1;
     daddr = addr;
     wdata = data;
@@ -93,7 +94,7 @@ module mem_tb ();
     #1;
     daddr = addr;
     wdata = data;
-    wstrb = 4'hF;
+    wstrb = '1;
     @(negedge clk);
     #1;
     wstrb = '0;
@@ -113,10 +114,10 @@ module mem_tb ();
   task automatic check_mem(input logic [XLEN-1:0] addr, input logic [XLEN-1:0] exp_data);
     #1;
     check("Memory", {
-          dut.g_lane[3].bmem[addr[AddrWidth+1:2]],
-          dut.g_lane[2].bmem[addr[AddrWidth+1:2]],
-          dut.g_lane[1].bmem[addr[AddrWidth+1:2]],
-          dut.g_lane[0].bmem[addr[AddrWidth+1:2]]
+          dut.g_lane[3].bmem[addr[AddrWidth+WordLsb-1:WordLsb]],
+          dut.g_lane[2].bmem[addr[AddrWidth+WordLsb-1:WordLsb]],
+          dut.g_lane[1].bmem[addr[AddrWidth+WordLsb-1:WordLsb]],
+          dut.g_lane[0].bmem[addr[AddrWidth+WordLsb-1:WordLsb]]
           }, exp_data);
   endtask  // Automatic
 

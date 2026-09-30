@@ -2,18 +2,23 @@
 
 module dmem_tb ();
 
-  localparam int XLEN = 32;
+  import cache_pkg::*;
+
+  localparam int XLEN = arch_pkg::XLEN;
   localparam int DEPTH = 64;
   localparam int AddrWidth = $clog2(DEPTH);
 
-  int checks = 0;
-  int errors = 0;
+  int                   checks = 0;
+  int                   errors = 0;
 
-  logic clk = 1'b0;
-  logic [3:0] wstrb;
-  logic [XLEN-1:0] addr;
-  logic [XLEN-1:0] wdata;
-  logic [XLEN-1:0] rdata;
+  logic                 clk = 1'b0;
+  logic [LineBytes-1:0] wstrb;
+  logic [     XLEN-1:0] addr;
+  logic [ LineBits-1:0] wdata;
+  logic [ LineBits-1:0] rdata;
+  logic [     XLEN-1:0] rword;
+
+  assign rword = rdata[addr[WordLsb+:BlkOffLen]*XLEN+:XLEN];
 
   logic [XLEN-1:0] shadow[DEPTH];
 
@@ -33,19 +38,33 @@ module dmem_tb ();
   task automatic write_mem(input logic [XLEN-1:0] a, input logic [XLEN-1:0] data);
     #1;
     addr  = a;
-    wdata = data;
-    wstrb = 4'hF;
+    wdata = {LineWords{data}};
+    wstrb = LineBytes'({WordBytes{1'b1}}) << (WordBytes * a[WordLsb+:BlkOffLen]);
     @(posedge clk);
     @(negedge clk);
-    wstrb = 4'h0;
+    wstrb = '0;
+  endtask
+
+  function automatic logic [LineBits-1:0] line_of(input logic [XLEN-1:0] seed);
+    for (int w = 0; w < LineWords; w++) line_of[w*XLEN+:XLEN] = seed + XLEN'(w);
+  endfunction
+
+  task automatic write_line(input logic [XLEN-1:0] a, input logic [LineBits-1:0] data);
+    #1;
+    addr  = a;
+    wdata = data;
+    wstrb = '1;
+    @(posedge clk);
+    @(negedge clk);
+    wstrb = '0;
   endtask
 
   // Drive a cycle with wstrb zero, memory must not change
   task automatic write_blocked(input logic [XLEN-1:0] a, input logic [XLEN-1:0] data);
     #1;
     addr  = a;
-    wdata = data;
-    wstrb = 4'h0;
+    wdata = {LineWords{data}};
+    wstrb = '0;
     @(posedge clk);
     @(negedge clk);
   endtask
@@ -55,11 +74,11 @@ module dmem_tb ();
     #1;
     addr = a;
     #1;
-    exp = shadow[a[AddrWidth+1:2]];
+    exp = shadow[a[AddrWidth+WordLsb-1:WordLsb]];
     checks++;
-    if (rdata !== exp) begin
+    if (rword !== exp) begin
       errors++;
-      $display("Read mismatch addr=%h exp=%h got=%h", a, exp, rdata);
+      $display("Read mismatch addr=%h exp=%h got=%h", a, exp, rword);
     end
   endtask
 
@@ -72,7 +91,11 @@ module dmem_tb ();
 
   // Reference model
   always @(posedge clk) begin
-    if (|wstrb) shadow[addr[AddrWidth+1:2]] <= wdata;
+    for (int w = 0; w < LineWords; w++) begin
+      if (|wstrb[w*WordBytes+:WordBytes]) begin
+        shadow[{addr[AddrWidth+WordLsb-1:IdxLsb], BlkOffLen'(w)}] <= wdata[w*XLEN+:XLEN];
+      end
+    end
   end
 
   initial begin
@@ -80,7 +103,7 @@ module dmem_tb ();
     $dumpvars(0, dmem_tb);
 
     // Zero all words to define reads
-    for (int i = 0; i < DEPTH; i++) write_mem(XLEN'(i * 4), '0);
+    for (int i = 0; i < DEPTH; i++) write_mem(XLEN'(i * WordBytes), '0);
 
     // Write word, read it back
     write_mem(32'h00000004, 32'hDEADBEEF);
@@ -95,13 +118,17 @@ module dmem_tb ();
     write_blocked(32'h00000004, 32'hFFFFFFFF);
     check_read(32'h00000004);
 
+    // Whole line write
+    write_line(XLEN'(LineBytes), line_of(32'h1111_0000));
+    for (int w = 0; w < LineWords; w++) check_read(XLEN'(LineBytes + w * WordBytes));
+
     // Randomized write then read sweep
     for (int i = 0; i < 1000; i++) begin
       int w;
       w = $urandom % DEPTH;
-      write_mem(XLEN'(w * 4), XLEN'($urandom));
+      write_mem(XLEN'(w * WordBytes), XLEN'($urandom));
       w = $urandom % DEPTH;
-      check_read(XLEN'(w * 4));
+      check_read(XLEN'(w * WordBytes));
     end
 
     verdict();

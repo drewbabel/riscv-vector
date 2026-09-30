@@ -19,6 +19,6 @@ runs:
     - name: Alias toolchain to riscv64-elf-*
       shell: bash
       run: |
-        for t in gcc objcopy; do
+        for t in gcc objcopy objdump; do
           sudo ln -sf "$(command -v riscv64-unknown-elf-$t)" /usr/local/bin/riscv64-elf-$t
         done

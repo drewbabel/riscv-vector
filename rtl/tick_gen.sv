@@ -3,10 +3,10 @@
 module tick_gen #(
     parameter int DIVISOR = 4
 ) (
-    input  logic clk,
-    input  logic core_en,
-    input  logic rst_n,
-    input  logic clr,
+    input  wire  clk,
+    input  wire  core_en,
+    input  wire  rst_n,
+    input  wire  clr,
     output logic tick
 );
 

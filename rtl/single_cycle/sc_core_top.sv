@@ -3,25 +3,26 @@
 module sc_core_top
   import opcode_pkg::*;
 #(
-    parameter int XLEN = 32
+    parameter  int XLEN  = arch_pkg::XLEN,
+    localparam int StrbW = XLEN / 8
 ) (
-    input  logic            clk,
-    input  logic            core_en,
-    input  logic            rst_n,
-    input  logic [XLEN-1:0] instr,
-    input  logic [XLEN-1:0] read_data,
-    input  logic            timer_irq,
-    input  logic            imem_ready,
-    input  logic            dmem_ready,
-    output logic            imem_req,
-    output logic            dmem_req,
-    output logic [XLEN-1:0] pc,
-    output logic            mem_write,
-    output logic [XLEN-1:0] alu_result,
-    output logic [XLEN-1:0] write_data,
-    output logic [     3:0] store_wstrb,
-    output logic [XLEN-1:0] store_data,
-    output logic [XLEN-1:0] mem_addr
+    input  wire              clk,
+    input  wire              core_en,
+    input  wire              rst_n,
+    input  wire  [ XLEN-1:0] instr,
+    input  wire  [ XLEN-1:0] read_data,
+    input  wire              timer_irq,
+    input  wire              imem_ready,
+    input  wire              dmem_ready,
+    output logic             imem_req,
+    output logic             dmem_req,
+    output logic [ XLEN-1:0] pc,
+    output logic             mem_write,
+    output logic [ XLEN-1:0] alu_result,
+    output logic [ XLEN-1:0] write_data,
+    output logic [StrbW-1:0] store_wstrb,
+    output logic [ XLEN-1:0] store_data,
+    output logic [ XLEN-1:0] mem_addr
 );
 
   typedef enum logic [1:0] {
@@ -30,17 +31,17 @@ module sc_core_top
     STEP
   } state_t;
 
-  state_t state;
+  state_t             state;
 
-  logic [XLEN-1:0] instr_h;
-  logic [XLEN-1:0] rdata_h;
-  logic            irq_h;
-  logic [     6:0] opcode;
-  logic            is_mem;
-  logic            instr_cap;
-  logic            data_cap;
-  logic            core_step;
-  logic [     3:0] core_wstrb;
+  logic   [ XLEN-1:0] instr_h;
+  logic   [ XLEN-1:0] rdata_h;
+  logic               irq_h;
+  logic   [      6:0] opcode;
+  logic               is_mem;
+  logic               instr_cap;
+  logic               data_cap;
+  logic               core_step;
+  logic   [StrbW-1:0] core_wstrb;
 
   // Live at capture
   assign opcode      = instr[6:0];
@@ -56,7 +57,7 @@ module sc_core_top
   assign dmem_req    = (state == ACCESS);
 
   // Request cycle only
-  assign store_wstrb = (state == ACCESS) ? core_wstrb : 4'h0;
+  assign store_wstrb = (state == ACCESS) ? core_wstrb : '0;
   assign mem_addr    = alu_result;
 
   always_ff @(posedge clk) begin

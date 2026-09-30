@@ -3,29 +3,28 @@
 module gshare
   import bp_pkg::*;
 #(
-    parameter int XLEN = 32
+    parameter int XLEN = arch_pkg::XLEN
 ) (
-    input logic clk,
-    input logic core_en,
-    input logic rst_n,
+    input wire clk,
+    input wire core_en,
+    input wire rst_n,
 
     // IF lookup
-    input  logic [    XLEN-1:0] predict_pc,
+    input  wire  [    XLEN-1:0] predict_pc,
     output logic                predict_taken,
     output logic [GhistLen-1:0] predict_index,
 
     // EX update
-    input logic                update_valid,
-    input logic                update_taken,
-    input logic [GhistLen-1:0] update_index
+    input wire                update_valid,
+    input wire                update_taken,
+    input wire [GhistLen-1:0] update_index
 );
 
   logic [GhistLen-1:0] ghr;
   logic [         1:0] pht [PhtDepth];
 
   // Weakly not taken cold state
-  initial
-    for (int i = 0; i < PhtDepth; i++) pht[i] = 2'b01;
+  initial for (int i = 0; i < PhtDepth; i++) pht[i] = 2'b01;
 
   assign predict_index = ($bits(predict_index))'(predict_pc >> 2) ^ ghr;
 

@@ -3,7 +3,7 @@
 module mem_arb
   import cache_pkg::*;
 #(
-    parameter int XLEN = 32,
+    parameter int XLEN = arch_pkg::XLEN,
     parameter int APP_ADDR_WIDTH = 29,
     localparam int MaskBits = LineBits / 8
 ) (
@@ -15,41 +15,41 @@ module mem_arb
     output logic                      dbg_resp_pending,
     output logic                      dbg_req_rw,
 `endif
-    input  logic                      clk,
-    input  logic                      rst_n,
-    input  logic                      core_en,
-    input  logic                      calib_done,
+    input  wire                       clk,
+    input  wire                       rst_n,
+    input  wire                       core_en,
+    input  wire                       calib_done,
     // Instruction cache
-    input  logic                      ic_req_valid,
-    input  logic [          XLEN-1:0] ic_req_addr,
+    input  wire                       ic_req_valid,
+    input  wire  [          XLEN-1:0] ic_req_addr,
     output logic [      LineBits-1:0] ic_resp_rdata,
     output logic                      ic_resp_ready,
     // Data cache
-    input  logic                      dc_req_valid,
-    input  logic                      dc_req_rw,
-    input  logic [          XLEN-1:0] dc_req_addr,
-    input  logic [      LineBits-1:0] dc_req_wdata,
-    input  logic [               3:0] dc_req_wstrb,      // Zero writes line
+    input  wire                       dc_req_valid,
+    input  wire                       dc_req_rw,
+    input  wire  [          XLEN-1:0] dc_req_addr,
+    input  wire  [      LineBits-1:0] dc_req_wdata,
+    input  wire  [      MaskBits-1:0] dc_req_wstrb,      // Zero writes line
     output logic [      LineBits-1:0] dc_resp_rdata,
     output logic                      dc_resp_ready,
     // Boot
-    input  logic                      boot_we,
-    input  logic [          XLEN-1:0] boot_addr,
-    input  logic [          XLEN-1:0] boot_wdata,
+    input  wire                       boot_we,
+    input  wire  [          XLEN-1:0] boot_addr,
+    input  wire  [          XLEN-1:0] boot_wdata,
     // Controller command
     output logic [APP_ADDR_WIDTH-1:0] app_addr,
     output logic [               2:0] app_cmd,
     output logic                      app_en,
-    input  logic                      app_rdy,
+    input  wire                       app_rdy,
     // Controller write data
     output logic [      LineBits-1:0] app_wdf_data,
     output logic [      MaskBits-1:0] app_wdf_mask,      // Active low mask
     output logic                      app_wdf_wren,
     output logic                      app_wdf_end,
-    input  logic                      app_wdf_rdy,
+    input  wire                       app_wdf_rdy,
     // Controller read data
-    input  logic [      LineBits-1:0] app_rd_data,
-    input  logic                      app_rd_data_valid
+    input  wire  [      LineBits-1:0] app_rd_data,
+    input  wire                       app_rd_data_valid
 );
 
   localparam logic [2:0] AppWrite = 3'b000;
@@ -105,20 +105,17 @@ module mem_arb
               src <= SRC_BOOT;
               req_rw <= ReqWrite;
               req_addr <= boot_addr;
-              req_wdata <= {4{boot_wdata}};
-              req_mask <= ~(16'hF << {boot_addr[3:2], 2'b00});  // Open selected word
+              req_wdata <= {LineWords{boot_wdata}};
+              req_mask <= ~(MaskBits'({WordBytes{1'b1}}) <<
+                            (WordBytes * boot_addr[WordLsb+:BlkOffLen]));  // Open selected word
             end else if (dc_req_valid) begin
               src <= SRC_DC;
               req_rw <= dc_req_rw;
               req_addr <= dc_req_addr;
               // Strobe opens lanes
-              if (dc_req_wstrb == 4'h0) begin
-                req_wdata <= dc_req_wdata;
-                req_mask  <= '0;
-              end else begin
-                req_wdata <= {4{dc_req_wdata[31:0]}};
-                req_mask  <= ~(MaskBits'(dc_req_wstrb) << {dc_req_addr[3:2], 2'b00});
-              end
+              req_wdata <= dc_req_wdata;
+              if (dc_req_wstrb == '0) req_mask <= '0;
+              else req_mask <= ~dc_req_wstrb;
             end else if (ic_req_valid) begin
               src <= SRC_IC;
               req_rw <= ReqRead;
@@ -129,7 +126,7 @@ module mem_arb
         ISSUE: begin
           // Latch newest values
           if (!cmd_done) begin
-            app_addr <= {req_addr[APP_ADDR_WIDTH-1:4], 4'h0};
+            app_addr <= {req_addr[APP_ADDR_WIDTH-1:IdxLsb], {IdxLsb{1'b0}}};
             app_cmd <= req_rw ? AppWrite : AppRead;
             app_wdf_data <= req_wdata;
             app_wdf_mask <= req_mask;

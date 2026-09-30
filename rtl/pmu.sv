@@ -1,19 +1,19 @@
 `default_nettype none
 
 module pmu #(
-    parameter int XLEN = 32,
-    parameter int CLK_FREQ_HZ = 50_000_000
+    parameter int XLEN = arch_pkg::XLEN,
+    parameter int CLK_FREQ_HZ = arch_pkg::BoardClkHz / arch_pkg::ClkDiv
 ) (
-    input  logic [XLEN-1:0] addr,
+    input  wire  [XLEN-1:0] addr,
     output logic [XLEN-1:0] rdata,
 
-    input logic [XLEN-1:0] ic_hits,
-    input logic [XLEN-1:0] ic_misses,
-    input logic [XLEN-1:0] dc_hits,
-    input logic [XLEN-1:0] dc_misses
+    input wire [XLEN-1:0] ic_hits,
+    input wire [XLEN-1:0] ic_misses,
+    input wire [XLEN-1:0] dc_hits,
+    input wire [XLEN-1:0] dc_misses
 );
 
-  localparam logic [XLEN-1:0] ClkHz = CLK_FREQ_HZ;
+  localparam logic [XLEN-1:0] ClkHz = XLEN'(CLK_FREQ_HZ);
 
   always_comb begin
     case (addr[4:2])

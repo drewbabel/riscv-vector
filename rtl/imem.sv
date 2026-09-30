@@ -1,15 +1,16 @@
 `default_nettype none
 
 module imem #(
-    parameter int XLEN = 32,
+    parameter int XLEN = arch_pkg::XLEN,
     parameter int DEPTH = 64,
-    localparam int AddrWidth = $clog2(DEPTH)
+    localparam int AddrWidth = $clog2(DEPTH),
+    localparam int WordLsb = $clog2(XLEN / 8)
 ) (
-    input logic clk,
-    input logic we,
-    input logic [XLEN-1:0] waddr,
-    input logic [XLEN-1:0] wdata,
-    input logic [XLEN-1:0] addr,
+    input wire clk,
+    input wire we,
+    input wire [XLEN-1:0] waddr,
+    input wire [XLEN-1:0] wdata,
+    input wire [XLEN-1:0] addr,
     output logic [XLEN-1:0] instr
 );
 
@@ -19,11 +20,11 @@ module imem #(
   initial $readmemh(`IMEM_INIT, mem);
 `endif
 
-  // 2 bits = divide by 4
-  assign instr = mem[addr[AddrWidth+1:2]];
+  // Drop byte offset
+  assign instr = mem[addr[AddrWidth+WordLsb-1:WordLsb]];
 
   always_ff @(posedge clk) begin
-    if (we) mem[waddr[AddrWidth+1:2]] <= wdata;
+    if (we) mem[waddr[AddrWidth+WordLsb-1:WordLsb]] <= wdata;
   end
 
 endmodule

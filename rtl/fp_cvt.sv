@@ -1,0 +1,15 @@
+`default_nettype none
+
+module fp_cvt (
+    input  wire         to_int,
+    input  wire         is_unsigned,
+    input  wire  [ 2:0] iw,
+    input  wire  [ 2:0] rm,
+    input  wire  [31:0] a,
+    output logic [31:0] result,
+    output logic [ 4:0] fflags
+);
+
+endmodule
+
+`default_nettype wire
