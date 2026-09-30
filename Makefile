@@ -2,6 +2,7 @@
 #   make vsim MOD=pc             fast 2-state Verilator run (perf sweeps + regression; not X-debug)
 #   make wave MOD=alu            same, then open the waveform in surfer (opens even on FAIL)
 #   make view MOD=alu            open testbench waveform in surfer (no rerun) (error if .vcd missing)
+#   make fmt MOD=alu             format rtl/$(MOD).sv and tb/$(MOD)_tb.sv in place
 #   make formal MOD=alu          run every SymbiYosys task in formal/$(MOD).sby (FAIL exits nonzero)
 #   make trace MOD=alu           print a formal counterexample as text
 #   make view-formal MOD=alu     open a formal waveform in surfer; error if .vcd missing
@@ -71,6 +72,10 @@ build/pipeline_%.ron: $(PIPE_LAYOUT)
 build/pipeline_rvfi.ron: $(PIPE_LAYOUT)
 	@mkdir -p build
 	sed -e 's/@TOP@/rvfi_testbench/' -e 's/@A@/wrapper/' -e 's/@B@/uut/' $< > $@
+
+fmt:
+	@test -n "$(MOD)" || { echo "usage: make fmt MOD=<module>  (e.g. MOD=alu)"; exit 1; }
+	verible-verilog-format --inplace $(wildcard rtl/$(MOD).sv tb/$(MOD)_tb.sv)
 
 formal:
 	@test -n "$(MOD)" || { echo "usage: make formal MOD=<module>  (e.g. MOD=alu)"; exit 1; }
@@ -147,4 +152,4 @@ clean:
 	rm -rf build *.vcd sim_build results.xml
 
 .DEFAULT_GOAL := run
-.PHONY: run vsim prog wave formal view view-rvfi trace view-formal hex dis cosim clean
+.PHONY: run vsim prog wave fmt formal view view-rvfi trace view-formal hex dis cosim clean
