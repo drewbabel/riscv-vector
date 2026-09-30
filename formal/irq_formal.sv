@@ -4,7 +4,9 @@ module irq_formal
   import csr_pkg::*;
 ();
 
-  localparam int XLEN = 32;
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int VLEN = arch_pkg::VLEN;
+  localparam int VlW  = $clog2(VLEN + 1);
 
   logic            clk;
   logic            core_en;
@@ -38,10 +40,10 @@ module irq_formal
 
   logic            cycle_en;
   logic            is_vset;
-  logic [     7:0] vl_d;
+  logic [ VlW-1:0] vl_d;
   logic [XLEN-1:0] vtype_d;
   logic            is_vec_instr;
-  logic [     7:0] vl_q;
+  logic [ VlW-1:0] vl_q;
   logic [XLEN-1:0] vtype_q;
 
   logic [XLEN-1:0] dbg_csr_wdata;
@@ -59,7 +61,8 @@ module irq_formal
   logic [XLEN-1:0] dbg_minstreth;
 
   csr #(
-      .XLEN(XLEN)
+      .XLEN(XLEN),
+      .VLEN(VLEN)
   ) dut (
       .clk(clk),
       .core_en(core_en),
@@ -111,9 +114,9 @@ module irq_formal
   always @(posedge clk) f_past_valid <= 1'b1;
 
   logic vec_addr;
-  assign vec_addr = (csr_addr == VstartAddr) || (csr_addr == VlAddr) || (csr_addr == VtypeAddr)
-                 || (csr_addr == VlenbAddr) || (csr_addr == VxsatAddr) || (csr_addr == VxrmAddr)
-                 || (csr_addr == VcsrAddr);
+  assign vec_addr = (csr_addr == VstartAddr) || (csr_addr == VlAddr) || (csr_addr == VtypeAddr) ||
+      (csr_addr == VlenbAddr) || (csr_addr == VxsatAddr) || (csr_addr == VxrmAddr) ||
+      (csr_addr == VcsrAddr);
 
   logic spec_zero;  // rs1 field
   assign spec_zero = (funct3[1:0] == 2'b10 || funct3[1:0] == 2'b11) && (zimm == 5'd0);
@@ -122,13 +125,12 @@ module irq_formal
   assign exc_ro_write = csr_access && (csr_addr[11:10] == 2'b11) && !spec_zero;
 
   logic exc_vs_off;
-  assign exc_vs_off = (is_vec_instr || (csr_access && vec_addr))
-      && (dbg_mstatus[MstatusVsLo+1:MstatusVsLo] == VsOff);
+  assign exc_vs_off = (is_vec_instr || (csr_access && vec_addr)) &&
+      (dbg_mstatus[MstatusVsLo+1:MstatusVsLo] == VsOff);
 
   logic exc_any;
-  assign exc_any = exc_illegal | exc_ecall | exc_ebreak | exc_instr_misaligned
-                 | exc_load_misaligned | exc_store_misaligned
-                 | exc_ro_write | exc_vs_off;
+  assign exc_any = exc_illegal | exc_ecall | exc_ebreak | exc_instr_misaligned |
+      exc_load_misaligned | exc_store_misaligned | exc_ro_write | exc_vs_off;
 
   logic timer_ready;
   logic ext_ready;
@@ -155,16 +157,18 @@ module irq_formal
       if ($past(irq_ready && !exc_any && core_en)) begin
         assert (dbg_mepc == $past(pc));
 
-        assert (dbg_mcause == ($past(ext_ready) ? {1'b1, 31'(CauseMachineExternalIrq)}
-                                                : {1'b1, 31'(CauseMachineTimerIrq)}));
+        assert (dbg_mcause == ($past(
+            ext_ready
+        ) ? {1'b1, (XLEN - 1)'(CauseMachineExternalIrq)} : {1'b1,
+                                                            (XLEN - 1)'(CauseMachineTimerIrq)}));
 
         assert (dbg_mstatus[MstatusMie] == 1'b0);
         assert (dbg_mstatus[MstatusMpie] == $past(dbg_mstatus[MstatusMie]));
-        assert (trap_vector == {dbg_mtvec[31:2], 2'b00});
+        assert (trap_vector == {dbg_mtvec[XLEN-1:2], 2'b00});
       end
 
       // Priority
-      if ($past(exc_any && (timer_irq || ext_irq) && core_en)) assert (!dbg_mcause[31]);
+      if ($past(exc_any && (timer_irq || ext_irq) && core_en)) assert (!dbg_mcause[XLEN-1]);
 
       // Mret
       if ($past(is_mret && !trap_taken && core_en))

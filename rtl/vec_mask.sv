@@ -3,34 +3,37 @@
 module vec_mask
   import vec_pkg::*;
 #(
-    parameter  int DLEN     = 128,
-    parameter  int ELEN     = 32,
+    parameter  int DLEN     = arch_pkg::VLEN,
+    parameter  int ELEN     = arch_pkg::ELEN,
+    parameter  int XLEN     = arch_pkg::XLEN,
     localparam int MaxElems = DLEN / 8,
     localparam int Widths   = $clog2(ELEN / 8) + 1,
     localparam int CntW     = $clog2(DLEN + 1),
-    localparam int SelW     = $clog2(Widths)
+    localparam int SelW     = $clog2(Widths),
+    localparam int VlW      = $clog2(DLEN + 1),
+    localparam int BitsW    = $clog2(ELEN) + 1
 ) (
-    input vec_op_e             op,
-    input vec_src_e            src,
-    input logic     [     2:0] vsew,
-    input logic                vm,
-    input logic     [DLEN-1:0] vs2_data,
-    input logic     [DLEN-1:0] vs1_data,
-    input logic     [DLEN-1:0] v0_bits,
-    input logic     [    31:0] xdata,
-    input logic     [     4:0] simm,
-    input logic     [     7:0] elem_base,
-    input logic     [     7:0] vl,
+    input wire vec_op_e             op,
+    input wire vec_src_e            src,
+    input wire           [     2:0] vsew,
+    input wire                      vm,
+    input wire           [DLEN-1:0] vs2_data,
+    input wire           [DLEN-1:0] vs1_data,
+    input wire           [DLEN-1:0] v0_bits,
+    input wire           [XLEN-1:0] xdata,
+    input wire           [     4:0] simm,
+    input wire           [ VlW-1:0] elem_base,
+    input wire           [ VlW-1:0] vl,
 
     output logic [DLEN-1:0] result,
-    output logic [    31:0] xresult
+    output logic [XLEN-1:0] xresult
 );
 
   // Active mask bits
   logic [DLEN-1:0] live;
   logic [DLEN-1:0] active;
 
-  assign live   = DLEN'({DLEN{1'b1}} >> (9'(DLEN) - 9'(vl)));
+  assign live   = DLEN'({DLEN{1'b1}} >> ((VlW + 1)'(DLEN) - (VlW + 1)'(vl)));
   assign active = live & (vm ? {DLEN{1'b1}} : v0_bits);
 
   // Signed comparison
@@ -42,7 +45,8 @@ module vec_mask
   endfunction
 
   // Compare one pair
-  function automatic logic cmp_bit(input vec_op_e kind, input logic [31:0] a, input logic [31:0] b);
+  function automatic logic cmp_bit(input vec_op_e kind, input logic [ELEN-1:0] a,
+                                   input logic [ELEN-1:0] b);
     case (kind)
       VEC_MSEQ:  cmp_bit = (a == b);
       VEC_MSNE:  cmp_bit = (a != b);
@@ -57,12 +61,12 @@ module vec_mask
   endfunction
 
   // Trim a value
-  function automatic logic [31:0] sized(input logic [31:0] val, input logic [5:0] bits,
-                                        input logic sgn);
+  function automatic logic [ELEN-1:0] sized(input logic [ELEN-1:0] val,
+                                            input logic [BitsW-1:0] bits, input logic sgn);
     case (bits)
-      6'd8:    sized = sgn ? {{24{val[7]}}, val[7:0]} : {24'd0, val[7:0]};
-      6'd16:   sized = sgn ? {{16{val[15]}}, val[15:0]} : {16'd0, val[15:0]};
-      default: sized = val;
+      BitsW'(8):  sized = sgn ? ELEN'($signed(val[7:0])) : ELEN'(val[7:0]);
+      BitsW'(16): sized = sgn ? ELEN'($signed(val[15:0])) : ELEN'(val[15:0]);
+      default:    sized = val;
     endcase
   endfunction
 
@@ -88,8 +92,8 @@ module vec_mask
     endcase
   endfunction
 
-  logic [5:0] ebits;
-  assign ebits = 6'(6'd8 << vsew);
+  logic [BitsW-1:0] ebits;
+  assign ebits = BitsW'(BitsW'(8) << vsew);
 
   // Width select
   logic [SelW-1:0] wsel;
@@ -129,11 +133,11 @@ module vec_mask
   end
 
   // Second compare operand
-  logic [31:0] scalar_b;
+  logic [ELEN-1:0] scalar_b;
   always_comb begin
     case (src)
-      VEC_SRC_VI: scalar_b = {{27{simm[4]}}, simm};
-      default:    scalar_b = xdata;
+      VEC_SRC_VI: scalar_b = {{(ELEN - 5) {simm[4]}}, simm};
+      default:    scalar_b = ELEN'($signed(xdata));
     endcase
   end
 
@@ -142,10 +146,16 @@ module vec_mask
   always_comb begin
     cmp_bits = '0;
     for (int e = 0; e < MaxElems; e++) begin
-      cmp_bits[e] = cmp_bit(op, sized(a_sel[e], ebits, is_signed_cmp(op)),
-                            (src == VEC_SRC_VV)
-                                ? sized(b_sel[e], ebits, is_signed_cmp(op))
-                                : sized(scalar_b, ebits, is_signed_cmp(op)));
+      cmp_bits[e] = cmp_bit(
+        op,
+        sized(
+          a_sel[e], ebits, is_signed_cmp(op)
+        ),
+        (src == VEC_SRC_VV) ? sized(
+          b_sel[e], ebits, is_signed_cmp(op)
+        ) : sized(
+          scalar_b, ebits, is_signed_cmp(op))
+      );
     end
   end
 
@@ -181,7 +191,7 @@ module vec_mask
   // Running index count
   logic [CntW-1:0] below;
   logic [DLEN-1:0] window;
-  logic [CntW-1:0] count[MaxElems];
+  logic [CntW-1:0] count  [MaxElems];
 
   assign below  = ones(hits & ~({DLEN{1'b1}} << elem_base));
   assign window = hits >> elem_base;
@@ -196,8 +206,8 @@ module vec_mask
   logic [MaxElems-1:0] ion;
   always_comb begin
     for (int e = 0; e < MaxElems; e++) begin
-      ion[e]  = (9'(elem_base) + 9'(e)) < 9'(DLEN);
-      ival[e] = (op == VEC_ID) ? CntW'(elem_base + 8'(e)) : count[e];
+      ion[e]  = ((VlW + 1)'(elem_base) + (VlW + 1)'(e)) < (VlW + 1)'(DLEN);
+      ival[e] = (op == VEC_ID) ? CntW'(elem_base + VlW'(e)) : count[e];
     end
   end
 
@@ -220,20 +230,22 @@ module vec_mask
   end
 
   // Scalar summaries
-  logic [31:0] pop_count;
-  logic [31:0] first_one;
+  logic [XLEN-1:0] pop_count;
+  logic [XLEN-1:0] first_one;
   always_comb begin
-    pop_count = 32'(ones(hits));
-    first_one = 32'hFFFF_FFFF;
+    pop_count = XLEN'(ones(hits));
+    first_one = {XLEN{1'b1}};
     for (int i = DLEN - 1; i >= 0; i--) begin
-      if (hits[i]) first_one = 32'(i);
+      if (hits[i]) first_one = XLEN'(i);
     end
   end
 
   assign xresult = (op == VEC_CPOP) ? pop_count : first_one;
 
   always_comb begin
-    case (vec_class(op))
+    case (vec_class(
+        op
+    ))
       VEC_CLS_CMP:  result = DLEN'(cmp_bits);
       VEC_CLS_MLOG: result = logic_of(op, vs2_data, vs1_data);
       VEC_CLS_MSET: result = set_bits;

@@ -4,7 +4,7 @@ module vec_decode
   import vec_pkg::*;
   import opcode_pkg::*;
 (
-    input  logic     [31:0] instr,
+    input  wire      [31:0] instr,
     output logic            valid,
     output vec_op_e         op,
     output vec_src_e        src,

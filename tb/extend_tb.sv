@@ -5,7 +5,7 @@ module extend_tb;
   int checks = 0;
   int errors = 0;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
 
   logic [    31:0] instr;
   logic [     2:0] imm_src;

@@ -2,7 +2,7 @@
 
 module prog_tb ();
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 64;
   localparam int MaxCycles = 45;
 
@@ -13,8 +13,8 @@ module prog_tb ();
   logic [Xlen-1:0] write_data;
   logic            mem_write;
 
-  int checks = 0;
-  int errors = 0;
+  int              checks = 0;
+  int              errors = 0;
 
   always #5 clk = ~clk;
 

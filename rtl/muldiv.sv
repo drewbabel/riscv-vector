@@ -3,18 +3,18 @@
 module muldiv
   import muldiv_pkg::*;
 #(
-    parameter int XLEN = 32
+    parameter int XLEN = arch_pkg::XLEN
 ) (
-    input  logic                              clk,
-    input  logic                              core_en,
-    input  logic                              rst_n,
-    input  logic                              start,
-    input  muldiv_pkg::muldiv_op_e            op,
-    input  logic                   [XLEN-1:0] a,        // forwarded rs1
-    input  logic                   [XLEN-1:0] b,        // forwarded rs2
-    output logic                   [XLEN-1:0] result,
-    output logic                              busy,     // stall driver
-    output logic                              done      // result valid
+    input  wire                                    clk,
+    input  wire                                    core_en,
+    input  wire                                    rst_n,
+    input  wire                                    start,
+    input  wire muldiv_pkg::muldiv_op_e            op,
+    input  wire                         [XLEN-1:0] a,        // forwarded rs1
+    input  wire                         [XLEN-1:0] b,        // forwarded rs2
+    output logic                        [XLEN-1:0] result,
+    output logic                                   busy,     // stall driver
+    output logic                                   done      // result valid
 );
 
   typedef enum logic [1:0] {
@@ -52,7 +52,7 @@ module muldiv
 
   logic overflow;
   assign overflow = ((stored_op == MD_DIV) || (stored_op == MD_REM)) &&
-                    (stored_a == {1'b1, {(XLEN - 1) {1'b0}}}) && (&stored_b);
+      (stored_a == {1'b1, {(XLEN - 1) {1'b0}}}) && (&stored_b);
 
   logic op_complete;
   always_comb begin

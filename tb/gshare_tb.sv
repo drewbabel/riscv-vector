@@ -4,7 +4,7 @@ module gshare_tb;
 
   import bp_pkg::*;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
 
   logic clk;
   logic core_en;
@@ -104,20 +104,20 @@ module gshare_tb;
     check("cold not taken", 32'(predict_taken), 32'd0);
 
     // Saturate up
-    for (int i = 0; i < 6; i++) step(1'b1, 1'b1, 10'd5);
-    check("saturated high", 32'(dut.pht[10'd5]), 32'd3);
+    for (int i = 0; i < 6; i++) step(1'b1, 1'b1, GhistLen'(5));
+    check("saturated high", 32'(dut.pht[GhistLen'(5)]), 32'd3);
 
     // Saturate down
-    for (int i = 0; i < 6; i++) step(1'b1, 1'b0, 10'd5);
-    check("saturated low", 32'(dut.pht[10'd5]), 32'd0);
+    for (int i = 0; i < 6; i++) step(1'b1, 1'b0, GhistLen'(5));
+    check("saturated low", 32'(dut.pht[GhistLen'(5)]), 32'd0);
 
     // Held update
-    step(1'b0, 1'b1, 10'd5);
+    step(1'b0, 1'b1, GhistLen'(5));
 
     // Random sweep
     for (int i = 0; i < 400; i++) begin
       step(1'($urandom), 1'($urandom), GhistLen'($urandom));
-      check_lookup({20'b0, 12'($urandom)});
+      check_lookup(Xlen'((GhistLen + 2)'($urandom)));
     end
 
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);

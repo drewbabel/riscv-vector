@@ -4,13 +4,13 @@ module mem_delay_tb;
 
   import cache_pkg::*;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 256;
   localparam int Latency = 5;
 
-  logic clk;
-  logic core_en;
-  logic rst_n;
+  logic                clk;
+  logic                core_en;
+  logic                rst_n;
 
   logic                req_valid;
   logic                req_rw;
@@ -23,9 +23,9 @@ module mem_delay_tb;
   logic [    Xlen-1:0] boot_addr;
   logic [    Xlen-1:0] boot_wdata;
 
-  int checks = 0;
-  int errors = 0;
-  int waited = 0;
+  int                  checks = 0;
+  int                  errors = 0;
+  int                  waited = 0;
 
   always #5 clk = ~clk;
 
@@ -113,15 +113,15 @@ module mem_delay_tb;
     $dumpfile("mem_delay_tb.vcd");
     $dumpvars(0, mem_delay_tb);
 
-    clk       = 1'b0;
-    core_en   = 1'b1;
-    rst_n     = 1'b1;
-    req_valid = 1'b0;
-    req_rw    = 1'b0;
-    req_addr  = '0;
-    req_wdata = '0;
-    boot_we   = 1'b0;
-    boot_addr = '0;
+    clk        = 1'b0;
+    core_en    = 1'b1;
+    rst_n      = 1'b1;
+    req_valid  = 1'b0;
+    req_rw     = 1'b0;
+    req_addr   = '0;
+    req_wdata  = '0;
+    boot_we    = 1'b0;
+    boot_addr  = '0;
     boot_wdata = '0;
 
     do_reset();
@@ -134,15 +134,13 @@ module mem_delay_tb;
 
     // Read back
     request(1'b0, 32'h0000_0000, '0);
-    check("boot line", resp_rdata,
-          {32'hAAAA_0003, 32'hAAAA_0002, 32'hAAAA_0001, 32'hAAAA_0000});
+    check("boot line", resp_rdata, {32'hAAAA_0003, 32'hAAAA_0002, 32'hAAAA_0001, 32'hAAAA_0000});
     check_int("latency", waited, Latency);
 
     // Line write
     request(1'b1, 32'h0000_0010, {32'hBBBB_0003, 32'hBBBB_0002, 32'hBBBB_0001, 32'hBBBB_0000});
     request(1'b0, 32'h0000_0010, '0);
-    check("line write", resp_rdata,
-          {32'hBBBB_0003, 32'hBBBB_0002, 32'hBBBB_0001, 32'hBBBB_0000});
+    check("line write", resp_rdata, {32'hBBBB_0003, 32'hBBBB_0002, 32'hBBBB_0001, 32'hBBBB_0000});
 
     // Untouched line
     request(1'b0, 32'h0000_0020, '0);
@@ -150,7 +148,7 @@ module mem_delay_tb;
 
     // Word select
     request(1'b0, 32'h0000_0014, '0);
-    check("word select", LineBits'(resp_rdata[63:32]), LineBits'(32'hBBBB_0001));
+    check("word select", LineBits'(resp_rdata[2*Xlen-1:Xlen]), LineBits'(32'hBBBB_0001));
 
     verdict();
   end

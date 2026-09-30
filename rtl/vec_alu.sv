@@ -3,19 +3,20 @@
 module vec_alu
   import vec_pkg::*;
 #(
-    parameter  int DLEN     = 128,
+    parameter  int DLEN     = arch_pkg::VLEN,
+    parameter  int XLEN     = arch_pkg::XLEN,
     localparam int MaxElems = DLEN / 8
 ) (
-    input  vec_op_e                 op,
-    input  vec_src_e                src,
-    input  logic     [         2:0] vsew,
-    input  logic                    vm,
-    input  logic     [MaxElems-1:0] mask_bits,
-    input  logic     [    DLEN-1:0] vs2_data,
-    input  logic     [    DLEN-1:0] vs1_data,
-    input  logic     [        31:0] xdata,
-    input  logic     [         4:0] simm,
-    output logic     [    DLEN-1:0] result
+    input  wire vec_op_e                 op,
+    input  wire vec_src_e                src,
+    input  wire           [         2:0] vsew,
+    input  wire                          vm,
+    input  wire           [MaxElems-1:0] mask_bits,
+    input  wire           [    DLEN-1:0] vs2_data,
+    input  wire           [    DLEN-1:0] vs1_data,
+    input  wire           [    XLEN-1:0] xdata,
+    input  wire           [         4:0] simm,
+    output logic          [    DLEN-1:0] result
 );
 
   logic [DLEN-1:0] res8;
@@ -23,8 +24,8 @@ module vec_alu
   logic [DLEN-1:0] res32;
 
   // Scalar operand
-  logic [31:0] scalar;
-  assign scalar = (src == VEC_SRC_VI) ? {{27{simm[4]}}, simm} : xdata;
+  logic [XLEN-1:0] scalar;
+  assign scalar = (src == VEC_SRC_VI) ? {{(XLEN - 5) {simm[4]}}, simm} : xdata;
 
   // Byte elements
   for (genvar e = 0; e < DLEN / 8; e++) begin : g_e8
@@ -61,7 +62,7 @@ module vec_alu
   // Word elements
   for (genvar e = 0; e < DLEN / 32; e++) begin : g_e32
     logic [31:0] b32;
-    assign b32 = (src == VEC_SRC_VV) ? vs1_data[e*32+:32] : scalar;
+    assign b32 = (src == VEC_SRC_VV) ? vs1_data[e*32+:32] : scalar[31:0];
     vec_alu_lane #(
         .W(32)
     ) u_lane (

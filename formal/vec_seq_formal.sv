@@ -4,54 +4,64 @@ module vec_seq_formal
   import vec_pkg::*;
 ();
 
-  localparam int AWIDTH = 5;
-  localparam int VLEN = 128;
+  localparam int AWIDTH = arch_pkg::RegAddrW;
+  localparam int VLEN = arch_pkg::VLEN;
+  localparam int ELEN = arch_pkg::ELEN;
   localparam int MaxElems = VLEN / 8;
+  localparam int VlW = $clog2(VLEN + 1);
+  localparam int OffW = $clog2(VLEN);
+  localparam int CntW = $clog2(MaxElems + 1);
+  localparam int LnW = $clog2(OffW + 1);
+  localparam int PosW = VlW + $clog2(ELEN);
+  localparam int DbW = $clog2(ELEN + 1);
+  localparam int DiffW = VlW + 1;
+  localparam int RegW = AWIDTH + 1;
 
-  logic                clk;
-  logic                rst_n;
-  logic                core_en;
-  logic                start;
-  logic [         4:0] vs1;
-  logic [         4:0] vs2;
-  logic [         4:0] vd;
-  logic                reads_vd;
-  logic [         7:0] vl;
-  logic [         2:0] vsew;
-  logic [         2:0] vlmul;
-  logic                vm;
-  logic [MaxElems-1:0] mask_bits;
+  logic                    clk;
+  logic                    rst_n;
+  logic                    core_en;
+  logic                    start;
+  logic     [  AWIDTH-1:0] vs1;
+  logic     [  AWIDTH-1:0] vs2;
+  logic     [  AWIDTH-1:0] vd;
+  logic                    reads_vd;
+  logic     [     VlW-1:0] vl;
+  logic     [         2:0] vsew;
+  logic     [         2:0] vlmul;
+  logic                    vm;
+  logic     [MaxElems-1:0] mask_bits;
 
-  vec_rel_e            d_rel;
-  vec_rel_e            s1_rel;
-  vec_rel_e            s2_rel;
-  logic                mul_rate;
-  logic                single_write;
-  logic                mask_dest;
-  logic                mask_whole;
-  logic                mask_src;
+  vec_rel_e                d_rel;
+  vec_rel_e                s1_rel;
+  vec_rel_e                s2_rel;
+  logic                    mul_rate;
+  logic                    single_write;
+  logic                    mask_dest;
+  logic                    mask_whole;
+  logic                    mask_src;
 
-  logic [  AWIDTH-1:0] raddr1;
-  logic [  AWIDTH-1:0] raddr2;
-  logic [  AWIDTH-1:0] raddr3;
-  logic [  AWIDTH-1:0] waddr;
-  logic [    VLEN-1:0] wstrb;
-  logic                wen;
+  logic     [  AWIDTH-1:0] raddr1;
+  logic     [  AWIDTH-1:0] raddr2;
+  logic     [  AWIDTH-1:0] raddr3;
+  logic     [  AWIDTH-1:0] waddr;
+  logic     [    VLEN-1:0] wstrb;
+  logic                    wen;
 
-  logic [         6:0] s1_off;
-  logic [         6:0] s2_off;
-  logic [         6:0] d_off;
-  logic [         7:0] elem_base;
-  logic [         4:0] elem_count;
-  logic [MaxElems-1:0] elem_active;
+  logic     [    OffW-1:0] s1_off;
+  logic     [    OffW-1:0] s2_off;
+  logic     [    OffW-1:0] d_off;
+  logic     [     VlW-1:0] elem_base;
+  logic     [    CntW-1:0] elem_count;
+  logic     [MaxElems-1:0] elem_active;
 
-  logic                last;
-  logic                busy;
-  logic                done;
+  logic                    last;
+  logic                    busy;
+  logic                    done;
 
   vec_sequencer #(
       .AWIDTH(AWIDTH),
-      .VLEN  (VLEN)
+      .VLEN  (VLEN),
+      .ELEN  (ELEN)
   ) dut (
       .clk         (clk),
       .rst_n       (rst_n),
@@ -101,8 +111,8 @@ module vec_seq_formal
   logic [4:0] d_regs;
   logic [4:0] s1_regs;
   logic [4:0] s2_regs;
-  logic [7:0] total_elems;
-  logic [5:0] dbits;
+  logic [VlW-1:0] total_elems;
+  logic [DbW-1:0] dbits;
 
   assign lsew = vsew + 3'd3;
   assign ld = vec_rel_log2(d_rel, lsew);
@@ -112,15 +122,15 @@ module vec_seq_formal
   assign d_regs = (single_write || mask_dest) ? 5'd1 : vec_rel_regs(d_rel, group_regs[3:0]);
   assign s1_regs = (single_write || mask_src) ? 5'd1 : vec_rel_regs(s1_rel, group_regs[3:0]);
   assign s2_regs = mask_src ? 5'd1 : vec_rel_regs(s2_rel, group_regs[3:0]);
-  assign total_elems = 8'(group_regs) << (3'd7 - lsew);
-  assign dbits = 6'(6'd1 << ld);
+  assign total_elems = VlW'(group_regs) << (LnW'(OffW) - LnW'(lsew));
+  assign dbits = DbW'(DbW'(1) << ld);
 
   // Absolute bit position
-  logic [12:0] dest_pos;
-  logic [12:0] src2_pos;
+  logic [PosW-1:0] dest_pos;
+  logic [PosW-1:0] src2_pos;
 
-  assign dest_pos = (13'(waddr - vd) << 7) + 13'(d_off);
-  assign src2_pos = (13'(raddr2 - vs2) << 7) + 13'(s2_off);
+  assign dest_pos = (PosW'(waddr - vd) << OffW) + PosW'(d_off);
+  assign src2_pos = (PosW'(raddr2 - vs2) << OffW) + PosW'(s2_off);
 
   // Reset once
   logic f_past_valid;
@@ -135,24 +145,24 @@ module vec_seq_formal
     assume (!mask_whole || ((mask_dest && mask_src) || (single_write && mask_src)));
     assume (!mask_dest || (d_rel == VEC_REL_SAME));
     assume (!mask_src || ((s1_rel == VEC_REL_SAME) && (s2_rel == VEC_REL_SAME)));
-    assume (!mask_whole || (vl <= 8'(VLEN)));
+    assume (!mask_whole || (vl <= VlW'(VLEN)));
   end
 
   // Legal configuration
   always_comb begin
-    assume (vsew <= 3'd2);
+    assume (vsew <= 3'($clog2(ELEN / 8)));
     assume (vlmul != 3'b100);
-    assume (ld >= 3'd3 && ld <= 3'd5);
-    assume (ls1 >= 3'd3 && ls1 <= 3'd5);
-    assume (ls2 >= 3'd3 && ls2 <= 3'd5);
+    assume (ld >= 3'd3 && ld <= 3'($clog2(ELEN)));
+    assume (ls1 >= 3'd3 && ls1 <= 3'($clog2(ELEN)));
+    assume (ls2 >= 3'd3 && ls2 <= 3'($clog2(ELEN)));
     assume (vl <= total_elems);
     assume (d_regs <= 5'd8 && s1_regs <= 5'd8 && s2_regs <= 5'd8);
     assume ((vd & (d_regs - 5'd1)) == 5'd0);
     assume ((vs1 & (s1_regs - 5'd1)) == 5'd0);
     assume ((vs2 & (s2_regs - 5'd1)) == 5'd0);
-    assume (6'(vd) + 6'(d_regs) <= 6'd32);
-    assume (6'(vs1) + 6'(s1_regs) <= 6'd32);
-    assume (6'(vs2) + 6'(s2_regs) <= 6'd32);
+    assume (RegW'(vd) + RegW'(d_regs) <= RegW'(1 << AWIDTH));
+    assume (RegW'(vs1) + RegW'(s1_regs) <= RegW'(1 << AWIDTH));
+    assume (RegW'(vs2) + RegW'(s2_regs) <= RegW'(1 << AWIDTH));
   end
 
   // Snapshot holds
@@ -188,10 +198,10 @@ module vec_seq_formal
   // Inside the group
   always_comb begin
     if (f_past_valid && busy) begin
-      assert (5'(waddr - vd) < d_regs);
-      assert (5'(raddr2 - vs2) < s2_regs);
-      assert (single_write || (5'(raddr1 - vs1) < s1_regs));
-      assert (reads_vd ? (5'(raddr3 - vd) < d_regs) : (raddr3 == 5'd0));
+      assert (AWIDTH'(waddr - vd) < d_regs);
+      assert (AWIDTH'(raddr2 - vs2) < s2_regs);
+      assert (single_write || (AWIDTH'(raddr1 - vs1) < s1_regs));
+      assert (reads_vd ? (AWIDTH'(raddr3 - vd) < d_regs) : (raddr3 == '0));
     end
   end
 
@@ -199,25 +209,25 @@ module vec_seq_formal
   always_comb begin
     if (f_past_valid && busy) begin
       assert (elem_base < total_elems);
-      assert ((elem_base & 8'(elem_count - 5'd1)) == 8'd0);
-      assert (elem_count != 5'd0);
+      assert ((elem_base & VlW'(elem_count - CntW'(1))) == '0);
+      assert (elem_count != '0);
     end
   end
 
   // Twice the rate
   always_comb begin
-    if (f_past_valid && busy && !single_write && !mask_dest && !mask_src
-        && (d_rel == VEC_REL_WIDE) && (s2_rel == VEC_REL_SAME)) begin
+    if (f_past_valid && busy && !single_write && !mask_dest && !mask_src &&
+        (d_rel == VEC_REL_WIDE) && (s2_rel == VEC_REL_SAME)) begin
       assert (dest_pos == (src2_pos << 1));
     end
   end
 
   // Two source phases
   always_comb begin
-    if (f_past_valid && busy && !single_write && !mul_rate && !mask_dest && !mask_src
-        && (d_rel == VEC_REL_SAME) && (s1_rel == VEC_REL_SAME) && (s2_rel == VEC_REL_WIDE)) begin
+    if (f_past_valid && busy && !single_write && !mul_rate && !mask_dest && !mask_src &&
+        (d_rel == VEC_REL_SAME) && (s1_rel == VEC_REL_SAME) && (s2_rel == VEC_REL_WIDE)) begin
       assert (src2_pos == (dest_pos << 1));
-      assert ((13'(elem_count) << ld) == 13'(VLEN / 2));
+      assert ((PosW'(elem_count) << ld) == PosW'(VLEN / 2));
     end
   end
 
@@ -226,8 +236,8 @@ module vec_seq_formal
     if (f_past_valid && single_write && wen) begin
       assert (last);
       assert (waddr == vd);
-      assert (d_off == 7'd0);
-      assert (wstrb == VLEN'({32{1'b1}} >> (6'd32 - dbits)));
+      assert (d_off == '0);
+      assert (wstrb == VLEN'({ELEN{1'b1}} >> (DbW'(ELEN) - dbits)));
     end
   end
 
@@ -245,14 +255,14 @@ module vec_seq_formal
   always_comb begin
     if (f_past_valid && busy && mask_dest) begin
       assert (waddr == vd);
-      assert (9'(d_off) < 9'(VLEN));
-      assert (9'(d_off) == 9'(elem_base));
+      assert (DiffW'(d_off) < DiffW'(VLEN));
+      assert (DiffW'(d_off) == DiffW'(elem_base));
     end
   end
 
   // Inside the length
   logic [VLEN-1:0] live_mask;
-  assign live_mask = VLEN'({VLEN{1'b1}} >> (9'(VLEN) - 9'(vl)));
+  assign live_mask = VLEN'({VLEN{1'b1}} >> (DiffW'(VLEN) - DiffW'(vl)));
 
   always_comb begin
     if (f_past_valid && mask_whole && !single_write && wen) begin
@@ -264,10 +274,10 @@ module vec_seq_formal
   // Reachable shapes
   always_comb begin
     cover (busy && (d_rel == VEC_REL_WIDE) && (waddr != vd));
-    cover (busy && (s2_rel == VEC_REL_WIDE) && (d_off == 7'd64));
+    cover (busy && (s2_rel == VEC_REL_WIDE) && (d_off == OffW'(VLEN / 2)));
     cover (done && single_write);
-    cover (busy && (elem_count == 5'd16));
-    cover (busy && mask_dest && !mask_whole && (elem_base != 8'd0));
+    cover (busy && (elem_count == CntW'(MaxElems)));
+    cover (busy && mask_dest && !mask_whole && (elem_base != '0));
     cover (wen && mask_whole && !single_write);
   end
 

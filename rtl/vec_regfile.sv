@@ -1,19 +1,19 @@
 `default_nettype none
 
 module vec_regfile #(
-    parameter  int AWIDTH = 5,
-    parameter  int VLEN   = 128,
+    parameter  int AWIDTH = arch_pkg::RegAddrW,
+    parameter  int VLEN   = arch_pkg::VLEN,
     localparam int Depth  = 2 ** AWIDTH
 ) (
-    input  logic              clk,
-    input  logic              core_en,
-    input  logic              we,
-    input  logic [  VLEN-1:0] wstrb,
-    input  logic [AWIDTH-1:0] waddr,
-    input  logic [  VLEN-1:0] wdata,
-    input  logic [AWIDTH-1:0] raddr1,
-    input  logic [AWIDTH-1:0] raddr2,
-    input  logic [AWIDTH-1:0] raddr3,
+    input  wire               clk,
+    input  wire               core_en,
+    input  wire               we,
+    input  wire  [  VLEN-1:0] wstrb,
+    input  wire  [AWIDTH-1:0] waddr,
+    input  wire  [  VLEN-1:0] wdata,
+    input  wire  [AWIDTH-1:0] raddr1,
+    input  wire  [AWIDTH-1:0] raddr2,
+    input  wire  [AWIDTH-1:0] raddr3,
     output logic [  VLEN-1:0] rdata1,
     output logic [  VLEN-1:0] rdata2,
     output logic [  VLEN-1:0] rdata3,

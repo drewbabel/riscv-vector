@@ -4,7 +4,7 @@ module mem_arb_formal
   import cache_pkg::*;
 ();
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int AppAddrW = 29;
   localparam int MaskW = LineBits / 8;
   localparam logic [2:0] AppRead = 3'b001;
@@ -21,7 +21,7 @@ module mem_arb_formal
   (* anyseq *)logic                dc_req_rw;
   (* anyseq *)logic [    Xlen-1:0] dc_req_addr;
   (* anyseq *)logic [LineBits-1:0] dc_req_wdata;
-  (* anyseq *)logic [         3:0] dc_req_wstrb;
+  (* anyseq *)logic [   MaskW-1:0] dc_req_wstrb;
   (* anyseq *)logic                boot_we;
   (* anyseq *)logic [    Xlen-1:0] boot_addr;
   (* anyseq *)logic [    Xlen-1:0] boot_wdata;
@@ -147,7 +147,7 @@ module mem_arb_formal
 
   // Fairness window
   localparam int GapMax = 2;
-  localparam int GapW = 4;
+  localparam int GapW   = 4;
 
   logic [GapW-1:0] gap_rdy;
   logic [GapW-1:0] gap_wdf;
@@ -231,9 +231,9 @@ module mem_arb_formal
   // Covers
 
   localparam logic [1:0] StIssue = 2'd1;
-  localparam logic [1:0] StWait = 2'd2;
-  localparam logic [1:0] SrcIc = 2'd0;
-  localparam logic [1:0] SrcDc = 2'd1;
+  localparam logic [1:0] StWait  = 2'd2;
+  localparam logic [1:0] SrcIc   = 2'd0;
+  localparam logic [1:0] SrcDc   = 2'd1;
   localparam logic [1:0] SrcBoot = 2'd2;
 
   logic [1:0] prev_state;

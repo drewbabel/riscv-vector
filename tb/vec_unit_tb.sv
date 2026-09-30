@@ -7,61 +7,69 @@ module vec_unit_tb
   import csr_pkg::VcsrAddr;
 ();
 
-  localparam int AWIDTH = 5;
-  localparam int VLEN = 128;
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int AWIDTH = arch_pkg::RegAddrW;
+  localparam int VLEN = arch_pkg::VLEN;
+  localparam int ELEN = arch_pkg::ELEN;
+  localparam int VlW = $clog2(VLEN + 1);
+  localparam int VlMax = (1 << VlW) - 1;
   localparam int Depth = 2 ** AWIDTH;
   localparam int Bytes = 256;
+  localparam int LineB = VLEN / 8;
   localparam int Timeout = 100000;
 
-  int checks = 0;
-  int errors = 0;
+  int               checks = 0;
+  int               errors = 0;
 
-  logic clk = 1'b0;
-  logic rst_n;
-  logic core_en;
-  logic [31:0] instr;
-  logic instr_valid;
-  logic cancel;
-  logic [31:0] xdata;
-  logic [31:0] xstride;
-  logic vill;
-  logic [7:0] vl;
-  logic [2:0] vsew;
-  logic [2:0] vlmul;
-  logic [1:0] vxrm;
-  logic       vxsat;
-  logic       csr_we;
-  logic [11:0] csr_waddr;
-  logic [31:0] csr_wdata;
-  logic        csr_wait;
-  logic is_vector;
-  logic vec_hold;
-  logic vec_idle;
-  logic load_pending;
-  logic store_pending;
-  logic mem_misaligned;
-  logic [31:0] mem_bad_addr;
-  logic xreg_valid;
-  logic [31:0] xreg_result;
+  logic             clk = 1'b0;
+  logic             rst_n;
+  logic             core_en;
+  logic [     31:0] instr;
+  logic             instr_valid;
+  logic             cancel;
+  logic [ XLEN-1:0] xdata;
+  logic [ XLEN-1:0] xstride;
+  logic             vill;
+  logic [  VlW-1:0] vl;
+  logic [      2:0] vsew;
+  logic [      2:0] vlmul;
+  logic [      1:0] vxrm;
+  logic             vxsat;
+  logic             csr_we;
+  logic [     11:0] csr_waddr;
+  logic [ XLEN-1:0] csr_wdata;
+  logic             csr_wait;
+  logic             is_vector;
+  logic             vec_hold;
+  logic             vec_idle;
+  logic             load_pending;
+  logic             store_pending;
+  logic             mem_misaligned;
+  logic [ XLEN-1:0] mem_bad_addr;
+  logic             xreg_valid;
+  logic [ XLEN-1:0] xreg_result;
 
-  logic [VLEN-1:0] shadow[Depth];
+  logic [ VLEN-1:0] shadow          [Depth];
 
   // Memory model
-  logic [31:0] mem_rdata;
-  logic mem_ready;
-  logic mem_req;
-  logic [31:0] mem_addr;
-  logic [31:0] mem_wdata;
-  logic [3:0] mem_wstrb;
-  logic [7:0] mem[Bytes];
-  logic [7:0] gmem[Bytes];
-  int ready_pct = 100;
+  logic [ VLEN-1:0] mem_rdata;
+  logic             mem_ready;
+  logic             mem_req;
+  logic [ XLEN-1:0] mem_addr;
+  logic [ VLEN-1:0] mem_wdata;
+  logic [LineB-1:0] mem_wstrb;
+  logic [ XLEN-1:0] line_base;
+  logic [      7:0] mem             [Bytes];
+  logic [      7:0] gmem            [Bytes];
+  int               ready_pct = 100;
 
   always #5 clk = ~clk;
 
   vec_unit #(
+      .XLEN  (XLEN),
       .AWIDTH(AWIDTH),
-      .VLEN  (VLEN)
+      .VLEN  (VLEN),
+      .ELEN  (ELEN)
   ) dut (
       .clk(clk),
       .rst_n(rst_n),
@@ -98,9 +106,10 @@ module vec_unit_tb
       .store_pending(store_pending)
   );
 
-  assign mem_rdata = {
-    mem[(mem_addr+3)%Bytes], mem[(mem_addr+2)%Bytes], mem[(mem_addr+1)%Bytes], mem[mem_addr%Bytes]
-  };
+  assign line_base = mem_addr & ~XLEN'(LineB - 1);
+  always_comb begin
+    for (int k = 0; k < LineB; k++) mem_rdata[k*8+:8] = mem[(line_base+XLEN'(k))%Bytes];
+  end
 
   always @(posedge clk) begin
     #2;
@@ -109,8 +118,8 @@ module vec_unit_tb
 
   always @(posedge clk) begin
     if (rst_n && core_en && mem_req && mem_ready) begin
-      for (int k = 0; k < 4; k++)
-      if (mem_wstrb[k]) mem[(mem_addr+32'(k))%Bytes] <= mem_wdata[k*8+:8];
+      for (int k = 0; k < LineB; k++)
+      if (mem_wstrb[k]) mem[(line_base+XLEN'(k))%Bytes] <= mem_wdata[k*8+:8];
     end
   end
 
@@ -119,31 +128,33 @@ module vec_unit_tb
     wmask = (VLEN'(1) << w) - VLEN'(1);
   endfunction
 
-  function automatic logic [31:0] get_elem(input logic [VLEN-1:0] v, input int w, input int e);
-    get_elem = 32'((v >> (e * w)) & wmask(w));
+  function automatic logic [ELEN-1:0] get_elem(input logic [VLEN-1:0] v, input int w, input int e);
+    get_elem = ELEN'((v >> (e * w)) & wmask(w));
   endfunction
 
   function automatic logic [VLEN-1:0] set_elem(input logic [VLEN-1:0] v, input int w, input int e,
-                                               input logic [31:0] val);
+                                               input logic [ELEN-1:0] val);
     set_elem = (v & ~(wmask(w) << (e * w))) | ((VLEN'(val) & wmask(w)) << (e * w));
   endfunction
 
-  function automatic logic [31:0] sext(input logic [31:0] v, input int w);
-    sext = v[w-1] ? (v | ~(32'((32'h1 << w) - 32'h1))) : (v & 32'((32'h1 << w) - 32'h1));
+  function automatic logic [ELEN-1:0] sext(input logic [ELEN-1:0] v, input int w);
+    sext = v[w-1] ?
+        (v | ~(ELEN'((ELEN'(1) << w) - ELEN'(1)))) : (v & ELEN'((ELEN'(1) << w) - ELEN'(1)));
   endfunction
 
   // Element rule
-  function automatic logic [31:0] ref_op(input vec_op_e o, input int w, input logic [31:0] ra,
-                                         input logic [31:0] rb, input logic cin, input logic vmb);
-    logic [31:0] m;
-    logic [31:0] a;
-    logic [31:0] b;
-    logic [31:0] sa;
-    logic [31:0] sb;
-    logic [31:0] sr;
+  function automatic logic [ELEN-1:0] ref_op(input vec_op_e o, input int w,
+                                             input logic [ELEN-1:0] ra, input logic [ELEN-1:0] rb,
+                                             input logic cin, input logic vmb);
+    logic [ELEN-1:0] m;
+    logic [ELEN-1:0] a;
+    logic [ELEN-1:0] b;
+    logic [ELEN-1:0] sa;
+    logic [ELEN-1:0] sb;
+    logic [ELEN-1:0] sr;
     int sh;
     begin
-      m  = 32'((32'h1 << w) - 32'h1);
+      m  = ELEN'((ELEN'(1) << w) - ELEN'(1));
       a  = ra & m;
       b  = rb & m;
       sa = sext(a, w);
@@ -221,8 +232,12 @@ module vec_unit_tb
     shadow[r] = data;
   endtask
 
+  function automatic logic [VLEN-1:0] rand_vec();
+    for (int w = VLEN / 32 - 1; w >= 0; w--) rand_vec[w*32+:32] = $urandom;
+  endfunction
+
   task automatic seed_all();
-    for (int r = 0; r < Depth; r++) seed_reg(AWIDTH'(r), {$urandom, $urandom, $urandom, $urandom});
+    for (int r = 0; r < Depth; r++) seed_reg(AWIDTH'(r), rand_vec());
   endtask
 
   task automatic init_signals();
@@ -244,7 +259,7 @@ module vec_unit_tb
     vlmul = 3'd0;
     csr_we = 1'b0;
     csr_waddr = 12'd0;
-    csr_wdata = 32'd0;
+    csr_wdata = '0;
     csr_wait = 1'b0;
     repeat (3) @(negedge clk);
     rst_n = 1'b1;
@@ -277,6 +292,11 @@ module vec_unit_tb
         errors = errors + 1;
         $display("FAIL never went idle at %0t", $time);
       end
+      checks = checks + 1;
+      if (dut.u_issue.u_busy.busy != '0) begin
+        errors = errors + 1;
+        $display("FAIL busy %h at idle %0t", dut.u_issue.u_busy.busy, $time);
+      end
       @(negedge clk);
     end
   endtask
@@ -284,12 +304,12 @@ module vec_unit_tb
   // Model one instruction
   task automatic ref_apply(input vec_op_e o, input int form, input logic [4:0] s1,
                            input logic [4:0] s2, input logic [4:0] d, input logic vmb,
-                           input logic [31:0] xd, input logic [4:0] im, input int w, input int regs,
-                           input int len);
+                           input logic [XLEN-1:0] xd, input logic [4:0] im, input int w,
+                           input int regs, input int len);
     int per_reg;
     int idx;
-    logic [31:0] ea;
-    logic [31:0] eb;
+    logic [ELEN-1:0] ea;
+    logic [ELEN-1:0] eb;
     logic cin;
     logic uses_v0;
     begin
@@ -303,8 +323,8 @@ module vec_unit_tb
             ea = get_elem(shadow[(32'(s2)+r)%Depth], w, e);
             case (form)
               0: eb = get_elem(shadow[(32'(s1)+r)%Depth], w, e);
-              1: eb = xd & 32'((32'h1 << w) - 32'h1);
-              default: eb = {{27{im[4]}}, im} & 32'((32'h1 << w) - 32'h1);
+              1: eb = xd & ELEN'((ELEN'(1) << w) - ELEN'(1));
+              default: eb = ELEN'($signed(im)) & ELEN'((ELEN'(1) << w) - ELEN'(1));
             endcase
             shadow[(32'(d)+r)%Depth] =
                 set_elem(shadow[(32'(d)+r)%Depth], w, e, ref_op(o, w, ea, eb, cin, vmb));
@@ -330,8 +350,8 @@ module vec_unit_tb
   // Run one operation
   task automatic run_one(input vec_op_e o, input int form, input logic [4:0] s1,
                          input logic [4:0] s2, input logic [4:0] d, input logic vmb,
-                         input logic [31:0] xd, input logic [4:0] im, input logic [2:0] sew,
-                         input logic [2:0] lmul, input logic [7:0] len);
+                         input logic [XLEN-1:0] xd, input logic [4:0] im, input logic [2:0] sew,
+                         input logic [2:0] lmul, input logic [VlW-1:0] len);
     logic [2:0] f3;
     logic [4:0] f2;
     int regs;
@@ -452,7 +472,7 @@ module vec_unit_tb
     int form;
     logic [2:0] sew;
     logic [2:0] lmul;
-    logic [7:0] len;
+    logic [VlW-1:0] len;
     logic vmb;
     begin
       seed_all();
@@ -475,7 +495,7 @@ module vec_unit_tb
         form = int'($urandom % 2);
         sew  = 3'($urandom % 3);
         lmul = 3'($urandom % 3);
-        len  = 8'($urandom % ((128 >> sew) * (1 << lmul) + 1));
+        len  = VlW'($urandom % ((VLEN >> sew) * (1 << lmul) + 1));
         vmb  = 1'($urandom);
         if (o == VEC_MERGE) vmb = 1'b0;
         run_one(o, form, 5'd4, 5'd8, 5'd16, vmb, $urandom, 5'($urandom), sew, lmul, len);
@@ -504,17 +524,17 @@ module vec_unit_tb
 
   // Memory reference
   task automatic ref_mem(input logic store, input int w, input logic vmb, input logic [4:0] d,
-                         input logic [31:0] b, input logic [31:0] st, input int len);
+                         input logic [XLEN-1:0] b, input logic [XLEN-1:0] st, input int len);
     int bytes;
     int per_reg;
     int r;
-    logic [31:0] a;
-    logic [31:0] e;
+    logic [XLEN-1:0] a;
+    logic [ELEN-1:0] e;
     begin
       bytes   = 1 << w;
-      per_reg = 16 >> w;
+      per_reg = LineB >> w;
       for (int i = 0; i < len; i++) begin
-        a = b + 32'(i) * st;
+        a = b + XLEN'(i) * st;
         r = (int'(d) + i / per_reg) % Depth;
         if (!(vmb || shadow[0][i])) continue;
         if (!store) begin
@@ -539,7 +559,7 @@ module vec_unit_tb
     end
   endtask
 
-  task automatic note(input string what, input logic [31:0] got, input logic [31:0] want);
+  task automatic note(input string what, input logic [XLEN-1:0] got, input logic [XLEN-1:0] want);
     checks = checks + 1;
     if (got !== want) begin
       errors = errors + 1;
@@ -550,8 +570,8 @@ module vec_unit_tb
   // Run one move
   task automatic run_mem(input logic store, input logic [1:0] w, input logic whole,
                          input logic strided, input logic vmb, input logic [4:0] d,
-                         input logic [31:0] b, input logic [31:0] st, input logic [2:0] sew,
-                         input logic [2:0] lmul, input logic [7:0] len);
+                         input logic [XLEN-1:0] b, input logic [XLEN-1:0] st, input logic [2:0] sew,
+                         input logic [2:0] lmul, input logic [VlW-1:0] len);
     int count;
     begin
       vsew    = sew;
@@ -616,7 +636,7 @@ module vec_unit_tb
   endtask
 
   // Write one register
-  task automatic csr_poke(input logic [11:0] addr, input logic [31:0] val);
+  task automatic csr_poke(input logic [11:0] addr, input logic [XLEN-1:0] val);
     @(negedge clk);
     csr_we    = 1'b1;
     csr_waddr = addr;
@@ -765,7 +785,7 @@ module vec_unit_tb
     logic [2:0] sew;
     logic [2:0] lmul;
     logic [4:0] d;
-    logic [7:0] len;
+    logic [VlW-1:0] len;
     int emul;
     int nregs;
     int vlmax;
@@ -783,11 +803,10 @@ module vec_unit_tb
           lmul = 3'($urandom % 4);
           emul = whole ? 0 : int'(lmul) + int'(w) - int'(sew);
         end
-        vlmax     = (VLEN << lmul) >> (3 + sew);
-        len       = 8'($urandom % ((vlmax > 255 ? 255 : vlmax) + 1));
-        nregs     = (emul <= 0) ? 1 : (1 << emul);
-        d         = ((!vmb && !store) ? 5'd23 - 5'($urandom % 20) : 5'($urandom))
-            & ~5'(nregs - 1);
+        vlmax = (VLEN << lmul) >> (3 + sew);
+        len   = VlW'($urandom % ((vlmax > VlMax ? VlMax : vlmax) + 1));
+        nregs = (emul <= 0) ? 1 : (1 << emul);
+        d     = ((!vmb && !store) ? 5'd23 - 5'($urandom % 20) : 5'($urandom)) & ~5'(nregs - 1);
         if (!vmb && !store && (d == 5'd0)) d = 5'(nregs);
         ready_pct = (($urandom % 2) == 0) ? 100 : 40;
         run_mem(store, w, whole, strided, vmb, d, 32'($urandom % Bytes) & ~((32'd1 << w) - 1),
@@ -799,7 +818,7 @@ module vec_unit_tb
 
 
   // Group element access
-  function automatic logic [31:0] grp_get(input logic [4:0] base, input int w, input int i);
+  function automatic logic [ELEN-1:0] grp_get(input logic [4:0] base, input int w, input int i);
     int roff;
     int pos;
     roff = (i * w) / VLEN;
@@ -808,11 +827,11 @@ module vec_unit_tb
   endfunction
 
   task automatic grp_set(input logic [4:0] base, input int w, input int i,
-                         input logic [31:0] val);
+                         input logic [ELEN-1:0] val);
     int roff;
     int pos;
     roff = (i * w) / VLEN;
-    pos  = ((i * w) % VLEN) / w;
+    pos = ((i * w) % VLEN) / w;
     shadow[(32'(base)+roff)%Depth] = set_elem(shadow[(32'(base)+roff)%Depth], w, pos, val);
   endtask
 
@@ -823,11 +842,11 @@ module vec_unit_tb
   // Widening model
   task automatic ref_widen(input vec_op_e o, input int form, input logic [4:0] s1,
                            input logic [4:0] s2, input logic [4:0] d, input logic vmb,
-                           input logic [31:0] xd, input int sew, input int regs, input int len,
+                           input logic [XLEN-1:0] xd, input int sew, input int regs, input int len,
                            input logic wv);
     int dw;
-    logic [31:0] a;
-    logic [31:0] b;
+    logic [ELEN-1:0] a;
+    logic [ELEN-1:0] b;
     logic sgn;
     dw  = sew * 2;
     sgn = (o == VEC_WADD) || (o == VEC_WSUB);
@@ -835,7 +854,7 @@ module vec_unit_tb
       if ((i < len) && (vmb || shadow[0][i])) begin
         if (wv) a = grp_get(s2, dw, i);
         else a = sgn ? sext(grp_get(s2, sew, i), sew) : grp_get(s2, sew, i);
-        b = (form == 0) ? grp_get(s1, sew, i) : (xd & 32'((32'h1 << sew) - 32'h1));
+        b = (form == 0) ? grp_get(s1, sew, i) : (xd & ELEN'((ELEN'(1) << sew) - ELEN'(1)));
         if (sgn) b = sext(b, sew);
         grp_set(d, dw, i, ((o == VEC_WSUBU) || (o == VEC_WSUB)) ? (a - b) : (a + b));
       end
@@ -845,10 +864,10 @@ module vec_unit_tb
   // Narrowing model
   task automatic ref_narrow(input vec_op_e o, input int form, input logic [4:0] s1,
                             input logic [4:0] s2, input logic [4:0] d, input logic vmb,
-                            input logic [31:0] xd, input logic [4:0] im, input int sew,
+                            input logic [XLEN-1:0] xd, input logic [4:0] im, input int sew,
                             input int regs, input int len);
-    logic [31:0] w;
-    logic [31:0] r;
+    logic [ELEN-1:0] w;
+    logic [ELEN-1:0] r;
     int sh;
     for (int i = 0; i < group_elems(sew, regs); i++) begin
       if ((i < len) && (vmb || shadow[0][i])) begin
@@ -866,7 +885,7 @@ module vec_unit_tb
                             input logic vmb, input int sew, input int regs, input int len,
                             input int factor);
     int sw;
-    logic [31:0] a;
+    logic [ELEN-1:0] a;
     logic sgn;
     sw  = sew / factor;
     sgn = (o == VEC_SEXT2) || (o == VEC_SEXT4);
@@ -879,8 +898,8 @@ module vec_unit_tb
   endtask
 
   // Reduction model
-  function automatic logic [31:0] ref_fold(input vec_op_e o, input logic [31:0] x,
-                                           input logic [31:0] y);
+  function automatic logic [ELEN-1:0] ref_fold(input vec_op_e o, input logic [ELEN-1:0] x,
+                                               input logic [ELEN-1:0] y);
     case (o)
       VEC_REDSUM, VEC_WREDSUM, VEC_WREDSUMU: return x + y;
       VEC_REDAND: return x & y;
@@ -898,8 +917,8 @@ module vec_unit_tb
                             input logic [4:0] d, input logic vmb, input int sew, input int regs,
                             input int len, input logic wide);
     int accw;
-    logic [31:0] acc;
-    logic [31:0] v;
+    logic [ELEN-1:0] acc;
+    logic [ELEN-1:0] v;
     logic sgn;
     accw = wide ? sew * 2 : sew;
     sgn  = (o == VEC_REDMIN) || (o == VEC_REDMAX) || (o == VEC_WREDSUM);
@@ -908,7 +927,7 @@ module vec_unit_tb
     if (sgn) acc = sext(acc, accw);
     for (int i = 0; i < group_elems(sew, regs); i++) begin
       if ((i < len) && (vmb || shadow[0][i])) begin
-        v   = grp_get(s2, sew, i);
+        v = grp_get(s2, sew, i);
         if (sgn) v = sext(v, sew);
         acc = ref_fold(o, acc, v);
       end
@@ -919,8 +938,8 @@ module vec_unit_tb
   // Mixed width runs
   task automatic run_widen(input vec_op_e o, input int form, input logic [4:0] s1,
                            input logic [4:0] s2, input logic [4:0] d, input logic vmb,
-                           input logic [31:0] xd, input logic [2:0] sew, input logic [2:0] lmul,
-                           input logic [7:0] len, input logic wv);
+                           input logic [XLEN-1:0] xd, input logic [2:0] sew, input logic [2:0] lmul,
+                           input logic [VlW-1:0] len, input logic wv);
     logic [5:0] f6;
     int regs;
     regs  = lmul[2] ? 1 : (1 << lmul[1:0]);
@@ -942,8 +961,8 @@ module vec_unit_tb
 
   task automatic run_narrow(input vec_op_e o, input int form, input logic [4:0] s1,
                             input logic [4:0] s2, input logic [4:0] d, input logic vmb,
-                            input logic [31:0] xd, input logic [4:0] im, input logic [2:0] sew,
-                            input logic [2:0] lmul, input logic [7:0] len);
+                            input logic [XLEN-1:0] xd, input logic [4:0] im, input logic [2:0] sew,
+                            input logic [2:0] lmul, input logic [VlW-1:0] len);
     logic [5:0] f6;
     logic [2:0] f3;
     logic [4:0] sf;
@@ -976,7 +995,7 @@ module vec_unit_tb
 
   task automatic run_extend(input vec_op_e o, input logic [4:0] s2, input logic [4:0] d,
                             input logic vmb, input logic [2:0] sew, input logic [2:0] lmul,
-                            input logic [7:0] len);
+                            input logic [VlW-1:0] len);
     logic [4:0] sel;
     int regs;
     int factor;
@@ -999,7 +1018,7 @@ module vec_unit_tb
 
   task automatic run_reduce(input vec_op_e o, input logic [4:0] s1, input logic [4:0] s2,
                             input logic [4:0] d, input logic vmb, input logic [2:0] sew,
-                            input logic [2:0] lmul, input logic [7:0] len);
+                            input logic [2:0] lmul, input logic [VlW-1:0] len);
     logic [5:0] f6;
     logic [2:0] f3;
     logic wide;
@@ -1029,8 +1048,8 @@ module vec_unit_tb
   endtask
 
   // Scalar moves
-  task automatic run_move_sx(input logic [4:0] d, input logic [31:0] xd, input logic [2:0] sew,
-                             input logic [7:0] len);
+  task automatic run_move_sx(input logic [4:0] d, input logic [XLEN-1:0] xd, input logic [2:0] sew,
+                             input logic [VlW-1:0] len);
     vsew  = sew;
     vlmul = 3'd0;
     vl    = len;
@@ -1041,8 +1060,9 @@ module vec_unit_tb
     check_regs("move sx");
   endtask
 
-  task automatic run_move_xs(input logic [4:0] s2, input logic [2:0] sew, input logic [7:0] len);
-    logic [31:0] want;
+  task automatic run_move_xs(input logic [4:0] s2, input logic [2:0] sew,
+                             input logic [VlW-1:0] len);
+    logic [ELEN-1:0] want;
     vsew  = sew;
     vlmul = 3'd0;
     vl    = len;
@@ -1097,8 +1117,8 @@ module vec_unit_tb
 
   task automatic check_reductions();
     seed_all();
-    seed_reg(5'd1, {4{32'hFFFF_FFFF}});
-    seed_reg(5'd2, {4{32'hA5A5_A5A5}});
+    seed_reg(5'd1, {(VLEN / 32) {32'hFFFF_FFFF}});
+    seed_reg(5'd2, {(VLEN / 32) {32'hA5A5_A5A5}});
     run_reduce(VEC_REDSUM, 5'd2, 5'd1, 5'd18, 1'b1, 3'd2, 3'd0, 8'd4);
     run_reduce(VEC_REDAND, 5'd2, 5'd1, 5'd19, 1'b1, 3'd2, 3'd0, 8'd4);
     run_reduce(VEC_REDOR, 5'd2, 5'd1, 5'd20, 1'b1, 3'd2, 3'd0, 8'd4);
@@ -1137,12 +1157,12 @@ module vec_unit_tb
     mbit = shadow[r][i];
   endfunction
 
-  function automatic logic [31:0] mask_w(input int w);
-    mask_w = (w >= 32) ? 32'hFFFF_FFFF : ((32'd1 << w) - 32'd1);
+  function automatic logic [ELEN-1:0] mask_w(input int w);
+    mask_w = (w >= ELEN) ? '1 : ((ELEN'(1) << w) - ELEN'(1));
   endfunction
 
-  function automatic logic [31:0] sign_ext(input logic [31:0] v, input int w);
-    logic [31:0] t;
+  function automatic logic [ELEN-1:0] sign_ext(input logic [ELEN-1:0] v, input int w);
+    logic [ELEN-1:0] t;
     begin
       t = v & mask_w(w);
       sign_ext = t[w-1] ? (t | ~mask_w(w)) : t;
@@ -1150,12 +1170,12 @@ module vec_unit_tb
   endfunction
 
   // One compare bit
-  function automatic logic ref_cmp_bit(input vec_op_e o, input logic [31:0] a,
-                                       input logic [31:0] b, input int w);
-    logic signed [32:0] sa;
-    logic signed [32:0] sb;
-    logic        [32:0] ua;
-    logic        [32:0] ub;
+  function automatic logic ref_cmp_bit(input vec_op_e o, input logic [ELEN-1:0] a,
+                                       input logic [ELEN-1:0] b, input int w);
+    logic signed [ELEN:0] sa;
+    logic signed [ELEN:0] sb;
+    logic        [ELEN:0] ua;
+    logic        [ELEN:0] ub;
     begin
       sa = 33'($signed(sign_ext(a, w)));
       sb = 33'($signed(sign_ext(b, w)));
@@ -1191,10 +1211,10 @@ module vec_unit_tb
   // Run one compare
   task automatic run_cmp(input vec_op_e o, input int form, input logic [4:0] s1,
                          input logic [4:0] s2, input logic [4:0] d, input logic vmb,
-                         input logic [31:0] xd, input logic [4:0] im, input logic [2:0] sew,
-                         input logic [2:0] lmul, input logic [7:0] len);
+                         input logic [XLEN-1:0] xd, input logic [4:0] im, input logic [2:0] sew,
+                         input logic [2:0] lmul, input logic [VlW-1:0] len);
     int w;
-    logic [31:0] b;
+    logic [ELEN-1:0] b;
     logic [2:0] f3;
     logic [4:0] f2;
     begin
@@ -1206,7 +1226,7 @@ module vec_unit_tb
       for (int i = 0; i < int'(len); i++) begin
         if (vmb || mbit(5'd0, i)) begin
           if (form == 0) b = grp_get(s1, w, i);
-          else if (form == 2) b = {{27{im[4]}}, im};
+          else if (form == 2) b = ELEN'($signed(im));
           else b = xd;
           shadow[d][i] = ref_cmp_bit(o, grp_get(s2, w, i), b, w);
         end
@@ -1223,8 +1243,9 @@ module vec_unit_tb
       endcase
       issue(enc(cmp_funct6(o), vmb, s2, f2, f3, d));
       drain();
-      check_regs($sformatf("cmp op=%0d form=%0d sew=%0d lmul=%0d len=%0d vm=%0b", o, form, sew,
-                           lmul, len, vmb));
+      check_regs($sformatf(
+                 "cmp op=%0d form=%0d sew=%0d lmul=%0d len=%0d vm=%0b", o, form, sew, lmul, len, vmb
+                 ));
     end
   endtask
 
@@ -1235,25 +1256,25 @@ module vec_unit_tb
     int form;
     logic [2:0] sew;
     logic [2:0] lmul;
-    logic [7:0] len;
+    logic [VlW-1:0] len;
     logic vmb;
     begin
       list = '{VEC_MSEQ, VEC_MSNE, VEC_MSLTU, VEC_MSLT, VEC_MSLEU, VEC_MSLE, VEC_MSGTU, VEC_MSGT};
       seed_all();
       for (int i = 0; i < 8; i++) begin
         run_cmp(list[i], (i >= 6) ? 1 : 0, 5'd4, 5'd8, 5'd20, 1'b1, 32'h5, 5'd5, 3'd0, 3'd0, 8'd8);
-        run_cmp(list[i], ((i == 2) || (i == 3)) ? 1 : 2, 5'd4, 5'd8, 5'd20, 1'b1, 32'h5, 5'd5,
-                3'd1, 3'd0, 8'd4);
+        run_cmp(list[i], ((i == 2) || (i == 3)) ? 1 : 2, 5'd4, 5'd8, 5'd20, 1'b1, 32'h5, 5'd5, 3'd1,
+                3'd0, 8'd4);
       end
       for (int i = 0; i < 8; i++) begin
         for (int k = 0; k < 8; k++) begin
-          o    = list[i];
+          o = list[i];
           if ((o == VEC_MSGTU) || (o == VEC_MSGT)) form = 1 + int'($urandom % 2);
           else if ((o == VEC_MSLTU) || (o == VEC_MSLT)) form = int'($urandom % 2);
           else form = int'($urandom % 3);
           sew  = 3'($urandom % 3);
           lmul = 3'($urandom % 3);
-          len  = 8'($urandom % (((128 >> (3 + sew)) << lmul) + 1));
+          len  = VlW'($urandom % (((VLEN >> (3 + sew)) << lmul) + 1));
           vmb  = 1'($urandom);
           run_cmp(o, form, 5'd4, 5'd8, 5'd20, vmb, $urandom, 5'($urandom), sew, lmul, len);
         end
@@ -1266,7 +1287,7 @@ module vec_unit_tb
 
   // One logic form
   task automatic run_mlogic(input logic [5:0] f6, input logic [4:0] s1, input logic [4:0] s2,
-                            input logic [4:0] d, input logic [7:0] len);
+                            input logic [4:0] d, input logic [VlW-1:0] len);
     logic a;
     logic b;
     begin
@@ -1297,11 +1318,19 @@ module vec_unit_tb
   task automatic check_mask_logic();
     logic [5:0] list[8];
     begin
-      list = '{6'b011001, 6'b011101, 6'b011000, 6'b011010, 6'b011110, 6'b011100, 6'b011011,
-               6'b011111};
+      list = '{
+          6'b011001,
+          6'b011101,
+          6'b011000,
+          6'b011010,
+          6'b011110,
+          6'b011100,
+          6'b011011,
+          6'b011111
+      };
       seed_all();
       for (int i = 0; i < 8; i++) begin
-        run_mlogic(list[i], 5'd3, 5'd9, 5'd21, 8'(1 + ($urandom % 128)));
+        run_mlogic(list[i], 5'd3, 5'd9, 5'd21, VlW'(1 + ($urandom % VLEN)));
       end
       run_mlogic(6'b011001, 5'd3, 5'd9, 5'd21, 8'd0);
       run_mlogic(6'b011010, 5'd3, 5'd3, 5'd3, 8'd128);
@@ -1310,7 +1339,7 @@ module vec_unit_tb
 
   // First set bit
   function automatic int ref_first_bit(input logic [4:0] s2, input logic vmb,
-                                       input logic [7:0] len);
+                                       input logic [VlW-1:0] len);
     begin
       ref_first_bit = -1;
       for (int i = int'(len) - 1; i >= 0; i--) begin
@@ -1321,8 +1350,8 @@ module vec_unit_tb
 
   // One set form
   task automatic run_mset(input logic [4:0] sel, input logic [4:0] s2, input logic [4:0] d,
-                          input logic vmb, input logic [7:0] len);
-    int f;
+                          input logic vmb, input logic [VlW-1:0] len);
+    int   f;
     logic want;
     begin
       vsew  = 3'd0;
@@ -1350,9 +1379,9 @@ module vec_unit_tb
     begin
       seed_all();
       for (int k = 0; k < 12; k++) begin
-        run_mset(5'b00001, 5'd5, 5'd22, 1'($urandom), 8'($urandom % 129));
-        run_mset(5'b00011, 5'd5, 5'd23, 1'($urandom), 8'($urandom % 129));
-        run_mset(5'b00010, 5'd5, 5'd24, 1'($urandom), 8'($urandom % 129));
+        run_mset(5'b00001, 5'd5, 5'd22, 1'($urandom), VlW'($urandom % (VLEN + 1)));
+        run_mset(5'b00011, 5'd5, 5'd23, 1'($urandom), VlW'($urandom % (VLEN + 1)));
+        run_mset(5'b00010, 5'd5, 5'd24, 1'($urandom), VlW'($urandom % (VLEN + 1)));
       end
       seed_reg(5'd5, '0);
       run_mset(5'b00001, 5'd5, 5'd22, 1'b1, 8'd64);
@@ -1364,7 +1393,7 @@ module vec_unit_tb
   // One index form
   task automatic run_index(input logic is_id, input logic [4:0] s2, input logic [4:0] d,
                            input logic vmb, input logic [2:0] sew, input logic [2:0] lmul,
-                           input logic [7:0] len);
+                           input logic [VlW-1:0] len);
     int w;
     int count;
     begin
@@ -1387,13 +1416,13 @@ module vec_unit_tb
   task automatic check_mask_index();
     logic [2:0] sew;
     logic [2:0] lmul;
-    logic [7:0] len;
+    logic [VlW-1:0] len;
     begin
       seed_all();
       for (int k = 0; k < 10; k++) begin
         sew  = 3'($urandom % 3);
         lmul = 3'($urandom % 3);
-        len  = 8'($urandom % (((128 >> (3 + sew)) << lmul) + 1));
+        len  = VlW'($urandom % (((VLEN >> (3 + sew)) << lmul) + 1));
         run_index(1'b0, 5'd6, 5'd16, 1'($urandom), sew, lmul, len);
         run_index(1'b1, 5'd0, 5'd24, 1'($urandom), sew, lmul, len);
       end
@@ -1404,9 +1433,9 @@ module vec_unit_tb
 
   // One summary form
   task automatic run_msum(input logic is_pop, input logic [4:0] s2, input logic vmb,
-                          input logic [7:0] len);
+                          input logic [VlW-1:0] len);
     int count;
-    logic [31:0] want;
+    logic [ELEN-1:0] want;
     begin
       vsew  = 3'd0;
       vlmul = 3'd0;
@@ -1415,9 +1444,8 @@ module vec_unit_tb
       for (int i = 0; i < int'(len); i++) begin
         if ((vmb || mbit(5'd0, i)) && mbit(s2, i)) count = count + 1;
       end
-      want = is_pop ? 32'(count)
-          : ((ref_first_bit(s2, vmb, len) < 0) ? 32'hFFFF_FFFF
-                                               : 32'(ref_first_bit(s2, vmb, len)));
+      want = is_pop ? 32'(count) :
+          ((ref_first_bit(s2, vmb, len) < 0) ? 32'hFFFF_FFFF : 32'(ref_first_bit(s2, vmb, len)));
       issue(enc(6'b010000, vmb, s2, is_pop ? 5'b10000 : 5'b10001, 3'b010, 5'd7));
       drain();
       checks = checks + 1;
@@ -1434,8 +1462,8 @@ module vec_unit_tb
     begin
       seed_all();
       for (int k = 0; k < 14; k++) begin
-        run_msum(1'b1, 5'd7, 1'($urandom), 8'($urandom % 129));
-        run_msum(1'b0, 5'd7, 1'($urandom), 8'($urandom % 129));
+        run_msum(1'b1, 5'd7, 1'($urandom), VlW'($urandom % (VLEN + 1)));
+        run_msum(1'b0, 5'd7, 1'($urandom), VlW'($urandom % (VLEN + 1)));
       end
       seed_reg(5'd7, '0);
       run_msum(1'b1, 5'd7, 1'b1, 8'd128);

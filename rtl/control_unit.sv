@@ -5,26 +5,26 @@ module control_unit
   import csr_pkg::*;
   import muldiv_pkg::*;
 (
-    input  logic             [ 6:0] op,
-    input  logic             [ 2:0] funct3,
-    input  logic             [11:0] funct12,
-    input  logic                    funct7b5,
-    output logic                    reg_write,
-    output logic             [ 2:0] imm_src,
-    output logic             [ 1:0] alu_a_src,
-    output logic                    pc_target_src,
-    output logic                    alu_src,
-    output logic                    mem_write,
-    output logic             [ 1:0] result_src,
-    output alu_pkg::alu_op_e        alu_ctrl,
-    output logic                    branch,
-    output logic                    jump,
-    output logic                    csr_access,
-    output logic                    is_ecall,
-    output logic                    is_ebreak,
-    output logic                    is_mret,
-    output logic                    is_muldiv,
-    output muldiv_pkg::muldiv_op_e  muldiv_op
+    input  wire                    [ 6:0] op,
+    input  wire                    [ 2:0] funct3,
+    input  wire                    [11:0] funct12,
+    input  wire                           funct7b5,
+    output logic                          reg_write,
+    output logic                   [ 2:0] imm_src,
+    output logic                   [ 1:0] alu_a_src,
+    output logic                          pc_target_src,
+    output logic                          alu_src,
+    output logic                          mem_write,
+    output logic                   [ 1:0] result_src,
+    output alu_pkg::alu_op_e              alu_ctrl,
+    output logic                          branch,
+    output logic                          jump,
+    output logic                          csr_access,
+    output logic                          is_ecall,
+    output logic                          is_ebreak,
+    output logic                          is_mret,
+    output logic                          is_muldiv,
+    output muldiv_pkg::muldiv_op_e        muldiv_op
 );
 
   logic [1:0] alu_op;

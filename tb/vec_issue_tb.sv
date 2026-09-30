@@ -4,7 +4,10 @@ module vec_issue_tb
   import vec_pkg::*;
 ();
 
-  localparam int AWIDTH = 5;
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int AWIDTH = arch_pkg::RegAddrW;
+  localparam int VLEN = arch_pkg::VLEN;
+  localparam int VlW = $clog2(VLEN + 1);
   localparam int SbDepth = 8;
 
   int checks = 0;
@@ -26,9 +29,9 @@ module vec_issue_tb
   logic vm;
   logic reads_vd;
   logic [4:0] simm;
-  logic [31:0] xdata;
-  logic [31:0] xstride;
-  logic [7:0] vl;
+  logic [XLEN-1:0] xdata;
+  logic [XLEN-1:0] xstride;
+  logic [VlW-1:0] vl;
   logic [2:0] vsew;
   logic [2:0] vlmul;
   logic [1:0] vxrm;
@@ -45,9 +48,9 @@ module vec_issue_tb
   logic seq_vm;
   logic seq_reads_vd;
   logic [4:0] seq_simm;
-  logic [31:0] seq_xdata;
-  logic [31:0] seq_xstride;
-  logic [7:0] seq_vl;
+  logic [XLEN-1:0] seq_xdata;
+  logic [XLEN-1:0] seq_xstride;
+  logic [VlW-1:0] seq_vl;
   logic [2:0] seq_vsew;
   logic [2:0] seq_vlmul;
   logic [1:0] seq_vxrm;
@@ -61,7 +64,9 @@ module vec_issue_tb
   always #5 clk = ~clk;
 
   vec_issue #(
-      .AWIDTH(AWIDTH)
+      .XLEN  (XLEN),
+      .AWIDTH(AWIDTH),
+      .VLEN  (VLEN)
   ) dut (
       .clk(clk),
       .rst_n(rst_n),
@@ -80,12 +85,20 @@ module vec_issue_tb
       .simm(simm),
       .xdata(xdata),
       .xstride(xstride),
+      .wr_regs('0),
+      .rd1('0),
+      .rd1_regs('0),
+      .rd2_regs('0),
+      .clear(1'b0),
+      .clear_addr('0),
       .vl(vl),
       .vsew(vsew),
       .vlmul(vlmul),
       .vxrm(vxrm),
       .seq_busy(seq_busy),
       .seq_done(seq_done),
+      .pipe_busy(1'b0),
+      .x_done(seq_done),
       .seq_start(seq_start),
       .seq_op(seq_op),
       .seq_src(seq_src),
@@ -144,9 +157,9 @@ module vec_issue_tb
   logic sb_vm[SbDepth];
   logic sb_reads_vd[SbDepth];
   logic [4:0] sb_simm[SbDepth];
-  logic [31:0] sb_xdata[SbDepth];
-  logic [31:0] sb_xstride[SbDepth];
-  logic [7:0] sb_vl[SbDepth];
+  logic [XLEN-1:0] sb_xdata[SbDepth];
+  logic [XLEN-1:0] sb_xstride[SbDepth];
+  logic [VlW-1:0] sb_vl[SbDepth];
   logic [2:0] sb_vsew[SbDepth];
   logic [2:0] sb_vlmul[SbDepth];
   logic [1:0] sb_vxrm[SbDepth];
@@ -157,7 +170,7 @@ module vec_issue_tb
   int accepted = 0;
   int launched = 0;
 
-  task automatic note(input string what, input logic [31:0] got, input logic [31:0] want);
+  task automatic note(input string what, input logic [XLEN-1:0] got, input logic [XLEN-1:0] want);
     checks = checks + 1;
     if (got !== want) begin
       errors = errors + 1;
@@ -280,7 +293,7 @@ module vec_issue_tb
     reads_vd    = 1'b0;
     simm        = '0;
     xdata       = '0;
-    vl          = 8'd4;
+    vl          = VlW'(4);
     vsew        = 3'd2;
     vlmul       = 3'd0;
     vxrm        = 2'd0;
@@ -291,7 +304,7 @@ module vec_issue_tb
 
   // Scramble live config
   task automatic scramble_config();
-    vl    = 8'($urandom);
+    vl    = VlW'($urandom);
     vsew  = 3'($urandom % 3);
     vlmul = 3'($urandom);
     vxrm  = 2'($urandom);
@@ -300,7 +313,7 @@ module vec_issue_tb
   // The one primitive
   task automatic present(input vec_op_e o, input vec_src_e s, input logic [AWIDTH-1:0] a1,
                          input logic [AWIDTH-1:0] a2, input logic [AWIDTH-1:0] ad, input logic m,
-                         input logic rvd, input logic [4:0] im, input logic [31:0] xd);
+                         input logic rvd, input logic [4:0] im, input logic [XLEN-1:0] xd);
     @(negedge clk);
     op          = o;
     src         = s;
@@ -316,6 +329,11 @@ module vec_issue_tb
     instr_valid = 1'b1;
     #1;
     while (vec_hold) @(negedge clk);
+    checks = checks + 1;
+    if (!cancel && !dut.accept) begin
+      errors = errors + 1;
+      $display("FAIL released without accept at %0t", $time);
+    end
     @(posedge clk);
     #1 instr_valid = 1'b0;
     cancel = 1'b0;
@@ -445,11 +463,11 @@ module vec_issue_tb
   task automatic check_zero_length();
     settle();
     run_len = 0;
-    vl = 8'd0;
+    vl = '0;
     present(VEC_ADD, VEC_SRC_VV, 5'd7, 5'd8, 5'd9, 1'b1, 1'b0, 5'd0, 32'd0);
     settle();
     run_len = 3;
-    vl = 8'd4;
+    vl = VlW'(4);
   endtask
 
   // Random traffic

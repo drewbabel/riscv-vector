@@ -3,14 +3,14 @@
 module vec_alu_lane
   import vec_pkg::*;
 #(
-    parameter int W = 32
+    parameter int W = arch_pkg::ELEN
 ) (
-    input  vec_op_e         op,
-    input  logic            vm,
-    input  logic            mask_bit,
-    input  logic    [W-1:0] a,
-    input  logic    [W-1:0] b,
-    output logic    [W-1:0] result
+    input  wire vec_op_e         op,
+    input  wire                  vm,
+    input  wire                  mask_bit,
+    input  wire          [W-1:0] a,
+    input  wire          [W-1:0] b,
+    output logic         [W-1:0] result
 );
 
   localparam int Shamt = $clog2(W);

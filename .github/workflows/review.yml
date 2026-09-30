@@ -4,7 +4,7 @@ env:
   OSS_CAD_SUITE: '2026-07-24'
   VERIBLE: 'v0.0-4283-ga1b0580b'
   PKGS: >-
-    rtl/alu_pkg.sv rtl/csr_pkg.sv rtl/opcode_pkg.sv rtl/muldiv_pkg.sv rtl/bp_pkg.sv
+    rtl/arch_pkg.sv rtl/alu_pkg.sv rtl/csr_pkg.sv rtl/opcode_pkg.sv rtl/muldiv_pkg.sv rtl/bp_pkg.sv
     rtl/cache_pkg.sv rtl/vec_pkg.sv
   CLANG_STYLE: '{BasedOnStyle: LLVM, IndentWidth: 4, ColumnLimit: 80}'
 
@@ -54,11 +54,12 @@ jobs:
       - name: Verilator lint
         run: |
           while read -r f; do
+            case "$f" in formal/rvfi/*) continue ;; esac
             top=$(basename "$f" | sed 's/\.s\?v$//')
             pkgs=$(echo $PKGS | tr ' ' '\n' | grep -vx "$f" | tr '\n' ' ')
             opts="--top-module $top"
-            case "$f" in tb/*) opts="$opts --timing" ;; *_pkg.sv) opts="" ;; esac
-            verilator --lint-only -Wno-TIMESCALEMOD $opts -y rtl +libext+.v+.sv \
+            case "$f" in tb/cosim.sv) opts="$opts --timing -DRISCV_FORMAL" ;; tb/*) opts="$opts --timing -DSIM_BACKDOOR" ;; formal/*) opts="$opts -DRISCV_FORMAL" ;; *_pkg.sv) opts="" ;; esac
+            verilator --lint-only -Wno-TIMESCALEMOD $opts -y rtl -y rtl/boards/bram +libext+.v+.sv \
               $pkgs "$f" 2>&1 || true
           done < "$RUNNER_TEMP/sv" \
             | reviewdog -efm='%%%tarning-%*[A-Z0-9_]: %f:%l:%c: %m' -efm='%%%trror-%*[A-Z0-9_]: %f:%l:%c: %m' \
@@ -66,10 +67,17 @@ jobs:
                 -name=verilator -reporter=github-pr-review -filter-mode=added -fail-level=none
       - name: iverilog lint
         run: |
+          rtl=$(ls rtl/*.sv rtl/boards/bram/*.sv rtl/single_cycle/*.sv | grep -v '_pkg\.sv$')
           while read -r f; do
+            case "$f" in formal/rvfi/*|rtl/boards/nexys_video/*) continue ;; esac
             pkgs=$(echo $PKGS | tr ' ' '\n' | grep -vx "$f" | tr '\n' ' ')
-            iverilog -g2012 -y rtl -Y .sv -o /dev/null $pkgs "$f" 2>&1 || true
+            others=$(echo "$rtl" | grep -vx "$f" | tr '\n' ' ')
+            case "$f" in *_pkg.sv) others="" ;; esac
+            defs=""
+            case "$f" in formal/*|tb/cosim.sv) defs="-DRISCV_FORMAL" ;; tb/*) defs="-DSIM_BACKDOOR" ;; esac
+            iverilog -g2012 $defs -o /dev/null $pkgs $others "$f" 2>&1 || true
           done < "$RUNNER_TEMP/sv" \
+            | { grep -vE '^formal/[^:]+:[0-9]+: warning: (System task \(\$[a-z]+\) cannot be synthesized in an always_(comb|ff)|always_comb process has no sensitivities)' || true; } \
             | reviewdog -efm='%f:%l: %trror: %m' -efm='%f:%l: %tarning: %m' -efm='%-G%.%#' \
                 -name=iverilog -reporter=github-pr-review -filter-mode=added -fail-level=none
       - name: Ruff lint
@@ -80,7 +88,7 @@ jobs:
                 -name=ruff -reporter=github-pr-review -filter-mode=added -fail-level=none
       - name: Apply formatters
         run: |
-          [ -s "$RUNNER_TEMP/sv" ] && verible-verilog-format --inplace $(cat "$RUNNER_TEMP/sv") || true
+          [ -s "$RUNNER_TEMP/sv" ] && verible-verilog-format --inplace --try_wrap_long_lines $(cat "$RUNNER_TEMP/sv") || true
           [ -s "$RUNNER_TEMP/py" ] && ruff format --line-length 80 $(cat "$RUNNER_TEMP/py") || true
           [ -s "$RUNNER_TEMP/c" ] && clang-format -i -style="$CLANG_STYLE" $(cat "$RUNNER_TEMP/c") || true
           while read -r f; do

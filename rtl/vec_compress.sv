@@ -1,24 +1,25 @@
 `default_nettype none
 
 module vec_compress #(
-    parameter int AWIDTH = 5,
-    parameter int VLEN   = 128
+    parameter  int AWIDTH = arch_pkg::RegAddrW,
+    parameter  int VLEN   = arch_pkg::VLEN,
+    localparam int VlW    = $clog2(VLEN + 1)
 ) (
-    input logic clk,
-    input logic rst_n,
-    input logic core_en,
+    input wire clk,
+    input wire rst_n,
+    input wire core_en,
 
     // Issued instruction
-    input logic              start,
-    input logic [AWIDTH-1:0] vs1,
-    input logic [AWIDTH-1:0] vs2,
-    input logic [AWIDTH-1:0] vd,
-    input logic [       7:0] vl,
-    input logic [       2:0] vsew,
+    input wire              start,
+    input wire [AWIDTH-1:0] vs1,
+    input wire [AWIDTH-1:0] vs2,
+    input wire [AWIDTH-1:0] vd,
+    input wire [   VlW-1:0] vl,
+    input wire [       2:0] vsew,
 
     // Register file
-    input  logic [  VLEN-1:0] rdata_mask,
-    input  logic [  VLEN-1:0] rdata_src,
+    input  wire  [  VLEN-1:0] rdata_mask,
+    input  wire  [  VLEN-1:0] rdata_src,
     output logic [AWIDTH-1:0] raddr_mask,
     output logic [AWIDTH-1:0] raddr_src,
     output logic              wen,

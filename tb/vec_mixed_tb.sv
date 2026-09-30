@@ -3,23 +3,28 @@
 module vec_mixed_tb ();
   import vec_pkg::*;
 
-  localparam int DLEN = 128;
+  localparam int DLEN  = arch_pkg::VLEN;
+  localparam int ELEN  = arch_pkg::ELEN;
+  localparam int XLEN  = arch_pkg::XLEN;
+  localparam int WideW = 2 * ELEN;
+  localparam int Words = DLEN / 32;
 
-  int              checks = 0;
-  int              errors = 0;
+  int                  checks = 0;
+  int                  errors = 0;
 
-  vec_op_e         op;
-  vec_src_e        src;
-  vec_eew_e        eew;
-  logic     [ 2:0] vsew;
-  logic [DLEN-1:0] vs2_data;
-  logic [DLEN-1:0] vs1_data;
-  logic     [31:0] xdata;
-  logic     [ 4:0] simm;
-  logic [DLEN-1:0] result;
+  vec_op_e             op;
+  vec_src_e            src;
+  vec_eew_e            eew;
+  logic     [     2:0] vsew;
+  logic     [DLEN-1:0] vs2_data;
+  logic     [DLEN-1:0] vs1_data;
+  logic     [XLEN-1:0] xdata;
+  logic     [     4:0] simm;
+  logic     [DLEN-1:0] result;
 
   vec_mixed #(
-      .DLEN(DLEN)
+      .DLEN(DLEN),
+      .XLEN(XLEN)
   ) dut (
       .op      (op),
       .src     (src),
@@ -65,26 +70,26 @@ module vec_mixed_tb ();
     return DLEN / widest;
   endfunction
 
-  function automatic logic [63:0] slice(input logic [DLEN-1:0] data, input int width,
-                                        input int idx);
-    logic [63:0] out;
-    out = 64'd0;
+  function automatic logic [WideW-1:0] slice(input logic [DLEN-1:0] data, input int width,
+                                             input int idx);
+    logic [WideW-1:0] out;
+    out = '0;
     for (int b = 0; b < width; b++) out[b] = data[idx*width+b];
     return out;
   endfunction
 
-  function automatic logic [63:0] extend(input logic [63:0] raw, input int width,
-                                         input logic do_sign);
-    logic [63:0] out;
+  function automatic logic [WideW-1:0] extend(input logic [WideW-1:0] raw, input int width,
+                                              input logic do_sign);
+    logic [WideW-1:0] out;
     out = raw;
-    for (int b = width; b < 64; b++) out[b] = do_sign ? raw[width-1] : 1'b0;
+    for (int b = width; b < WideW; b++) out[b] = do_sign ? raw[width-1] : 1'b0;
     return out;
   endfunction
 
-  function automatic logic [63:0] ref_elem(input int e);
-    logic [63:0] a;
-    logic [63:0] b;
-    logic [63:0] w;
+  function automatic logic [WideW-1:0] ref_elem(input int e);
+    logic [WideW-1:0] a;
+    logic [WideW-1:0] b;
+    logic [WideW-1:0] w;
     int sh;
     logic sgn;
     sgn = (op == VEC_WADD) || (op == VEC_WSUB);
@@ -94,7 +99,7 @@ module vec_mixed_tb ();
         case (src)
           VEC_SRC_VV: sh = int'(slice(vs1_data, sew_bits(), e));
           VEC_SRC_VI: sh = int'(simm);
-          default:    sh = int'(xdata[5:0]);
+          default:    sh = int'(xdata[$clog2(WideW)-1:0]);
         endcase
         sh = sh % (sew_bits() * 2);
         if (op == VEC_NSRA) begin
@@ -111,7 +116,7 @@ module vec_mixed_tb ();
         if (eew == VEC_EEW_WIDEN_W) a = slice(vs2_data, dest_bits(), e);
         else a = extend(slice(vs2_data, sew_bits(), e), sew_bits(), sgn);
         if (src == VEC_SRC_VV) b = slice(vs1_data, sew_bits(), e);
-        else b = slice({96'd0, xdata}, sew_bits(), 0);
+        else b = slice(DLEN'(xdata), sew_bits(), 0);
         b = extend(b, sew_bits(), sgn);
         if ((op == VEC_WSUBU) || (op == VEC_WSUB)) return a - b;
         return a + b;
@@ -120,12 +125,12 @@ module vec_mixed_tb ();
   endfunction
 
   task automatic check_lanes(input string tag);
-    logic [63:0] want;
-    logic [63:0] got;
+    logic [WideW-1:0] want;
+    logic [WideW-1:0] got;
     #1;
     for (int e = 0; e < lanes(); e++) begin
-      want = ref_elem(e) & ((64'd1 << dest_bits()) - 64'd1);
-      got  = slice(result, dest_bits(), e);
+      want = ref_elem(e) & ((WideW'(1'b1) << dest_bits()) - WideW'(1'b1));
+      got = slice(result, dest_bits(), e);
       checks = checks + 1;
       if (got !== want) begin
         errors = errors + 1;
@@ -135,14 +140,20 @@ module vec_mixed_tb ();
     end
   endtask
 
+  // Random register data
+  function automatic logic [DLEN-1:0] rand_data();
+    rand_data = '0;
+    for (int i = 0; i < Words; i++) rand_data = (rand_data << 32) | DLEN'($urandom);
+  endfunction
+
   task automatic drive(input vec_op_e o, input vec_src_e s, input vec_eew_e w,
                        input logic [2:0] sew);
     op       = o;
     src      = s;
     eew      = w;
     vsew     = sew;
-    vs2_data = {$urandom, $urandom, $urandom, $urandom};
-    vs1_data = {$urandom, $urandom, $urandom, $urandom};
+    vs2_data = rand_data();
+    vs1_data = rand_data();
     xdata    = $urandom;
     simm     = 5'($urandom);
   endtask
@@ -207,15 +218,15 @@ module vec_mixed_tb ();
     src      = VEC_SRC_VV;
     eew      = VEC_EEW_WIDEN;
     vsew     = 3'd0;
-    vs2_data = 128'h0000_0000_0000_0000_0000_0000_0000_80ff;
-    vs1_data = 128'h0000_0000_0000_0000_0000_0000_0000_0102;
+    vs2_data = DLEN'(16'h80ff);
+    vs1_data = DLEN'(16'h0102);
     check_lanes("directed wadd");
 
     op       = VEC_NSRA;
     src      = VEC_SRC_VI;
     eew      = VEC_EEW_NARROW;
     vsew     = 3'd0;
-    vs2_data = 128'h0000_0000_0000_0000_0000_0000_ff00_8000;
+    vs2_data = DLEN'(32'hff00_8000);
     simm     = 5'd4;
     check_lanes("directed nsra");
   endtask

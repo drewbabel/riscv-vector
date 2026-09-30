@@ -16,10 +16,6 @@ file delete -force $ipdir
 file mkdir $ipdir
 
 set src [file join $root rtl boards nexys_video board_top.sv]
-set dst [file join $outdir board_top_div${clkdiv}.sv]
-set fh [open $src r]; set txt [read $fh]; close $fh
-regsub {parameter int ClkDiv = [0-9]+} $txt "parameter int ClkDiv = $clkdiv" txt
-set fh [open $dst w]; puts $fh $txt; close $fh
 
 create_project -in_memory -part $part
 
@@ -41,10 +37,11 @@ foreach f [lsort [glob [file join $root rtl *.sv]]] {
 read_verilog -sv $pkgs
 read_verilog -sv $rest
 if {$single} { read_verilog -sv [lsort [glob [file join $root rtl single_cycle *.sv]]] }
-read_verilog -sv $dst
+read_verilog -sv $src
 read_xdc [file join $root constraints nexys_video.xdc]
 
 synth_design -top board_top -part $part -verilog_define SYNTHESIS \
+             -generic ClkDiv=$clkdiv \
              -generic UNCACHED=$uncached -generic GSHARE_EN=$gshare \
              -generic SINGLE_CYCLE=$single
 opt_design
@@ -52,16 +49,19 @@ opt_design
 # Gated cells only
 set seq   [get_cells -hier -quiet -filter {IS_SEQUENTIAL}]
 set free  [get_cells -hier -quiet -filter \
-             {NAME =~ *mig_inst* || NAME =~ *mem_arb_inst* || NAME =~ *core_en_inst*}]
+             {NAME =~ *mig_inst* || (NAME =~ mem_arb_inst/* && NAME !~ mem_arb_inst/req_* && NAME !~ mem_arb_inst/src_reg*) || NAME =~ *core_en_inst*}]
 set gated {}
 foreach c $seq { if {[lsearch -exact $free $c] < 0} { lappend gated $c } }
 
 set_multicycle_path $clkdiv            -setup -from $gated -to $gated
 set_multicycle_path [expr {$clkdiv-1}] -hold  -from $gated -to $gated
 
-place_design
-phys_opt_design
-route_design
+place_design -directive ExtraTimingOpt
+phys_opt_design -directive AggressiveExplore
+route_design -directive AggressiveExplore
+if {[get_property SLACK [get_timing_paths -delay_type max -max_paths 1]] < 0} {
+  phys_opt_design -directive AggressiveExplore
+}
 
 write_checkpoint -force  [file join $outdir board_top_routed.dcp]
 report_utilization -file [file join $outdir utilization.rpt]

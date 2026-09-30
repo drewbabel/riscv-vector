@@ -17,8 +17,16 @@ STORE_WIDTH = {0: 1, 1: 2, 2: 4}  # store funct3 to byte count
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD = os.path.join(ROOT, "build")
-PKGS = ["alu_pkg.sv", "csr_pkg.sv", "opcode_pkg.sv", "muldiv_pkg.sv", "bp_pkg.sv",
-        "cache_pkg.sv", "vec_pkg.sv"]
+PKGS = [
+    "arch_pkg.sv",
+    "alu_pkg.sv",
+    "csr_pkg.sv",
+    "opcode_pkg.sv",
+    "muldiv_pkg.sv",
+    "bp_pkg.sv",
+    "cache_pkg.sv",
+    "vec_pkg.sv",
+]
 RTL = [os.path.join(ROOT, "rtl", p) for p in PKGS] + [
     os.path.join(ROOT, "rtl", f)
     for f in sorted(os.listdir(os.path.join(ROOT, "rtl")))
@@ -76,13 +84,14 @@ COMMIT_RE = re.compile(
 # dut commit trace
 TRACE_RE = re.compile(r"TRACE (\d+) ([0-9a-f]+) ([0-9a-f]+)")
 VCOMMIT_RE = re.compile(r"VCOMMIT (\d+) (\d+) ([0-9a-f]+)")
-VMEM_RE = re.compile(r"VMEM ([0-9a-f]+) ([0-9a-f]) ([0-9a-f]+)")
+VMEM_RE = re.compile(r"VMEM ([0-9a-f]+) ([0-9a-f]{4}) ([0-9a-f]+)")
 VCD = os.path.join(BUILD, "cosim.vcd")
 TRACE = []  # Retirement times
 DUT_VWR = []  # Vector writes
 SPK_VWR = []  # Vector writes
 DUT_VMEM = []  # Vector store bytes
 FENCE_BUSY = []  # Fence retired early
+HUNG = []  # Never reached the end
 SPK_VMEM = []  # Vector store bytes
 VEC_WIDTH = {0: 1, 5: 2, 6: 4}  # width field to byte count
 
@@ -94,6 +103,8 @@ def run_dut(dut_hex, vcd=False):
     out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True).stdout
     FENCE_BUSY.clear()
     FENCE_BUSY.extend(l for l in out.splitlines() if l.startswith("FENCE BUSY"))
+    HUNG.clear()
+    HUNG.extend(l for l in out.splitlines() if l.startswith("HUNG"))
     trace = []
     TRACE.clear()
     DUT_VWR.clear()
@@ -102,7 +113,7 @@ def run_dut(dut_hex, vcd=False):
         vm = VMEM_RE.match(line)
         if vm:  # strobed bytes of a beat
             addr, ws, wd = int(vm.group(1), 16), int(vm.group(2), 16), int(vm.group(3), 16)
-            for k in range(4):
+            for k in range(16):
                 if ws & (1 << k):
                     DUT_VMEM.append(((addr + k) & (DEPTH * 4 - 1), (wd >> (8 * k)) & 0xFF))
             continue
@@ -607,6 +618,8 @@ def run_one(src):
     spike_elf = os.path.join(BUILD, "prog_spike.elf")
     build_images(src, dut_hex, spike_elf)
     dut = run_dut(dut_hex)
+    if HUNG:
+        return False, HUNG[0]
     spike = run_spike(spike_elf, len(dut))
     ok, why = compare(dut, spike)
     if ok and FENCE_BUSY:
@@ -673,6 +686,9 @@ def main():
         sys.exit(1)
     if FENCE_BUSY:
         print(f"DIVERGENCE {FENCE_BUSY[0]}")
+        sys.exit(1)
+    if HUNG:
+        print(f"DIVERGENCE {HUNG[0]}")
         sys.exit(1)
     extra = ""
     if VECTOR:

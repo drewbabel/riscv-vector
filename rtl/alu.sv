@@ -3,11 +3,11 @@
 module alu
   import alu_pkg::*;
 #(
-    parameter int XLEN = 32
+    parameter int XLEN = arch_pkg::XLEN
 ) (
-    input logic [XLEN-1:0] a,
-    input logic [XLEN-1:0] b,
-    input alu_pkg::alu_op_e alu_op,
+    input wire [XLEN-1:0] a,
+    input wire [XLEN-1:0] b,
+    input wire alu_pkg::alu_op_e alu_op,
     output logic [XLEN-1:0] result,
     output logic zero,
     output logic lt,

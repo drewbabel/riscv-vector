@@ -1,32 +1,34 @@
 `default_nettype none
 
 module dmem_arb #(
-    parameter int XLEN = 32
+    parameter  int XLEN   = arch_pkg::XLEN,
+    parameter  int DATA_W = XLEN,
+    localparam int StrbW  = DATA_W / 8
 ) (
-    input logic clk,
-    input logic rst_n,
-    input logic core_en,
+    input wire clk,
+    input wire rst_n,
+    input wire core_en,
 
     // Scalar side
-    input  logic            s_req,
-    input  logic [XLEN-1:0] s_addr,
-    input  logic [XLEN-1:0] s_wdata,
-    input  logic [     3:0] s_wstrb,
-    output logic            s_ready,
+    input  wire               s_req,
+    input  wire  [  XLEN-1:0] s_addr,
+    input  wire  [DATA_W-1:0] s_wdata,
+    input  wire  [ StrbW-1:0] s_wstrb,
+    output logic              s_ready,
 
     // Vector side
-    input  logic            v_req,
-    input  logic [XLEN-1:0] v_addr,
-    input  logic [XLEN-1:0] v_wdata,
-    input  logic [     3:0] v_wstrb,
-    output logic            v_ready,
+    input  wire               v_req,
+    input  wire  [  XLEN-1:0] v_addr,
+    input  wire  [DATA_W-1:0] v_wdata,
+    input  wire  [ StrbW-1:0] v_wstrb,
+    output logic              v_ready,
 
     // Shared port
-    output logic            req,
-    output logic [XLEN-1:0] addr,
-    output logic [XLEN-1:0] wdata,
-    output logic [     3:0] wstrb,
-    input  logic            ready
+    output logic              req,
+    output logic [  XLEN-1:0] addr,
+    output logic [DATA_W-1:0] wdata,
+    output logic [ StrbW-1:0] wstrb,
+    input  wire               ready
 );
 
   logic [1:0] grant;

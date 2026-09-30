@@ -3,37 +3,52 @@
 module vec_issue
   import vec_pkg::*;
 #(
-    parameter int AWIDTH = 5
+    parameter  int XLEN   = arch_pkg::XLEN,
+    parameter  int AWIDTH = arch_pkg::RegAddrW,
+    parameter  int VLEN   = arch_pkg::VLEN,
+    localparam int VlW    = $clog2(VLEN + 1)
 ) (
-    input logic clk,
-    input logic rst_n,
-    input logic core_en,
+    input wire clk,
+    input wire rst_n,
+    input wire core_en,
 
     // Execute stage
-    input logic                  instr_valid,
-    input logic                  cancel,
-    input vec_op_e               op,
-    input vec_src_e              src,
-    input vec_eew_e              eew,
-    input logic                  writes_xreg,
-    input logic     [AWIDTH-1:0] vs1,
-    input logic     [AWIDTH-1:0] vs2,
-    input logic     [AWIDTH-1:0] vd,
-    input logic                  vm,
-    input logic                  reads_vd,
-    input logic     [       4:0] simm,
-    input logic     [      31:0] xdata,
-    input logic     [      31:0] xstride,
+    input wire                        instr_valid,
+    input wire                        cancel,
+    input wire vec_op_e               op,
+    input wire vec_src_e              src,
+    input wire vec_eew_e              eew,
+    input wire                        writes_xreg,
+    input wire           [AWIDTH-1:0] vs1,
+    input wire           [AWIDTH-1:0] vs2,
+    input wire           [AWIDTH-1:0] vd,
+    input wire                        vm,
+    input wire                        reads_vd,
+    input wire           [       4:0] simm,
+    input wire           [  XLEN-1:0] xdata,
+    input wire           [  XLEN-1:0] xstride,
+
+    // Register groups
+    input wire [  AWIDTH:0] wr_regs,
+    input wire [AWIDTH-1:0] rd1,
+    input wire [  AWIDTH:0] rd1_regs,
+    input wire [  AWIDTH:0] rd2_regs,
+
+    // Write finished
+    input wire              clear,
+    input wire [AWIDTH-1:0] clear_addr,
 
     // Live configuration
-    input logic [7:0] vl,
-    input logic [2:0] vsew,
-    input logic [2:0] vlmul,
-    input logic [1:0] vxrm,
+    input wire [VlW-1:0] vl,
+    input wire [2:0] vsew,
+    input wire [2:0] vlmul,
+    input wire [1:0] vxrm,
 
     // Sequencer status
-    input logic seq_busy,
-    input logic seq_done,
+    input wire seq_busy,
+    input wire seq_done,
+    input wire pipe_busy,
+    input wire x_done,
 
     // Sequencer command
     output logic                  seq_start,
@@ -46,9 +61,9 @@ module vec_issue
     output logic                  seq_vm,
     output logic                  seq_reads_vd,
     output logic     [       4:0] seq_simm,
-    output logic     [      31:0] seq_xdata,
-    output logic     [      31:0] seq_xstride,
-    output logic     [       7:0] seq_vl,
+    output logic     [  XLEN-1:0] seq_xdata,
+    output logic     [  XLEN-1:0] seq_xstride,
+    output logic     [   VlW-1:0] seq_vl,
     output logic     [       2:0] seq_vsew,
     output logic     [       2:0] seq_vlmul,
     output logic     [       1:0] seq_vxrm,
@@ -72,31 +87,58 @@ module vec_issue
   logic                  q_vm;
   logic                  q_reads_vd;
   logic     [       4:0] q_simm;
-  logic     [      31:0] q_xdata;
-  logic     [      31:0] q_xstride;
-  logic     [       7:0] q_vl;
+  logic     [  XLEN-1:0] q_xdata;
+  logic     [  XLEN-1:0] q_xstride;
+  logic     [   VlW-1:0] q_vl;
   logic     [       2:0] q_vsew;
   logic     [       2:0] q_vlmul;
   logic     [       1:0] q_vxrm;
+  logic     [  AWIDTH:0] q_wr_regs;
+  logic     [AWIDTH-1:0] q_rd1;
+  logic     [  AWIDTH:0] q_rd1_regs;
+  logic     [  AWIDTH:0] q_rd2_regs;
 
   // Executing slot
   logic                  e_valid;
   logic                  e_load;
   logic                  e_store;
-  logic                  e_xreg;
+  logic                  x_pend;
+  logic                  regs_busy;
 
   logic                  accept;
   logic                  launch;
   logic                  x_wait;
   logic                  x_spent;
   logic                  x_hold;
+  logic                  regs_ready;
 
-  assign launch = q_valid && !e_valid;
-  assign x_wait = (q_valid && q_xreg) || (e_valid && e_xreg);
+  vec_busy_bits #(
+      .NREGS(1 << AWIDTH)
+  ) u_busy (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(core_en),
+      .start(launch),
+      .vd(q_vd),
+      .vd_regs(q_wr_regs),
+      .vs1(q_rd1),
+      .vs1_regs(q_rd1_regs),
+      .vs2(q_vs2),
+      .vs2_regs(q_rd2_regs),
+      .masked(!q_vm),
+      .clear(clear),
+      .clear_addr(clear_addr),
+      .ready(regs_ready),
+      .any(regs_busy)
+  );
+
+  // Loads own write port
+  assign launch = q_valid && !e_valid && regs_ready && !((q_op == VEC_LOAD) && pipe_busy);
+  assign x_wait = (q_valid && q_xreg) || x_pend;
   assign accept = instr_valid && !cancel && !x_wait && !x_spent && (!q_valid || launch);
   assign x_hold = instr_valid && (x_wait || writes_xreg) && !x_spent;
   assign vec_hold = x_hold || (instr_valid && q_valid && !launch);
-  assign vec_idle = !q_valid && !e_valid && !seq_busy;
+  assign vec_idle = !q_valid && !e_valid && !seq_busy && !regs_busy;
 
   // Pending memory work
   assign load_pending = (q_valid && q_op == VEC_LOAD) || (e_valid && e_load);
@@ -108,9 +150,14 @@ module vec_issue
       e_valid   <= 1'b0;
       seq_start <= 1'b0;
       x_spent   <= 1'b0;
+      x_pend    <= 1'b0;
     end else if (core_en) begin
       seq_start <= 1'b0;
-      x_spent   <= seq_done && e_valid && e_xreg;
+      x_spent   <= x_done && x_pend;
+
+      // Scalar result pending
+      if (launch && q_xreg) x_pend <= 1'b1;
+      else if (x_done) x_pend <= 1'b0;
 
       // Drain the slot
       if (launch) begin
@@ -118,7 +165,6 @@ module vec_issue
         e_valid      <= 1'b1;
         e_load       <= (q_op == VEC_LOAD);
         e_store      <= (q_op == VEC_STORE);
-        e_xreg       <= q_xreg;
         seq_op       <= q_op;
         seq_src      <= q_src;
         seq_eew      <= q_eew;
@@ -156,6 +202,10 @@ module vec_issue
         q_vsew     <= vsew;
         q_vlmul    <= vlmul;
         q_vxrm     <= vxrm;
+        q_wr_regs  <= wr_regs;
+        q_rd1      <= rd1;
+        q_rd1_regs <= rd1_regs;
+        q_rd2_regs <= rd2_regs;
       end
 
       // Retire instruction

@@ -5,16 +5,16 @@ module clint_tb;
   int checks = 0;
   int errors = 0;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
 
-  logic            clk = 0;
-  logic            rst_n;
-  logic            sel;
-  logic [     3:0] wstrb;
-  logic [Xlen-1:0] addr;
-  logic [Xlen-1:0] wdata;
-  logic [Xlen-1:0] rdata;
-  logic            timer_irq;
+  logic              clk = 0;
+  logic              rst_n;
+  logic              sel;
+  logic [Xlen/8-1:0] wstrb;
+  logic [  Xlen-1:0] addr;
+  logic [  Xlen-1:0] wdata;
+  logic [  Xlen-1:0] rdata;
+  logic              timer_irq;
 
   clint #(
       .XLEN(Xlen)
@@ -46,7 +46,7 @@ module clint_tb;
   task automatic mmio_write(input logic [Xlen-1:0] a, input logic [Xlen-1:0] d);
     #1;
     sel   = 1;
-    wstrb = 4'hF;
+    wstrb = '1;
     addr  = a;
     wdata = d;
     @(posedge clk);
@@ -69,7 +69,7 @@ module clint_tb;
     do_reset();
 
     #1;
-    check("irq_at_reset", timer_irq, 32'd0);  // mtimecmp resets to max
+    check("irq_at_reset", Xlen'(timer_irq), 32'd0);  // mtimecmp resets to max
 
     mmio_write(32'h0000_4000, 32'd50);
     mmio_write(32'h0000_4004, 32'd0);
@@ -82,11 +82,11 @@ module clint_tb;
     sel = 0;
 
     #1;
-    check("irq_before_compare", timer_irq, 32'd0);
+    check("irq_before_compare", Xlen'(timer_irq), 32'd0);
 
     repeat (60) @(posedge clk);
     #1;
-    check("irq_after_compare", timer_irq, 32'd1);
+    check("irq_after_compare", Xlen'(timer_irq), 32'd1);
 
     #1;
     sel   = 1;

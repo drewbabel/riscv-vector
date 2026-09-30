@@ -4,54 +4,54 @@ module sc_core_top_tb;
 
   import cache_pkg::*;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int MemLines = 256;
   localparam int ProgWords = 17;
   localparam int MaxTicks = 20000;
   localparam logic [7:0] PeriphTag = 8'h03;
 
-  int checks = 0;
-  int errors = 0;
-  int max_lat = 3;
-  int en_period = 2;
+  int                   checks = 0;
+  int                   errors = 0;
+  int                   max_lat = 3;
+  int                   en_period = 2;
 
-  logic                clk = 1'b0;
-  logic                rst_n;
-  logic                core_en;
+  logic                 clk = 1'b0;
+  logic                 rst_n;
+  logic                 core_en;
 
-  logic [    Xlen-1:0] instr;
-  logic [    Xlen-1:0] read_data;
-  logic [    Xlen-1:0] pc;
-  logic [    Xlen-1:0] mem_addr;
-  logic [         3:0] store_wstrb;
-  logic [    Xlen-1:0] store_data;
-  logic                imem_req;
-  logic                imem_ready;
-  logic                dmem_req;
-  logic                dmem_ready;
-  logic                periph_sel;
-  logic                irq_stim = 1'b0;
+  logic [     Xlen-1:0] instr;
+  logic [     Xlen-1:0] read_data;
+  logic [     Xlen-1:0] pc;
+  logic [     Xlen-1:0] mem_addr;
+  logic [   Xlen/8-1:0] store_wstrb;
+  logic [     Xlen-1:0] store_data;
+  logic                 imem_req;
+  logic                 imem_ready;
+  logic                 dmem_req;
+  logic                 dmem_ready;
+  logic                 periph_sel;
+  logic                 irq_stim = 1'b0;
 
-  logic [    Xlen-1:0] dc_rdata;
-  logic                dc_ready;
+  logic [     Xlen-1:0] dc_rdata;
+  logic                 dc_ready;
 
-  logic                ic_mem_valid;
-  logic [    Xlen-1:0] ic_mem_addr;
-  logic [LineBits-1:0] ic_mem_rdata;
-  logic                ic_mem_ready;
+  logic                 ic_mem_valid;
+  logic [     Xlen-1:0] ic_mem_addr;
+  logic [ LineBits-1:0] ic_mem_rdata;
+  logic                 ic_mem_ready;
 
-  logic                dc_mem_valid;
-  logic                dc_mem_rw;
-  logic [    Xlen-1:0] dc_mem_addr;
-  logic [LineBits-1:0] dc_mem_wdata;
-  logic [         3:0] dc_mem_wstrb;
-  logic [LineBits-1:0] dc_mem_rdata;
-  logic                dc_mem_ready;
+  logic                 dc_mem_valid;
+  logic                 dc_mem_rw;
+  logic [     Xlen-1:0] dc_mem_addr;
+  logic [ LineBits-1:0] dc_mem_wdata;
+  logic [LineBytes-1:0] dc_mem_wstrb;
+  logic [ LineBits-1:0] dc_mem_rdata;
+  logic                 dc_mem_ready;
 
-  logic [        31:0] ic_hits;
-  logic [        31:0] ic_misses;
-  logic [        31:0] dc_hits;
-  logic [        31:0] dc_misses;
+  logic [         31:0] ic_hits;
+  logic [         31:0] ic_misses;
+  logic [         31:0] dc_hits;
+  logic [         31:0] dc_misses;
 
   always #5 clk = ~clk;
 
@@ -132,7 +132,7 @@ module sc_core_top_tb;
   int              periph_writes = 0;
 
   // Board decode
-  assign periph_sel = mem_addr[31:24] == PeriphTag;
+  assign periph_sel = mem_addr[Xlen-1-:8] == PeriphTag;
   assign dmem_ready = periph_sel ? 1'b1 : dc_ready;
   assign read_data  = periph_sel ? periph_reg : dc_rdata;
 
@@ -147,15 +147,15 @@ module sc_core_top_tb;
   end
 
   // Line memory model
-  logic [LineBits-1:0] mem[MemLines];
+  logic [LineBits-1:0] mem[ MemLines];
   logic [    Xlen-1:0] img[ProgWords];
 
   function automatic int line_of(input logic [Xlen-1:0] a);
-    line_of = (int'(a) >> 4) % MemLines;
+    line_of = (int'(a) >> IdxLsb) % MemLines;
   endfunction  // Automatic
 
   function automatic int word_of(input logic [Xlen-1:0] a);
-    word_of = (int'(a) >> 2) % LineWords;
+    word_of = (int'(a) >> WordLsb) % LineWords;
   endfunction  // Automatic
 
   // Instruction responder
@@ -211,9 +211,8 @@ module sc_core_top_tb;
           d_busy <= 1'b0;
           d_pend <= 1'b1;
           if (dc_mem_rw) begin
-            for (b = 0; b < 4; b = b + 1) begin
-              if (dc_mem_wstrb[b])
-                mem[line_of(dc_mem_addr)][word_of(dc_mem_addr)*32+b*8+:8] <= dc_mem_wdata[b*8+:8];
+            for (b = 0; b < LineBytes; b = b + 1) begin
+              if (dc_mem_wstrb[b]) mem[line_of(dc_mem_addr)][b*8+:8] <= dc_mem_wdata[b*8+:8];
             end
             d_hold <= '0;
           end else begin
@@ -297,13 +296,15 @@ module sc_core_top_tb;
     $readmemh("tests/sc_smoke.hex", img);
     if ($isunknown(img[0]) || img[0] == 32'h0)
       $fatal(1, "sc_smoke.hex missing or empty, run make hex PROG=sc_smoke");
-    for (int i = 0; i < ProgWords; i++) mem[i/LineWords][(i%LineWords)*32+:32] = img[i];
+    for (int i = 0; i < ProgWords; i++) mem[i/LineWords][(i%LineWords)*Xlen+:Xlen] = img[i];
 
     rst_n = 1'b0;
     repeat (4) @(posedge clk);
     rst_n = 1'b1;
 
-    while (reg_of(28) !== 32'd1 && ticks < MaxTicks) begin
+    while (reg_of(
+        28
+    ) !== 32'd1 && ticks < MaxTicks) begin
       @(posedge clk);
       ticks++;
     end
@@ -333,8 +334,8 @@ module sc_core_top_tb;
     end
 
     checks++;
-    if (mem[64][31:0] !== 32'h0000_ABCD) begin
-      $error("store did not reach memory, line holds 0x%08h", mem[64][31:0]);
+    if (mem[64][Xlen-1:0] !== 32'h0000_ABCD) begin
+      $error("store did not reach memory, line holds 0x%08h", mem[64][Xlen-1:0]);
       errors++;
     end
 

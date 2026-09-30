@@ -3,19 +3,19 @@
 module board_top
   import cache_pkg::*;
 #(
-    parameter int XLEN         = 32,
+    parameter int XLEN         = arch_pkg::XLEN,
     parameter int DEPTH        = 4194304,
-    parameter int ClkDiv       = 2,
-    parameter int BoardClkHz   = 100_000_000,
+    parameter int ClkDiv       = arch_pkg::ClkDiv,
+    parameter int BoardClkHz   = arch_pkg::BoardClkHz,
     parameter bit UNCACHED     = 1'b0,
     parameter bit GSHARE_EN    = 1'b1,
     parameter bit SINGLE_CYCLE = 1'b0
 ) (
-    input  logic        clk,
-    input  logic        rst,
-    input  logic [ 7:0] sw,
+    input  wire         clk,
+    input  wire         rst,
+    input  wire  [ 7:0] sw,
     output logic [ 7:0] led,
-    input  logic        uart_rx,
+    input  wire         uart_rx,
     output logic        uart_tx,
     // DDR3
     output logic [14:0] ddr3_addr,
@@ -34,85 +34,85 @@ module board_top
     inout  wire  [ 1:0] ddr3_dqs_n
 );
 
-  localparam logic [7:0] ClintTag = 8'h02;
-  localparam logic [7:0] GpioTag = 8'h03;
-  localparam logic [7:0] UartTag = 8'h04;
-  localparam logic [7:0] PmuTag = 8'h05;
-
   localparam int AppAddrWidth = 29;
   localparam int MaskBits = LineBits / 8;
 
-  logic            rst_n;
-  logic [XLEN-1:0] instr;
-  logic [XLEN-1:0] pc;
-  logic [XLEN-1:0] mem_addr;
-  logic [     3:0] store_wstrb;
-  logic [XLEN-1:0] store_data;
+  logic                    rst_n;
+  logic [        XLEN-1:0] instr;
+  logic [        XLEN-1:0] pc;
+  logic [        XLEN-1:0] mem_addr;
+  logic [      XLEN/8-1:0] store_wstrb;
+  logic [        XLEN-1:0] store_data;
 
-  logic [XLEN-1:0] read_data;
-  logic [XLEN-1:0] clint_rdata;
-  logic [XLEN-1:0] gpio_rdata;
-  logic [XLEN-1:0] uart_rdata;
-  logic            clint_sel;
-  logic            gpio_sel;
-  logic            uart_sel;
-  logic            tx_ready;
-  logic            timer_irq;
-  logic            ext_irq;
-  logic            tx_valid;
-  logic [     7:0] tx_byte;
-  logic [     7:0] led_raw;
+  logic [        XLEN-1:0] read_data;
+  logic [        XLEN-1:0] clint_rdata;
+  logic [        XLEN-1:0] gpio_rdata;
+  logic [        XLEN-1:0] uart_rdata;
+  logic                    clint_sel;
+  logic                    gpio_sel;
+  logic                    uart_sel;
+  logic                    tx_ready;
+  logic                    timer_irq;
+  logic                    ext_irq;
+  logic                    tx_valid;
+  logic [             7:0] tx_byte;
+  logic [             7:0] led_raw;
 
-  logic            core_rst_n;
-  logic            loading;
-  logic            boot_we;
-  logic [XLEN-1:0] boot_waddr;
-  logic [XLEN-1:0] boot_wdata;
-  logic [     7:0] rx_byte;
-  logic            rx_valid_w;
+  logic                    core_rst_n;
+  logic                    loading;
+  logic                    boot_we;
+  logic [        XLEN-1:0] boot_waddr;
+  logic [        XLEN-1:0] boot_wdata;
+  logic [             7:0] rx_byte;
+  logic                    rx_valid_w;
 
-  logic [XLEN-1:0] pmu_rdata;
-  logic            pmu_sel;
-  logic            periph_sel;
+  logic [        XLEN-1:0] pmu_rdata;
+  logic                    pmu_sel;
+  logic                    periph_sel;
 
-  logic            imem_ready;
-  logic            imem_req;
-  logic            dmem_ready;
-  logic            dmem_req;
-  logic            dc_ready;
-  logic [XLEN-1:0] dc_rdata;
+  logic                    imem_ready;
+  logic                    imem_req;
+  logic                    dmem_ready;
+  logic                    dmem_req;
+  logic                    dc_ready;
+  logic [        XLEN-1:0] dc_rdata;
 
-  logic                ic_mem_valid;
-  logic [    XLEN-1:0] ic_mem_addr;
-  logic [LineBits-1:0] ic_mem_rdata;
-  logic                ic_mem_ready;
+  logic [    LineBits-1:0] dc_line;
+  logic [    LineBits-1:0] dc_wdata;
+  logic [   LineBytes-1:0] dc_wstrb;
+  logic [    LineBits-1:0] core_rdata;
 
-  logic                dc_mem_valid;
-  logic                dc_mem_rw;
-  logic [    XLEN-1:0] dc_mem_addr;
-  logic [LineBits-1:0] dc_mem_wdata;
-  logic [         3:0] dc_mem_wstrb;
-  logic [LineBits-1:0] dc_mem_rdata;
-  logic                dc_mem_ready;
+  logic                    ic_mem_valid;
+  logic [        XLEN-1:0] ic_mem_addr;
+  logic [    LineBits-1:0] ic_mem_rdata;
+  logic                    ic_mem_ready;
 
-  logic         [31:0] ic_hits;
-  logic         [31:0] ic_misses;
-  logic         [31:0] dc_hits;
-  logic         [31:0] dc_misses;
+  logic                    dc_mem_valid;
+  logic                    dc_mem_rw;
+  logic [        XLEN-1:0] dc_mem_addr;
+  logic [    LineBits-1:0] dc_mem_wdata;
+  logic [   LineBytes-1:0] dc_mem_wstrb;
+  logic [    LineBits-1:0] dc_mem_rdata;
+  logic                    dc_mem_ready;
+
+  logic [            31:0] ic_hits;
+  logic [            31:0] ic_misses;
+  logic [            31:0] dc_hits;
+  logic [            31:0] dc_misses;
 
   // Controller clocks
-  logic                pll_fb;
-  logic                pll_locked;
-  logic                sys_clk_pll;
-  logic                ref_clk_pll;
-  logic                mig_sys_clk;
-  logic                mig_ref_clk;
-  logic                mig_rst_n;
+  logic                    pll_fb;
+  logic                    pll_locked;
+  logic                    sys_clk_pll;
+  logic                    ref_clk_pll;
+  logic                    mig_sys_clk;
+  logic                    mig_ref_clk;
+  logic                    mig_rst_n;
 
   // Controller application
-  logic                core_clk;
-  logic                ui_rst;
-  logic                calib_done;
+  logic                    core_clk;
+  logic                    ui_rst;
+  logic                    calib_done;
 
   logic [AppAddrWidth-1:0] app_addr;
   logic [             2:0] app_cmd;
@@ -225,10 +225,10 @@ module board_top
   assign core_rst_n = rst_n & ~loading;
 
   // Decode on mem_addr
-  assign clint_sel  = mem_addr[31:24] == ClintTag;
-  assign gpio_sel   = mem_addr[31:24] == GpioTag;
-  assign uart_sel   = mem_addr[31:24] == UartTag;
-  assign pmu_sel    = mem_addr[31:24] == PmuTag;
+  assign clint_sel  = mem_addr[XLEN-1:XLEN-8] == arch_pkg::ClintTag;
+  assign gpio_sel   = mem_addr[XLEN-1:XLEN-8] == arch_pkg::GpioTag;
+  assign uart_sel   = mem_addr[XLEN-1:XLEN-8] == arch_pkg::UartTag;
+  assign pmu_sel    = mem_addr[XLEN-1:XLEN-8] == arch_pkg::PmuTag;
   assign periph_sel = clint_sel || gpio_sel || uart_sel || pmu_sel;
 
   // Peripheral read mux
@@ -274,7 +274,7 @@ module board_top
 
   uart_rx #(
       .CLK_FREQ_HZ(CoreClkHz),
-      .BAUD_RATE  (28_800)
+      .BAUD_RATE  (arch_pkg::BaudRate)
   ) uart_rx_inst (
       .clk      (core_clk),
       .core_en  (core_en),
@@ -287,7 +287,7 @@ module board_top
 
   uart_tx #(
       .CLK_FREQ_HZ(CoreClkHz),
-      .BAUD_RATE  (28_800)
+      .BAUD_RATE  (arch_pkg::BaudRate)
   ) uart_tx_inst (
       .clk      (core_clk),
       .core_en  (core_en),
@@ -356,6 +356,10 @@ module board_top
         .store_data (store_data),
         .mem_addr   (mem_addr)
     );
+
+    // Word into line
+    assign dc_wdata = {LineWords{store_data}};
+    assign dc_wstrb = LineBytes'(store_wstrb) << (WordBytes * mem_addr[WordLsb+:BlkOffLen]);
   end else begin : g_pipelined
     riscv_pipelined #(
         .XLEN     (XLEN),
@@ -365,7 +369,7 @@ module board_top
         .core_en    (core_en),
         .rst_n      (core_rst_n),
         .instr      (instr),
-        .read_data  (read_data),
+        .read_data  (core_rdata),
         .timer_irq  (timer_irq),
         .ext_irq    (ext_irq),
         .imem_ready (imem_ready),
@@ -375,14 +379,22 @@ module board_top
         .mem_write  (),
         .alu_result (),
         .write_data (),
-        .store_wstrb(store_wstrb),
-        .store_data (store_data),
+        .store_wstrb(dc_wstrb),
+        .store_data (dc_wdata),
         .mem_addr   (mem_addr)
     );
+
+    // Line into word
+    assign store_data = dc_wdata[mem_addr[WordLsb+:BlkOffLen]*XLEN+:XLEN];
+    assign store_wstrb = dc_wstrb[mem_addr[WordLsb+:BlkOffLen]*WordBytes+:WordBytes];
 
     // Fetch never pauses
     assign imem_req = 1'b1;
   end
+
+  // Word views of line
+  assign dc_rdata   = dc_line[mem_addr[WordLsb+:BlkOffLen]*XLEN+:XLEN];
+  assign core_rdata = periph_sel ? {LineWords{read_data}} : dc_line;
 
   // Bare word paths
   if (UNCACHED) begin : g_uncached
@@ -412,18 +424,19 @@ module board_top
     );
 
     mem_word_if #(
-        .XLEN(XLEN),
-        .RW  (1'b1)
+        .XLEN (XLEN),
+        .RW   (1'b1),
+        .CPU_W(LineBits)
     ) dcache_inst (
         .clk       (core_clk),
         .core_en   (core_en),
         .rst_n     (core_rst_n),
         .cpu_valid (dmem_req && !periph_sel),
-        .cpu_rw    (|store_wstrb),
+        .cpu_rw    (|dc_wstrb),
         .cpu_addr  (mem_addr),
-        .cpu_wdata (store_data),
-        .cpu_wstrb (store_wstrb),
-        .cpu_rdata (dc_rdata),
+        .cpu_wdata (dc_wdata),
+        .cpu_wstrb (dc_wstrb),
+        .cpu_rdata (dc_line),
         .cpu_ready (dc_ready),
         .mem_valid (dc_mem_valid),
         .mem_rw    (dc_mem_rw),
@@ -461,11 +474,11 @@ module board_top
         .core_en   (core_en),
         .rst_n     (core_rst_n),
         .cpu_valid (dmem_req && !periph_sel),
-        .cpu_rw    (|store_wstrb),
+        .cpu_rw    (|dc_wstrb),
         .cpu_addr  (mem_addr),
-        .cpu_wdata (store_data),
-        .cpu_wstrb (store_wstrb),
-        .cpu_rdata (dc_rdata),
+        .cpu_wdata (dc_wdata),
+        .cpu_wstrb (dc_wstrb),
+        .cpu_rdata (dc_line),
         .cpu_ready (dc_ready),
         .mem_valid (dc_mem_valid),
         .mem_rw    (dc_mem_rw),
@@ -478,7 +491,7 @@ module board_top
     );
 
     // Whole line writeback
-    assign dc_mem_wstrb = 4'h0;
+    assign dc_mem_wstrb = '0;
   end
 
   mem_arb #(

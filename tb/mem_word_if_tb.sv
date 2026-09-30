@@ -4,50 +4,50 @@ module mem_word_if_tb;
 
   import cache_pkg::*;
 
-  localparam int Xlen = 32;
+  localparam int Xlen = arch_pkg::XLEN;
   localparam int MemLines = 64;
 
-  logic                clk;
-  logic                rst_n;
-  logic                core_en;
+  logic                 clk;
+  logic                 rst_n;
+  logic                 core_en;
 
-  logic                i_cpu_valid;
-  logic [    Xlen-1:0] i_cpu_addr;
-  logic [    Xlen-1:0] i_cpu_rdata;
-  logic                i_cpu_ready;
-  logic                i_mem_valid;
-  logic                i_mem_rw;
-  logic [    Xlen-1:0] i_mem_addr;
-  logic [LineBits-1:0] i_mem_wdata;
-  logic [         3:0] i_mem_wstrb;
-  logic [LineBits-1:0] i_mem_rdata;
-  logic                i_mem_ready;
-  logic [        31:0] i_hits;
-  logic [        31:0] i_misses;
+  logic                 i_cpu_valid;
+  logic [     Xlen-1:0] i_cpu_addr;
+  logic [     Xlen-1:0] i_cpu_rdata;
+  logic                 i_cpu_ready;
+  logic                 i_mem_valid;
+  logic                 i_mem_rw;
+  logic [     Xlen-1:0] i_mem_addr;
+  logic [ LineBits-1:0] i_mem_wdata;
+  logic [LineBytes-1:0] i_mem_wstrb;
+  logic [ LineBits-1:0] i_mem_rdata;
+  logic                 i_mem_ready;
+  logic [         31:0] i_hits;
+  logic [         31:0] i_misses;
 
-  logic                d_cpu_valid;
-  logic                d_cpu_rw;
-  logic [    Xlen-1:0] d_cpu_addr;
-  logic [    Xlen-1:0] d_cpu_wdata;
-  logic [         3:0] d_cpu_wstrb;
-  logic [    Xlen-1:0] d_cpu_rdata;
-  logic                d_cpu_ready;
-  logic                d_mem_valid;
-  logic                d_mem_rw;
-  logic [    Xlen-1:0] d_mem_addr;
-  logic [LineBits-1:0] d_mem_wdata;
-  logic [         3:0] d_mem_wstrb;
-  logic [LineBits-1:0] d_mem_rdata;
-  logic                d_mem_ready;
-  logic [        31:0] d_hits;
-  logic [        31:0] d_misses;
+  logic                 d_cpu_valid;
+  logic                 d_cpu_rw;
+  logic [     Xlen-1:0] d_cpu_addr;
+  logic [     Xlen-1:0] d_cpu_wdata;
+  logic [WordBytes-1:0] d_cpu_wstrb;
+  logic [     Xlen-1:0] d_cpu_rdata;
+  logic                 d_cpu_ready;
+  logic                 d_mem_valid;
+  logic                 d_mem_rw;
+  logic [     Xlen-1:0] d_mem_addr;
+  logic [ LineBits-1:0] d_mem_wdata;
+  logic [LineBytes-1:0] d_mem_wstrb;
+  logic [ LineBits-1:0] d_mem_rdata;
+  logic                 d_mem_ready;
+  logic [         31:0] d_hits;
+  logic [         31:0] d_misses;
 
-  int                  checks = 0;
-  int                  errors = 0;
-  int                  max_lat = 6;
-  int                  en_period = 1;
-  int                  i_done = 0;
-  int                  d_done = 0;
+  int                   checks = 0;
+  int                   errors = 0;
+  int                   max_lat = 6;
+  int                   en_period = 1;
+  int                   i_done = 0;
+  int                   d_done = 0;
 
   always #5 clk = ~clk;
 
@@ -62,7 +62,7 @@ module mem_word_if_tb;
       .cpu_rw(1'b1),
       .cpu_addr(i_cpu_addr),
       .cpu_wdata(32'hDEAD_BEEF),
-      .cpu_wstrb(4'hF),
+      .cpu_wstrb('1),
       .cpu_rdata(i_cpu_rdata),
       .cpu_ready(i_cpu_ready),
       .mem_valid(i_mem_valid),
@@ -103,14 +103,14 @@ module mem_word_if_tb;
 
   // Line memory model
 
-  logic [LineBits-1:0] mem  [MemLines];
+  logic [LineBits-1:0] mem[MemLines];
 
   function automatic int line_of(input logic [Xlen-1:0] a);
-    line_of = (int'(a) >> 4) % MemLines;
+    line_of = (int'(a) >> IdxLsb) % MemLines;
   endfunction  // Automatic
 
   function automatic int word_of(input logic [Xlen-1:0] a);
-    word_of = (int'(a) >> 2) % 4;
+    word_of = (int'(a) >> WordLsb) % LineWords;
   endfunction  // Automatic
 
   task automatic fail(input string what);
@@ -119,8 +119,7 @@ module mem_word_if_tb;
     $error("t=%0t  %s", $time, what);
   endtask  // Automatic
 
-  task automatic check(input string what, input logic [Xlen-1:0] got,
-                       input logic [Xlen-1:0] exp);
+  task automatic check(input string what, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
     checks++;
     if (got !== exp) begin
       $error("t=%0t  %s: saw %h, memory holds %h", $time, what, got, exp);
@@ -188,9 +187,8 @@ module mem_word_if_tb;
           d_busy <= 1'b0;
           d_pend <= 1'b1;
           if (d_mem_rw) begin
-            for (b = 0; b < 4; b = b + 1) begin
-              if (d_mem_wstrb[b])
-                mem[line_of(d_mem_addr)][word_of(d_mem_addr)*32+b*8+:8] <= d_mem_wdata[b*8+:8];
+            for (b = 0; b < LineBytes; b = b + 1) begin
+              if (d_mem_wstrb[b]) mem[line_of(d_mem_addr)][b*8+:8] <= d_mem_wdata[b*8+:8];
             end
             d_hold <= '0;
           end else begin
@@ -211,7 +209,7 @@ module mem_word_if_tb;
   always @(posedge clk) begin
     if (rst_n) begin
       if (i_mem_rw) fail("read only instance drove a write command at memory");
-      if (i_mem_wstrb != 4'h0) fail("read only instance drove a nonzero byte strobe");
+      if (i_mem_wstrb != '0) fail("read only instance drove a nonzero byte strobe");
       if (i_cpu_ready && !core_en) fail("instruction side asserted ready while core_en was low");
       if (d_cpu_ready && !core_en) fail("data side asserted ready while core_en was low");
       if (i_cpu_ready && !i_mem_ready) fail("instruction side answered without a memory response");
@@ -287,7 +285,7 @@ module mem_word_if_tb;
     @(posedge clk);
   endtask  // Automatic
 
-  task automatic store(input logic [Xlen-1:0] addr, input logic [3:0] strb,
+  task automatic store(input logic [Xlen-1:0] addr, input logic [WordBytes-1:0] strb,
                        input logic [Xlen-1:0] data);
     #1;
     d_cpu_valid = 1'b1;
@@ -321,59 +319,60 @@ module mem_word_if_tb;
     d_hold      = '0;
 
     for (int i = 0; i < MemLines; i++) begin
-      for (int w = 0; w < 4; w++) mem[i][w*32+:32] = 32'h1000_0000 + Xlen'(i * 4 + w);
+      for (int w = 0; w < LineWords; w++)
+      mem[i][w*Xlen+:Xlen] = 32'h1000_0000 + Xlen'(i * LineWords + w);
     end
 
     do_reset();
 
     // Word select sweep
     for (int i = 0; i < MemLines; i++) begin
-      for (int w = 0; w < 4; w++) begin
+      for (int w = 0; w < LineWords; w++) begin
         logic [Xlen-1:0] a;
-        a = Xlen'(i * 16 + w * 4);
+        a = Xlen'(i * LineBytes + w * WordBytes);
         fetch(a, got);
         check($sformatf("instruction fetch selected the wrong word at %h", a), got,
-              mem[i][w*32+:32]);
+              mem[i][w*Xlen+:Xlen]);
         load(a, got);
-        check($sformatf("load selected the wrong word at %h", a), got, mem[i][w*32+:32]);
+        check($sformatf("load selected the wrong word at %h", a), got, mem[i][w*Xlen+:Xlen]);
       end
     end
 
     // No line reuse
     for (int i = 0; i < 8; i++) begin
       fetch(32'h0000_0000, got);
-      check("repeat fetch did not see the new memory contents", got, mem[0][31:0]);
-      mem[0][31:0] = 32'hFACE_0000 + Xlen'(i);
-      load(32'h0000_0004, got);
-      check("repeat load did not see the new memory contents", got, mem[0][63:32]);
-      mem[0][63:32] = 32'hCAFE_0000 + Xlen'(i);
+      check("repeat fetch did not see the new memory contents", got, mem[0][Xlen-1:0]);
+      mem[0][Xlen-1:0] = 32'hFACE_0000 + Xlen'(i);
+      load(Xlen'(WordBytes), got);
+      check("repeat load did not see the new memory contents", got, mem[0][2*Xlen-1:Xlen]);
+      mem[0][2*Xlen-1:Xlen] = 32'hCAFE_0000 + Xlen'(i);
     end
 
     // Store lane sweep
-    for (int w = 0; w < 4; w++) begin
+    for (int w = 0; w < LineWords; w++) begin
       logic [Xlen-1:0] a;
-      a = 32'h0000_0100 + Xlen'(w * 4);
-      store(a, 4'hF, 32'h2222_0000 + Xlen'(w));
+      a = 32'h0000_0100 + Xlen'(w * WordBytes);
+      store(a, '1, 32'h2222_0000 + Xlen'(w));
       fetch(a, got);
       check($sformatf("store did not land in word %0d of the line", w), got,
             32'h2222_0000 + Xlen'(w));
-      fetch(32'h0000_0100 + Xlen'(((w + 1) % 4) * 4), got);
-      check($sformatf("store from word %0d overwrote a neighbouring word", w), got,
-            mem[16][((w+1)%4)*32+:32]);
+      fetch(32'h0000_0100 + Xlen'(((w + 1) % LineWords) * WordBytes), got);
+      check($sformatf("store from word %0d overwrote a neighbouring word", w), got, mem[line_of(
+            32'h0000_0100)][((w+1)%LineWords)*Xlen+:Xlen]);
     end
 
     // Byte strobe sweep
     begin
-      logic [3:0] strobes[4];
+      logic [WordBytes-1:0] strobes[4];
       logic [Xlen-1:0] want;
       strobes[0] = 4'b0001;
       strobes[1] = 4'b1100;
       strobes[2] = 4'b0110;
       strobes[3] = 4'b1111;
       for (int s = 0; s < 4; s++) begin
-        store(32'h0000_0200, 4'hF, 32'h3333_3333);
+        store(32'h0000_0200, '1, 32'h3333_3333);
         want = 32'h3333_3333;
-        for (int i = 0; i < 4; i++) begin
+        for (int i = 0; i < WordBytes; i++) begin
           if (strobes[s][i]) want[i*8+:8] = 8'h70 + 8'(i);
         end
         store(32'h0000_0200, strobes[s], {8'h73, 8'h72, 8'h71, 8'h70});
@@ -396,11 +395,11 @@ module mem_word_if_tb;
         @(posedge clk);
         for (int i = 0; i < 6; i++) begin
           logic [Xlen-1:0] a;
-          a = 32'h0000_0300 + Xlen'(i * 4);
-          store(a, 4'hF, 32'h4444_0000 + Xlen'(p * 16 + i));
+          a = 32'h0000_0300 + Xlen'(i * WordBytes);
+          store(a, '1, 32'h4444_0000 + Xlen'(p * 16 + i));
           fetch(a, got);
-          check($sformatf("store did not reach memory, core_en 1 cycle in %0d", en_period),
-                got, 32'h4444_0000 + Xlen'(p * 16 + i));
+          check($sformatf("store did not reach memory, core_en 1 cycle in %0d", en_period), got,
+                32'h4444_0000 + Xlen'(p * 16 + i));
         end
       end
       en_period = 1;
@@ -411,26 +410,24 @@ module mem_word_if_tb;
     for (int i = 0; i < 200; i++) begin
       logic [Xlen-1:0] a;
       logic [Xlen-1:0] d;
-      logic [3:0] strb;
-      a    = Xlen'($urandom_range(MemLines * 4 - 1) * 4);
+      logic [WordBytes-1:0] strb;
+      a    = Xlen'($urandom_range(MemLines * LineWords - 1) * WordBytes);
       d    = $urandom();
-      strb = 4'($urandom_range(15));
+      strb = WordBytes'($urandom_range((1 << WordBytes) - 1));
       if ($urandom_range(1) == 0) begin
         fetch(a, got);
-        check("random fetch returned the wrong word", got,
-              mem[line_of(a)][word_of(a)*32+:32]);
+        check("random fetch returned the wrong word", got, mem[line_of(a)][word_of(a)*Xlen+:Xlen]);
       end else begin
         if (strb != 4'h0) store(a, strb, d);
         load(a, got);
-        check("random load returned the wrong word", got, mem[line_of(a)][word_of(a)*32+:32]);
+        check("random load returned the wrong word", got, mem[line_of(a)][word_of(a)*Xlen+:Xlen]);
       end
     end
 
     #1;
     check_int("instruction side reported hits", int'(i_hits), 0);
     check_int("data side reported hits", int'(d_hits), 0);
-    check_int("instruction side missed on a different number of accesses", int'(i_misses),
-              i_done);
+    check_int("instruction side missed on a different number of accesses", int'(i_misses), i_done);
     check_int("data side missed on a different number of accesses", int'(d_misses), d_done);
 
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);

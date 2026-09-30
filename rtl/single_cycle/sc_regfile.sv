@@ -1,17 +1,17 @@
 `default_nettype none
 
 module sc_regfile #(
-    parameter int AWIDTH = 5,
-    parameter int XLEN   = 32
+    parameter int AWIDTH = arch_pkg::RegAddrW,
+    parameter int XLEN   = arch_pkg::XLEN
 ) (
-    input logic clk,
-    input logic core_en,
-    input logic rst_n,
-    input logic we,
-    input logic [AWIDTH-1:0] waddr,
-    input logic [XLEN-1:0] wdata,
-    input logic [AWIDTH-1:0] raddr1,
-    input logic [AWIDTH-1:0] raddr2,
+    input wire clk,
+    input wire core_en,
+    input wire rst_n,
+    input wire we,
+    input wire [AWIDTH-1:0] waddr,
+    input wire [XLEN-1:0] wdata,
+    input wire [AWIDTH-1:0] raddr1,
+    input wire [AWIDTH-1:0] raddr2,
     output logic [XLEN-1:0] rdata1,
     output logic [XLEN-1:0] rdata2
 );
