@@ -10,7 +10,8 @@
         "andrewnolte.vscode-system-verilog",
         "ms-vscode.cpptools",
         "charliermarsh.ruff",
-        "editorconfig.editorconfig"
+        "editorconfig.editorconfig",
+        "surfer-project.surfer"
       ],
       "settings": {
         "verilog.languageServer.server": "verible-verilog-ls",
