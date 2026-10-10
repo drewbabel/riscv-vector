@@ -175,7 +175,7 @@ module vec_regfile_tb ();
   task automatic verdict();
     $display("checks=%0d errors=%0d", checks, errors);
     if (errors == 0) $display("PASS");
-    else $display("FAIL");
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask
 
