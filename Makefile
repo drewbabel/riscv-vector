@@ -36,6 +36,26 @@ RVCOPY  := riscv64-elf-objcopy
 RVDUMP  := riscv64-elf-objdump
 RVFLAGS := -march=rv32im_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T tests/link.ld
 
+# TestFloat reference files
+SOFTFLOAT_SHA := a0c6494cdc11865811dec815d5c0049fba9d82a8
+TESTFLOAT_SHA := a9c849f1b0eb0264b626d9686ffae167d996e3be
+SOFTFLOAT_SRC := build/berkeley-softfloat-3
+TESTFLOAT_SRC := build/berkeley-testfloat-3
+TF_PLATFORM   := Linux-x86_64-GCC
+TF_GEN        := $(TESTFLOAT_SRC)/build/$(TF_PLATFORM)/testfloat_gen
+TF_DIR        := build/testfloat
+TF_RMS        := rne rtz rdn rup rmm
+TF_RM_rne     := near_even
+TF_RM_rtz     := minMag
+TF_RM_rdn     := min
+TF_RM_rup     := max
+TF_RM_rmm     := near_maxMag
+TF_ROUNDED    := f32_add f32_sub f32_mul f32_div f32_sqrt i32_to_f32 ui32_to_f32
+TF_EXACT      := f32_to_i32 f32_to_ui32
+TF_CMP        := f32_eq f32_le f32_lt
+TF_MULADD_STRIDE := 31
+TF_FLAGS      := -tininessafter
+
 run:
 	@test -n "$(MOD)" || { echo "usage: make MOD=<module>  (e.g. MOD=alu)"; exit 1; }
 	@mkdir -p build
@@ -148,8 +168,29 @@ cosim:
 	@test -n "$(PROG)" || { echo "usage: make cosim PROG=<name>  (lockstep tests/$(PROG).s vs Spike)"; exit 1; }
 	python3 tests/cosim.py $(if $(TRACE),--trace) $(PROG)
 
+$(SOFTFLOAT_SRC):
+	git clone -q https://github.com/ucb-bar/berkeley-softfloat-3.git $@
+	git -C $@ checkout -q $(SOFTFLOAT_SHA)
+
+$(TESTFLOAT_SRC):
+	git clone -q https://github.com/ucb-bar/berkeley-testfloat-3.git $@
+	git -C $@ checkout -q $(TESTFLOAT_SHA)
+
+$(TF_GEN): | $(SOFTFLOAT_SRC) $(TESTFLOAT_SRC)
+	$(MAKE) -s -C $(SOFTFLOAT_SRC)/build/$(TF_PLATFORM) SPECIALIZE_TYPE=RISCV
+	$(MAKE) -s -C $(TESTFLOAT_SRC)/build/$(TF_PLATFORM) testfloat_gen
+
+testfloat: $(TF_GEN)
+	@mkdir -p $(TF_DIR)
+	@set -o pipefail && $(foreach r,$(TF_RMS),\
+	  $(foreach o,$(TF_ROUNDED),$(TF_GEN) $(TF_FLAGS) -r$(TF_RM_$(r)) $(o) > $(TF_DIR)/$(o)_$(r).txt &&) \
+	  $(foreach o,$(TF_EXACT),$(TF_GEN) $(TF_FLAGS) -r$(TF_RM_$(r)) -exact $(o) > $(TF_DIR)/$(o)_$(r).txt &&) \
+	  $(TF_GEN) $(TF_FLAGS) -r$(TF_RM_$(r)) f32_mulAdd | awk 'NR % $(TF_MULADD_STRIDE) == 0' > $(TF_DIR)/f32_mulAdd_$(r).txt &&) \
+	  $(foreach o,$(TF_CMP),$(TF_GEN) $(TF_FLAGS) $(o) > $(TF_DIR)/$(o).txt &&) true
+	@echo "wrote $$(ls $(TF_DIR) | wc -l | tr -d ' ') files to $(TF_DIR)"
+
 clean:
 	rm -rf build *.vcd sim_build results.xml
 
 .DEFAULT_GOAL := run
-.PHONY: run vsim prog wave fmt formal view view-rvfi trace view-formal hex dis cosim clean
+.PHONY: run vsim prog wave fmt formal view view-rvfi trace view-formal hex dis cosim testfloat clean

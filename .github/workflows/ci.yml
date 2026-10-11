@@ -39,6 +39,8 @@ jobs:
       - uses: ./.github/actions/oss-cad-suite
         with:
           version: ${{ env.OSS_CAD_SUITE }}
+      - name: Generate the TestFloat reference files
+        run: make testfloat
       - name: Run the testbench group
         run: |
           for mod in ${{ matrix.group }}; do
