@@ -180,6 +180,7 @@ module vec_unit
   logic      [     VlW-1:0] vl_ex;
   logic      [    VLEN-1:0] rdata1_ex;
   logic      [    VLEN-1:0] rdata2_ex;
+  logic      [    VLEN-1:0] rdata3_ex;
   logic      [    VLEN-1:0] rdata0_ex;
   logic      [MaxElems-1:0] mask_bits_ex;
   logic      [MaxElems-1:0] elem_active_ex;
@@ -439,10 +440,11 @@ module vec_unit
   logic op_ready;
   logic accept_now;
 
-  // Four multiply ops
+  // Built multiply ops
   logic mul_built;
   assign mul_built = (dec_op == VEC_MUL) || (dec_op == VEC_MULH) || (dec_op == VEC_MULHU) ||
-      (dec_op == VEC_MULHSU);
+      (dec_op == VEC_MULHSU) || (dec_op == VEC_MACC) || (dec_op == VEC_NMSAC) ||
+      (dec_op == VEC_MADD) || (dec_op == VEC_NMSUB);
 
   assign op_ready = (dec_cls != VEC_CLS_NONE) && ((dec_cls != VEC_CLS_MUL) || mul_built) &&
       group_legal && (dec_mem || (width_legal && scalar_legal));
@@ -694,6 +696,7 @@ module vec_unit
       vl_ex          <= seq_vl;
       rdata1_ex      <= rdata1;
       rdata2_ex      <= rdata2;
+      rdata3_ex      <= rdata3;
       rdata0_ex      <= rdata0;
       mask_bits_ex   <= mask_bits;
       elem_active_ex <= elem_active;
@@ -787,6 +790,8 @@ module vec_unit
   localparam int WSelW  = $clog2(Widths);
 
   logic                    narrow_ex;
+  logic                    vd_mul_ex;
+  logic    [     VLEN-1:0] vd_data;
   logic    [     ELEN-1:0] imm_ex;
   vec_op_e                 mul_op_x2;
   logic    [     ELEN-1:0] lane_res  [MUL_LANES];
@@ -794,6 +799,8 @@ module vec_unit
   logic    [MUL_LANES-1:0] active_x2;
 
   assign narrow_ex = (eew_ex == VEC_EEW_NARROW);
+  assign vd_mul_ex = (op_ex == VEC_MADD) || (op_ex == VEC_NMSUB);
+  assign vd_data = rdata3_ex >> d_off_ex;
   assign imm_ex = ((op_ex == VEC_SSRL) || (op_ex == VEC_SSRA) || narrow_ex) ?
       ELEN'(simm_ex) : {{(ELEN - 5) {simm_ex[4]}}, simm_ex};
   assign mul_op_x2 = vec_pkg::vec_op_e'((op_x2 == VEC_SMUL) ? VEC_MULH : op_x2);
@@ -801,10 +808,14 @@ module vec_unit
   for (genvar l = 0; l < MUL_LANES; l++) begin : g_lane
     logic [  ELEN-1:0] a_w     [Widths];
     logic [  ELEN-1:0] b_w     [Widths];
+    logic [  ELEN-1:0] s_w     [Widths];
+    logic [  ELEN-1:0] d_w     [Widths];
     logic [  ELEN-1:0] a_ex;
     logic [  ELEN-1:0] b_ex;
+    logic [  ELEN-1:0] c_ex;
     logic [  ELEN-1:0] a_x2;
     logic [  ELEN-1:0] b_x2;
+    logic [  ELEN-1:0] c_x2;
     logic [  ELEN-1:0] mul_res;
     logic [  ELEN-1:0] sat_res;
     logic [2*ELEN-1:0] product;
@@ -815,9 +826,12 @@ module vec_unit
       localparam int AW = ((2 * EW <= ELEN) && ((l + 1) * 2 * EW <= VLEN)) ? 2 * EW : EW;
       assign a_w[w] = narrow_ex ? ELEN'(vs2_data[l*AW+:AW]) : ELEN'(vs2_data[l*EW+:EW]);
       assign b_w[w] = ELEN'(vs1_data[l*EW+:EW]);
+      assign s_w[w] = ELEN'(vs2_data[l*EW+:EW]);
+      assign d_w[w] = ELEN'(vd_data[l*EW+:EW]);
     end
 
-    assign a_ex = a_w[vsew_ex[WSelW-1:0]];
+    assign a_ex = vd_mul_ex ? d_w[vsew_ex[WSelW-1:0]] : a_w[vsew_ex[WSelW-1:0]];
+    assign c_ex = vd_mul_ex ? s_w[vsew_ex[WSelW-1:0]] : d_w[vsew_ex[WSelW-1:0]];
     always_comb begin
       case (src_ex)
         VEC_SRC_VX: b_ex = ELEN'(xdata_ex);
@@ -830,6 +844,7 @@ module vec_unit
       if (core_en) begin
         a_x2 <= a_ex;
         b_x2 <= b_ex;
+        c_x2 <= c_ex;
       end
     end
 
@@ -840,7 +855,7 @@ module vec_unit
         .vsew(vsew_x2),
         .a(a_x2),
         .b(b_x2),
-        .c('0),
+        .c(c_x2),
         .result(mul_res),
         .product(product)
     );
