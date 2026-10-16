@@ -72,7 +72,6 @@ module fp_mul (
     end
   end
 
-  // Signed biased exponents
   logic [9:0] exp_top, exp_lz, rshift_full;
   assign exp_top     = {2'd0, eff_exp_a} + {2'd0, eff_exp_b} - 10'd126;
   assign exp_lz      = exp_top - {4'd0, lz};
@@ -104,10 +103,8 @@ module fp_mul (
 
   logic inc, inc_unbounded;
   assign inc = round_up(rm, sign, mant[0], guard, round || sticky);
-  // Tininess after rounding
   assign inc_unbounded = round_up(rm, sign, guard, round, sticky);
 
-  // Carries reach exponent
   logic [31:0] rounded, finite;
   assign rounded = {exp_norm - 9'd1, 23'd0} + {8'd0, mant} + {31'd0, inc};
   assign finite  = {sign, rounded[30:0]};

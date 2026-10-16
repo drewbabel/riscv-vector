@@ -111,7 +111,6 @@ module fp_fma (
 
   assign prod_sig = ProdW'(ma) * ProdW'(mb);
 
-  // Addend shift amount
   assign ep = xa + xb - Bias;
   assign s_raw = ep + AddSlot - xc;
   assign s_le0 = s_raw[ExpW-1] || (s_raw == '0);
@@ -119,7 +118,6 @@ module fp_fma (
   assign use_c = a_zero || b_zero || (s_le0 && !c_zero);
   assign shamt = (use_c || s_le0) ? 7'd0 : (s_big ? 7'(MaxShift) : s_raw[6:0]);
 
-  // Top bit exponent
   assign e_top = use_c ? xc + ExpW'(1) : ep + TopSlot;
 
   assign aln = {mc, (AlnW - 24)'(0)} >> shamt;
@@ -133,11 +131,9 @@ module fp_fma (
   assign res_sign = neg ? sc : sp;
   assign zero_sign = (sp == sc) ? sp : (rm == RmRdn);
 
-  // Below subnormal guard
   assign deep = e_top[ExpW-1] || (e_top == '0);
   assign lim = deep ? '0 : e_top - ExpW'(1);
 
-  // Normalize within lim
   always_comb begin
     logic [SumW-1:0] v;
     logic [6:0] n;
@@ -166,7 +162,6 @@ module fp_fma (
 
   assign ovf = is_norm && ((e_norm >= ExpW'(255)) || (rnd[30:23] == 8'hFF));
 
-  // Tininess after rounding
   assign inc_wide = round_inc(rm, res_sign, rsrc[SumW-25], rsrc[SumW-26], rsrc[SumW-27:0] != '0);
   assign tiny = !is_norm && !((rsrc[SumW-2-:24] == '1) && inc_wide);
   assign inexact = g || st;

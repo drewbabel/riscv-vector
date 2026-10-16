@@ -160,7 +160,6 @@ module control_decoder
       end
 
       OpcodeOpFp: begin
-        // Integer destination forms
         if ((funct12[11:7] == Funct5FcvtWS) || (funct12[11:7] == Funct5FmvXW) ||
             (funct12[11:7] == Funct5Fcmp))
           reg_write = 1'b1;
