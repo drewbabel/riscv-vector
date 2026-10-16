@@ -243,6 +243,8 @@ jobs:
         run: python3 tests/cosim.py --vec vecmul
       - name: Vector fixed-point co-sim
         run: python3 tests/cosim.py --vec vecsat
+      - name: Vector divide co-sim
+        run: python3 tests/cosim.py --vec vecdiv
       - name: Vector scalar-return co-sim
         run: python3 tests/cosim.py --vec vecxres
       - name: Randomized vector memory co-sim (100 programs)
