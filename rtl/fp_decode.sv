@@ -26,23 +26,9 @@ module fp_decode
     output logic     [ 2:0] funct3
 );
 
-  localparam logic [2:0] RmRmm = 3'b100;
-  localparam logic [2:0] RmDyn = 3'b111;
-
   localparam logic [4:0] Rs2Zero = 5'b00000;
   localparam logic [4:0] Rs2W = 5'b00000;
   localparam logic [4:0] Rs2Wu = 5'b00001;
-
-  localparam logic [2:0] Funct3Fsgnj = 3'b000;
-  localparam logic [2:0] Funct3Fsgnjn = 3'b001;
-  localparam logic [2:0] Funct3Fsgnjx = 3'b010;
-  localparam logic [2:0] Funct3Fmin = 3'b000;
-  localparam logic [2:0] Funct3Fmax = 3'b001;
-  localparam logic [2:0] Funct3Fle = 3'b000;
-  localparam logic [2:0] Funct3Flt = 3'b001;
-  localparam logic [2:0] Funct3Feq = 3'b010;
-  localparam logic [2:0] Funct3Fmv = 3'b000;
-  localparam logic [2:0] Funct3Fclass = 3'b001;
 
   logic [6:0] opcode;
   logic [1:0] fmt;

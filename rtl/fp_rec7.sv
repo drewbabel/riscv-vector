@@ -1,73 +1,78 @@
 `default_nettype none
 
-module fp_rec7 (
-    input  wire         sqrt,
-    input  wire  [ 2:0] rm,
-    input  wire  [31:0] a,
-    output logic [31:0] result,
-    output logic [ 4:0] fflags
+module fp_rec7
+  import fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup;
+  import fp_pkg::FlagNv, fp_pkg::FlagDz, fp_pkg::FlagOf, fp_pkg::FlagNx;
+#(
+    parameter  int ExpW  = fp_pkg::ExpW,
+    parameter  int FracW = fp_pkg::FracW,
+    localparam int FLEN  = 1 + ExpW + FracW
+) (
+    input  wire             sqrt,
+    input  wire  [     2:0] rm,
+    input  wire  [FLEN-1:0] a,
+    output logic [FLEN-1:0] result,
+    output logic [     4:0] fflags
 );
 
-  localparam int Bias = 127;
-  localparam logic [8:0] RsqBase = 9'(3 * Bias - 1);
-  localparam logic [7:0] RecBase = 8'(2 * Bias - 1);
-  localparam logic [31:0] CanonNan = 32'h7FC0_0000;
-  localparam logic [2:0] RmRtz = 3'd1;
-  localparam logic [2:0] RmRdn = 3'd2;
-  localparam logic [2:0] RmRup = 3'd3;
-  localparam logic [4:0] FlagNv = 5'b10000;
-  localparam logic [4:0] FlagDz = 5'b01000;
-  localparam logic [4:0] FlagOf = 5'b00100;
-  localparam logic [4:0] FlagNx = 5'b00001;
+  localparam int Bias = (1 << (ExpW - 1)) - 1;
+  localparam int LzW = $clog2(FracW + 1);
+  localparam logic [ExpW:0] RsqBase = (ExpW + 1)'(3 * Bias - 1);
+  localparam logic [ExpW-1:0] RecBase = ExpW'(2 * Bias - 1);
+  localparam logic [FLEN-1:0] CanonNan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
+  localparam logic [FLEN-2:0] InfMag = {{ExpW{1'b1}}, {FracW{1'b0}}};
+  localparam logic [FLEN-2:0] MaxFiniteMag = {{(ExpW - 1) {1'b1}}, 1'b0, {FracW{1'b1}}};
 
-  logic        sign;
-  logic [ 7:0] exp_in;
-  logic [22:0] frac;
-  logic        is_nan;
-  logic        is_snan;
-  logic        is_inf;
-  logic        is_zero;
-  logic        is_sub;
-  logic [ 4:0] lz;
-  logic [ 6:0] norm_top;
-  logic        norm_exp_lsb;
-  logic [ 6:0] rsq_idx;
-  logic [ 6:0] rec_lut;
-  logic [ 6:0] rsq_lut;
-  logic [ 7:0] rsq_exp;
-  logic [ 7:0] rec_exp;
-  logic        rec_ovf;
-  logic        rec_den;
-  logic [22:0] rec_den_sig;
-  logic        rec_max;
+  logic             sign;
+  logic [ ExpW-1:0] exp_in;
+  logic [FracW-1:0] frac;
+  logic             is_nan;
+  logic             is_snan;
+  logic             is_inf;
+  logic             is_zero;
+  logic             is_sub;
+  logic [  LzW-1:0] lz;
+  logic [      6:0] norm_top;
+  logic             norm_exp_lsb;
+  logic [      6:0] rsq_idx;
+  logic [      6:0] rec_lut;
+  logic [      6:0] rsq_lut;
+  logic [ ExpW-1:0] rsq_exp;
+  logic [ ExpW-1:0] rec_exp;
+  logic             rec_ovf;
+  logic             rec_den;
+  logic [FracW-1:0] rec_den_sig;
+  logic             rec_max;
 
-  assign sign = a[31];
-  assign exp_in = a[30:23];
-  assign frac = a[22:0];
+  assign sign = a[FLEN-1];
+  assign exp_in = a[FLEN-2:FracW];
+  assign frac = a[FracW-1:0];
 
-  assign is_nan = (exp_in == 8'hFF) && (frac != '0);
-  assign is_snan = is_nan && !frac[22];
-  assign is_inf = (exp_in == 8'hFF) && (frac == '0);
+  assign is_nan = (exp_in == '1) && (frac != '0);
+  assign is_snan = is_nan && !frac[FracW-1];
+  assign is_inf = (exp_in == '1) && (frac == '0);
   assign is_zero = (exp_in == '0) && (frac == '0);
   assign is_sub = (exp_in == '0) && (frac != '0);
 
   always_comb begin
     lz = '0;
-    for (int i = 0; i < 23; i++) begin
-      if (frac[i]) lz = 5'(22 - i);
+    for (int i = 0; i < FracW; i++) begin
+      if (frac[i]) lz = LzW'(FracW - 1 - i);
     end
   end
 
-  assign norm_top = is_sub ? 7'({frac, 7'b0} >> (5'd22 - lz)) : frac[22:16];
+  assign norm_top = is_sub ? 7'({frac, 7'b0} >> (LzW'(FracW - 1) - lz)) : frac[FracW-1:FracW-7];
   assign norm_exp_lsb = is_sub ? lz[0] : exp_in[0];
   assign rsq_idx = {norm_exp_lsb, norm_top[6:1]};
 
-  assign rsq_exp = is_sub ? 8'((RsqBase + 9'(lz)) >> 1) : 8'((RsqBase - 9'(exp_in)) >> 1);
+  assign rsq_exp = is_sub ? ExpW'((RsqBase + (ExpW + 1)'(lz)) >> 1) :
+      ExpW'((RsqBase - (ExpW + 1)'(exp_in)) >> 1);
 
-  assign rec_exp = is_sub ? (RecBase + 8'(lz)) : (RecBase - exp_in);
-  assign rec_ovf = is_sub && (frac[22:21] == 2'b00);
+  assign rec_exp = is_sub ? (RecBase + ExpW'(lz)) : (RecBase - exp_in);
+  assign rec_ovf = is_sub && (frac[FracW-1:FracW-2] == 2'b00);
   assign rec_den = !is_sub && (exp_in >= RecBase);
-  assign rec_den_sig = (exp_in == 8'(2 * Bias)) ? {2'b01, rec_lut, 14'b0} : {1'b1, rec_lut, 15'b0};
+  assign rec_den_sig = (exp_in == ExpW'(2 * Bias)) ? {2'b01, rec_lut, {(FracW - 9) {1'b0}}} :
+      {1'b1, rec_lut, {(FracW - 8) {1'b0}}};
   assign rec_max = (rm == RmRtz) || ((rm == RmRdn) && !sign) || ((rm == RmRup) && sign);
 
   always_comb begin
@@ -345,24 +350,24 @@ module fp_rec7 (
       result = CanonNan;
       fflags = is_snan ? FlagNv : 5'b0;
     end else if (is_zero) begin
-      result = {sign, 8'hFF, 23'b0};
+      result = {sign, InfMag};
       fflags = FlagDz;
     end else if (sqrt) begin
       if (sign) begin
         result = CanonNan;
         fflags = FlagNv;
       end else if (!is_inf) begin
-        result = {1'b0, rsq_exp, rsq_lut, 16'b0};
+        result = {1'b0, rsq_exp, rsq_lut, {(FracW - 7) {1'b0}}};
       end
     end else if (is_inf) begin
-      result = {sign, 31'b0};
+      result = {sign, {(FLEN - 1) {1'b0}}};
     end else if (rec_ovf) begin
-      result = rec_max ? {sign, 8'hFE, 23'h7F_FFFF} : {sign, 8'hFF, 23'b0};
+      result = rec_max ? {sign, MaxFiniteMag} : {sign, InfMag};
       fflags = FlagOf | FlagNx;
     end else if (rec_den) begin
-      result = {sign, 8'h00, rec_den_sig};
+      result = {sign, {ExpW{1'b0}}, rec_den_sig};
     end else begin
-      result = {sign, rec_exp, rec_lut, 16'b0};
+      result = {sign, rec_exp, rec_lut, {(FracW - 7) {1'b0}}};
     end
   end
 
