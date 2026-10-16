@@ -107,4 +107,53 @@ _start:
         vnclipu.wi v10, v26, 0, v0.t
         csrr    s10, vxsat
 
+        csrwi   vxsat, 0
+        csrwi   vxrm, 0
+        vaaddu.vv v11, v3, v4
+        vaadd.vv v12, v3, v4
+        vasubu.vv v13, v1, v4
+        vasub.vx v14, v3, t2
+        csrwi   vxrm, 1
+        vaaddu.vx v15, v3, t1
+        vaadd.vv v16, v2, v2
+        vasubu.vv v17, v4, v1
+        vasub.vv v18, v2, v4
+        csrwi   vxrm, 2
+        vaaddu.vv v19, v2, v3
+        vaadd.vx v20, v3, t2
+        vasubu.vx v21, v1, t1
+        vasub.vv v22, v4, v2
+        csrwi   vxrm, 3
+        vaaddu.vv v23, v4, v4
+        vaadd.vv v24, v3, v1
+        vasubu.vv v25, v1, v3
+        vasub.vx v26, v2, t2
+        vaadd.vv v27, v3, v4, v0.t
+        vasubu.vx v28, v4, t2, v0.t
+
+        li      a0, 8
+        vsetvli t0, a0, e16, m1, ta, ma
+        csrwi   vxrm, 1
+        vaaddu.vv v29, v3, v4
+        vaadd.vv v30, v3, v3
+        vasubu.vx v31, v1, t1
+        csrwi   vxrm, 3
+        vasub.vv v11, v2, v4
+
+        li      a0, 4
+        vsetvli t0, a0, e32, m1, ta, ma
+        csrwi   vxrm, 0
+        vaaddu.vv v12, v3, v4
+        vaadd.vx v13, v3, t3
+        csrwi   vxrm, 2
+        vasubu.vv v14, v1, v3
+        vasub.vx v15, v3, t3
+        csrr    s11, vxsat
+
+        li      a0, 32
+        vsetvli t0, a0, e8, m2, ta, ma
+        csrwi   vxrm, 1
+        vaadd.vv v16, v2, v4
+        vasubu.vv v18, v4, v2
+
 Ldone:  beq     x0, x0, Ldone
