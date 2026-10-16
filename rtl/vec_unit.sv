@@ -6,13 +6,14 @@ module vec_unit
   import csr_pkg::VxsatAddr;
   import csr_pkg::VcsrAddr;
 #(
-    parameter  int XLEN     = arch_pkg::XLEN,
-    parameter  int AWIDTH   = arch_pkg::RegAddrW,
-    parameter  int VLEN     = arch_pkg::VLEN,
-    parameter  int ELEN     = arch_pkg::ELEN,
-    localparam int MaxElems = VLEN / 8,
-    localparam int VlW      = $clog2(VLEN + 1),
-    localparam int NRegs    = 1 << AWIDTH
+    parameter  int XLEN      = arch_pkg::XLEN,
+    parameter  int AWIDTH    = arch_pkg::RegAddrW,
+    parameter  int VLEN      = arch_pkg::VLEN,
+    parameter  int ELEN      = arch_pkg::ELEN,
+    parameter  int MUL_LANES = arch_pkg::MulLanes,
+    localparam int MaxElems  = VLEN / 8,
+    localparam int VlW       = $clog2(VLEN + 1),
+    localparam int NRegs     = 1 << AWIDTH
 ) (
 `ifdef RISCV_FORMAL
     output logic [      7:0] dbg_vec_tag,
@@ -172,6 +173,7 @@ module vec_unit
   vec_src_e                 src_ex;
   vec_eew_e                 eew_ex;
   logic      [         2:0] vsew_ex;
+  logic      [         1:0] vxrm_ex;
   logic                     vm_ex;
   logic      [         4:0] simm_ex;
   logic      [    XLEN-1:0] xdata_ex;
@@ -194,6 +196,9 @@ module vec_unit
 
   logic                     valid_x2;
   vec_cls_e                 cls_x2;
+  vec_op_e                  op_x2;
+  logic      [         2:0] vsew_x2;
+  logic      [         1:0] vxrm_x2;
   logic      [    OffW-1:0] d_off_x2;
   logic      [  AWIDTH-1:0] waddr_x2;
   logic      [    VLEN-1:0] wstrb_x2;
@@ -207,6 +212,7 @@ module vec_unit
   logic      [    VLEN-1:0] mixed_result_wb;
   logic      [    VLEN-1:0] red_result_wb;
   logic      [    VLEN-1:0] mask_result_wb;
+  logic      [    VLEN-1:0] lane_result_wb;
   logic      [    OffW-1:0] d_off_wb;
   logic      [  AWIDTH-1:0] waddr_wb;
   logic      [    VLEN-1:0] wstrb_wb;
@@ -402,8 +408,9 @@ module vec_unit
   logic       vxsat_q;
   logic       sat_set;
 
-  // Saturating lane pending
-  assign sat_set = 1'b0;
+  logic       sat_wb;
+
+  assign sat_set = sat_wb;
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -432,9 +439,13 @@ module vec_unit
   logic op_ready;
   logic accept_now;
 
-  // Multiply lane pending
-  assign op_ready = (dec_cls != VEC_CLS_NONE) && (dec_cls != VEC_CLS_MUL) && group_legal &&
-      (dec_mem || (width_legal && scalar_legal));
+  // Four multiply ops
+  logic mul_built;
+  assign mul_built = (dec_op == VEC_MUL) || (dec_op == VEC_MULH) || (dec_op == VEC_MULHU) ||
+      (dec_op == VEC_MULHSU);
+
+  assign op_ready = (dec_cls != VEC_CLS_NONE) && ((dec_cls != VEC_CLS_MUL) || mul_built) &&
+      group_legal && (dec_mem || (width_legal && scalar_legal));
   assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 
@@ -522,7 +533,8 @@ module vec_unit
   logic slot_free;
   logic seq_hold;
 
-  assign seq_deep = (seq_cls == VEC_CLS_RED);
+  assign seq_deep = (seq_cls == VEC_CLS_RED) || (seq_cls == VEC_CLS_MUL) ||
+      (seq_cls == VEC_CLS_SAT);
   assign seq_hold = seq_busy && !slot_free;
 
   vec_write_slots #(
@@ -537,9 +549,10 @@ module vec_unit
   );
 
   vec_sequencer #(
-      .AWIDTH(AWIDTH),
-      .VLEN  (VLEN),
-      .ELEN  (ELEN)
+      .AWIDTH   (AWIDTH),
+      .VLEN     (VLEN),
+      .ELEN     (ELEN),
+      .MUL_LANES(MUL_LANES)
   ) u_sequencer (
       .clk(clk),
       .rst_n(rst_n),
@@ -674,6 +687,7 @@ module vec_unit
       src_ex         <= seq_src;
       eew_ex         <= seq_eew;
       vsew_ex        <= seq_vsew;
+      vxrm_ex        <= seq_vxrm;
       vm_ex          <= seq_vm;
       simm_ex        <= seq_simm;
       xdata_ex       <= seq_xdata;
@@ -768,9 +782,105 @@ module vec_unit
       .xresult(mask_xresult)
   );
 
+  // Multiply operand select
+  localparam int Widths = $clog2(ELEN / 8) + 1;
+  localparam int WSelW  = $clog2(Widths);
+
+  logic                    narrow_ex;
+  logic    [     ELEN-1:0] imm_ex;
+  vec_op_e                 mul_op_x2;
+  logic    [     ELEN-1:0] lane_res  [MUL_LANES];
+  logic    [MUL_LANES-1:0] lane_sat;
+  logic    [MUL_LANES-1:0] active_x2;
+
+  assign narrow_ex = (eew_ex == VEC_EEW_NARROW);
+  assign imm_ex = ((op_ex == VEC_SSRL) || (op_ex == VEC_SSRA) || narrow_ex) ?
+      ELEN'(simm_ex) : {{(ELEN - 5) {simm_ex[4]}}, simm_ex};
+  assign mul_op_x2 = vec_pkg::vec_op_e'((op_x2 == VEC_SMUL) ? VEC_MULH : op_x2);
+
+  for (genvar l = 0; l < MUL_LANES; l++) begin : g_lane
+    logic [  ELEN-1:0] a_w     [Widths];
+    logic [  ELEN-1:0] b_w     [Widths];
+    logic [  ELEN-1:0] a_ex;
+    logic [  ELEN-1:0] b_ex;
+    logic [  ELEN-1:0] a_x2;
+    logic [  ELEN-1:0] b_x2;
+    logic [  ELEN-1:0] mul_res;
+    logic [  ELEN-1:0] sat_res;
+    logic [2*ELEN-1:0] product;
+    logic              sat;
+
+    for (genvar w = 0; w < Widths; w++) begin : g_w
+      localparam int EW = 8 << w;
+      localparam int AW = ((2 * EW <= ELEN) && ((l + 1) * 2 * EW <= VLEN)) ? 2 * EW : EW;
+      assign a_w[w] = narrow_ex ? ELEN'(vs2_data[l*AW+:AW]) : ELEN'(vs2_data[l*EW+:EW]);
+      assign b_w[w] = ELEN'(vs1_data[l*EW+:EW]);
+    end
+
+    assign a_ex = a_w[vsew_ex[WSelW-1:0]];
+    always_comb begin
+      case (src_ex)
+        VEC_SRC_VX: b_ex = ELEN'(xdata_ex);
+        VEC_SRC_VI: b_ex = imm_ex;
+        default:    b_ex = b_w[vsew_ex[WSelW-1:0]];
+      endcase
+    end
+
+    always_ff @(posedge clk) begin
+      if (core_en) begin
+        a_x2 <= a_ex;
+        b_x2 <= b_ex;
+      end
+    end
+
+    vec_mul_lane #(
+        .ELEN(ELEN)
+    ) u_mul (
+        .op(mul_op_x2),
+        .vsew(vsew_x2),
+        .a(a_x2),
+        .b(b_x2),
+        .c('0),
+        .result(mul_res),
+        .product(product)
+    );
+
+    vec_sat_lane #(
+        .ELEN(ELEN)
+    ) u_sat (
+        .op(op_x2),
+        .vsew(vsew_x2),
+        .vxrm(vxrm_x2),
+        .a(a_x2),
+        .b(b_x2),
+        .product(product),
+        .result(sat_res),
+        .sat(sat)
+    );
+
+    assign lane_res[l] = (cls_x2 == VEC_CLS_SAT) ? sat_res : mul_res;
+    assign lane_sat[l] = sat && active_x2[l];
+  end
+
+  // Pack lane results
+  logic [VLEN-1:0] lane_pack[Widths];
+  logic [VLEN-1:0] lane_result;
+
+  for (genvar w = 0; w < Widths; w++) begin : g_pack
+    localparam int EW = 8 << w;
+    for (genvar l = 0; l < MUL_LANES; l++) begin : g_l
+      assign lane_pack[w][l*EW+:EW] = lane_res[l][EW-1:0];
+    end
+    if (MUL_LANES * EW < VLEN) begin : g_top
+      assign lane_pack[w][VLEN-1:MUL_LANES*EW] = '0;
+    end
+  end
+
+  assign lane_result = lane_pack[vsew_x2[WSelW-1:0]];
+
   // Deep units
   logic deep_ex;
-  assign deep_ex = (cls_ex == VEC_CLS_RED);
+  assign deep_ex = (cls_ex == VEC_CLS_RED) || (cls_ex == VEC_CLS_MUL) || (cls_ex == VEC_CLS_SAT);
 
   // EX/X2
   always_ff @(posedge clk) begin
@@ -785,6 +895,10 @@ module vec_unit
       reg_done_x2 <= reg_done_ex && deep_ex;
       last_x2     <= last_ex && deep_ex;
       cls_x2      <= cls_ex;
+      op_x2       <= op_ex;
+      vsew_x2     <= vsew_ex;
+      vxrm_x2     <= vxrm_ex;
+      active_x2   <= elem_active_ex[MUL_LANES-1:0];
       d_off_x2    <= d_off_ex;
       waddr_x2    <= waddr_ex;
       wstrb_x2    <= wstrb_ex;
@@ -798,7 +912,9 @@ module vec_unit
       wen_wb      <= 1'b0;
       reg_done_wb <= 1'b0;
       last_wb     <= 1'b0;
+      sat_wb      <= 1'b0;
     end else if (core_en) begin
+      sat_wb <= valid_x2 && (cls_x2 == VEC_CLS_SAT) && (lane_sat != '0);
       if (valid_x2) begin  // Slot row keeps one
         valid_wb    <= 1'b1;
         wen_wb      <= wen_x2;
@@ -823,6 +939,7 @@ module vec_unit
       mixed_result_wb <= mixed_result;
       red_result_wb   <= red_result;
       mask_result_wb  <= mask_result;
+      lane_result_wb  <= lane_result;
     end
   end
 
@@ -831,6 +948,7 @@ module vec_unit
     case (cls_wb)
       VEC_CLS_MIXED:                                         raw_result = mixed_result_wb;
       VEC_CLS_RED:                                           raw_result = red_result_wb;
+      VEC_CLS_MUL, VEC_CLS_SAT:                              raw_result = lane_result_wb;
       VEC_CLS_SX:                                            raw_result = VLEN'(xdata_wb);
       VEC_CLS_CMP, VEC_CLS_MLOG, VEC_CLS_MSET, VEC_CLS_IOTA: raw_result = mask_result_wb;
       default:                                               raw_result = alu_result_wb;

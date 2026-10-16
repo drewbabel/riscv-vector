@@ -151,7 +151,8 @@ package vec_pkg;
     VEC_CLS_MLOG,
     VEC_CLS_MSET,
     VEC_CLS_IOTA,
-    VEC_CLS_XM
+    VEC_CLS_XM,
+    VEC_CLS_SAT
   } vec_cls_e;
 
   typedef struct packed {
@@ -195,6 +196,8 @@ package vec_pkg;
       VEC_MULHU, VEC_MUL, VEC_MULHSU, VEC_MULH, VEC_MADD, VEC_NMSUB, VEC_MACC, VEC_NMSAC,
       VEC_WMULU, VEC_WMULSU, VEC_WMUL, VEC_WMACCU, VEC_WMACC, VEC_WMACCUS, VEC_WMACCSU:
       vec_class = VEC_CLS_MUL;
+      VEC_SADDU, VEC_SADD, VEC_SSUBU, VEC_SSUB, VEC_SMUL, VEC_SSRL, VEC_SSRA, VEC_NCLIPU, VEC_NCLIP:
+      vec_class = VEC_CLS_SAT;
       VEC_REDSUM, VEC_REDAND, VEC_REDOR, VEC_REDXOR, VEC_REDMINU, VEC_REDMIN, VEC_REDMAXU,
       VEC_REDMAX, VEC_WREDSUMU, VEC_WREDSUM:
       vec_class = VEC_CLS_RED;
@@ -206,9 +209,9 @@ package vec_pkg;
       VEC_IOTA, VEC_ID: vec_class = VEC_CLS_IOTA;
       VEC_CPOP, VEC_FIRST: vec_class = VEC_CLS_XM;
       VEC_LOAD, VEC_STORE: vec_class = VEC_CLS_MEM;
-      VEC_MV_X_S:          vec_class = VEC_CLS_XS;
-      VEC_MV_S_X:          vec_class = VEC_CLS_SX;
-      default:             vec_class = VEC_CLS_NONE;
+      VEC_MV_X_S: vec_class = VEC_CLS_XS;
+      VEC_MV_S_X: vec_class = VEC_CLS_SX;
+      default: vec_class = VEC_CLS_NONE;
     endcase
   endfunction
 
@@ -222,10 +225,12 @@ package vec_pkg;
     vec_geom.mask_dest = 1'b0;
     vec_geom.mask_whole = 1'b0;
     vec_geom.mask_src = 1'b0;
-    case (vec_class(op))
+    case (vec_class(
+        op
+    ))
       VEC_CLS_MIXED: begin
         case (eew)
-          VEC_EEW_WIDEN: vec_geom.d = VEC_REL_WIDE;
+          VEC_EEW_WIDEN:  vec_geom.d = VEC_REL_WIDE;
           VEC_EEW_WIDEN_W: begin
             vec_geom.d  = VEC_REL_WIDE;
             vec_geom.s2 = VEC_REL_WIDE;
@@ -244,6 +249,10 @@ package vec_pkg;
           vec_geom.widen = 1'b1;
         end
       end
+      VEC_CLS_SAT: begin
+        vec_geom.mul_rate = 1'b1;
+        if (eew == VEC_EEW_NARROW) vec_geom.s2 = VEC_REL_WIDE;
+      end
       VEC_CLS_RED: begin
         vec_geom.single_write = 1'b1;
         if (eew == VEC_EEW_WIDEN) begin
@@ -252,7 +261,7 @@ package vec_pkg;
         end
       end
       VEC_CLS_XS, VEC_CLS_SX: vec_geom.single_write = 1'b1;
-      VEC_CLS_CMP: vec_geom.mask_dest = 1'b1;
+      VEC_CLS_CMP:            vec_geom.mask_dest = 1'b1;
       VEC_CLS_MLOG, VEC_CLS_MSET: begin
         vec_geom.mask_dest  = 1'b1;
         vec_geom.mask_whole = 1'b1;
@@ -263,8 +272,8 @@ package vec_pkg;
         vec_geom.mask_whole   = 1'b1;
         vec_geom.mask_src     = 1'b1;
       end
-      VEC_CLS_IOTA: vec_geom.mask_src = 1'b1;
-      default: ;
+      VEC_CLS_IOTA:           vec_geom.mask_src = 1'b1;
+      default:                ;
     endcase
   endfunction
 
