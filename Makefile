@@ -1,4 +1,5 @@
 #   make MOD=pc                  compile rtl/ + that tb, run (FAIL exits nonzero)
+#   make MOD=pc MAX_ERRORS=3     stop after 3 mismatches
 #   make vsim MOD=pc             fast 2-state Verilator run (perf sweeps + regression; not X-debug)
 #   make wave MOD=alu            same, then open the waveform in surfer (opens even on FAIL)
 #   make view MOD=alu            open testbench waveform in surfer (no rerun) (error if .vcd missing)
@@ -60,7 +61,7 @@ run:
 	@test -n "$(MOD)" || { echo "usage: make MOD=<module>  (e.g. MOD=alu)"; exit 1; }
 	@mkdir -p build
 	iverilog -g2012 -DSIM_BACKDOOR -s $(MOD)_tb -o $(SIM) $(RTL) $(TB)
-	vvp $(SIM)
+	vvp $(SIM) $(if $(MAX_ERRORS),+max_errors=$(MAX_ERRORS))
 
 vsim:
 	@test -n "$(MOD)" || { echo "usage: make vsim MOD=<module>  (fast 2-state Verilator run)"; exit 1; }
@@ -75,13 +76,13 @@ prog:
 	$(RVGCC) $(RVFLAGS) -o build/$(PROG).elf tests/$(PROG).s
 	$(RVCOPY) -O verilog --verilog-data-width=4 build/$(PROG).elf tests/$(PROG).hex
 	iverilog -g2012 -s prog_tb -o $(SIM) $(RTL) tb/prog_tb.sv
-	vvp $(SIM) +HEX=tests/$(PROG).hex
+	vvp $(SIM) +HEX=tests/$(PROG).hex $(if $(MAX_ERRORS),+max_errors=$(MAX_ERRORS))
 
 wave:
 	@test -n "$(MOD)" || { echo "usage: make wave MOD=<module>"; exit 1; }
 	@mkdir -p build
 	iverilog -g2012 -DSIM_BACKDOOR -s $(MOD)_tb -o $(SIM) $(RTL) $(TB)
-	-vvp $(SIM)
+	-vvp $(SIM) $(if $(MAX_ERRORS),+max_errors=$(MAX_ERRORS))
 	@$(if $(WAVE_STATE),$(MAKE) -s $(WAVE_STATE),true)
 	surfer $(VCD) $$(test -n "$(WAVE_STATE)" && echo "-s $(WAVE_STATE)") &
 

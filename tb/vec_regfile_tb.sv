@@ -9,6 +9,7 @@ module vec_regfile_tb ();
 
   int checks = 0;
   int errors = 0;
+  int max_errors = 0;
 
   logic clk = 1'b0;
   logic core_en;
@@ -106,6 +107,7 @@ module vec_regfile_tb ();
     if (got !== shadow[addr]) begin
       errors++;
       $display("FAIL %s addr=%0d got=%h exp=%h at %0t", port, addr, got, shadow[addr], $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -134,6 +136,7 @@ module vec_regfile_tb ();
       errors++;
       $display("FAIL field addr=%0d lo=%0d got=%b exp=%b at %0t", addr, lo, rdata1[lo+:4], exp,
                $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -152,6 +155,7 @@ module vec_regfile_tb ();
     if (rdata1 !== prev) begin
       errors++;
       $display("FAIL read first addr=%0d got=%h exp=%h at %0t", addr, rdata1, prev, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     @(posedge clk);
     model_write(addr, data, '1);
@@ -178,6 +182,8 @@ module vec_regfile_tb ();
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("vec_regfile_tb.vcd");

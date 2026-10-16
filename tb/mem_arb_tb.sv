@@ -52,6 +52,7 @@ module mem_arb_tb;
 
   int                  checks = 0;
   int                  errors = 0;
+  int                  max_errors = 0;
   int                  rd_lat = RdLat;
   int                  rdy_pct = 100;
   int                  wdf_pct = 100;
@@ -141,6 +142,7 @@ module mem_arb_tb;
     checks++;
     errors++;
     $error("t=%0t  %s", $time, what);
+    if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
   endtask  // Automatic
 
   task automatic check(input string what, input logic [LineBits-1:0] got,
@@ -149,6 +151,7 @@ module mem_arb_tb;
     if (got !== exp) begin
       $error("t=%0t  %s: read back %h, memory holds %h", $time, what, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -157,6 +160,7 @@ module mem_arb_tb;
     if (got !== exp) begin
       $error("t=%0t  %s: counted %0d, expected %0d", $time, what, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -345,6 +349,7 @@ module mem_arb_tb;
     if (got !== exp) begin
       $error("t=%0t  %s: controller saw %h, expected %h", $time, what, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -370,6 +375,8 @@ module mem_arb_tb;
   endtask  // Automatic
 
   logic [LineBits-1:0] got;
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("mem_arb_tb.vcd");

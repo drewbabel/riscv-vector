@@ -4,6 +4,7 @@ module gpio_tb;
 
   int checks = 0;
   int errors = 0;
+  int max_errors = 0;
 
   localparam int Xlen  = arch_pkg::XLEN;
   localparam int Width = 16;
@@ -75,10 +76,13 @@ module gpio_tb;
     if (got !== exp) begin
       errors++;
       $error("%s: got %h exp %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
   logic [Xlen-1:0] got;
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("gpio_tb.vcd");
