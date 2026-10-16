@@ -415,9 +415,9 @@ module vec_unit_tb
       issue(enc(6'b001100, 1'b1, 5'd4, 5'd3, 3'b000, 5'd5));
       drain();
       check_regs("gather");
-      issue(enc(6'b101101, 1'b1, 5'd4, 5'd3, 3'b010, 5'd5));
+      issue(enc(6'b111000, 1'b1, 5'd4, 5'd3, 3'b010, 5'd6));
       drain();
-      check_regs("multiply add");
+      check_regs("widening multiply");
     end
   endtask
 
@@ -1495,8 +1495,8 @@ module vec_unit_tb
   // Lane element model
   function automatic logic [ELEN:0] ref_lane(input vec_op_e o, input int w,
                                              input logic [ELEN-1:0] a, input logic [ELEN-1:0] b,
-                                             input logic [1:0] mode);
-    longint m, ua, ub, sa, sb, ua2, sa2, v, smax, smin, umax;
+                                             input logic [ELEN-1:0] c, input logic [1:0] mode);
+    longint m, ua, ub, uc, sa, sb, ua2, sa2, v, smax, smin, umax;
     longint unsigned uu;
     int sh, sh2;
     logic sat;
@@ -1504,6 +1504,7 @@ module vec_unit_tb
       m    = (64'sd1 <<< w) - 1;
       ua   = longint'(a) & m;
       ub   = longint'(b) & m;
+      uc   = longint'(c) & m;
       sa   = ua[w-1] ? (ua - (64'sd1 <<< w)) : ua;
       sb   = ub[w-1] ? (ub - (64'sd1 <<< w)) : ub;
       ua2  = longint'(a) & ((64'sd1 <<< (2 * w)) - 1);
@@ -1522,6 +1523,10 @@ module vec_unit_tb
           v  = longint'(uu >> w);
         end
         VEC_MULHSU: v = (sa * ub) >>> w;
+        VEC_MACC: v = (ua * ub) + uc;
+        VEC_NMSAC: v = uc - (ua * ub);
+        VEC_MADD: v = (uc * ub) + ua;
+        VEC_NMSUB: v = ua - (uc * ub);
         VEC_SADDU: begin
           v = ua + ub;
           if (v > umax) begin
@@ -1572,6 +1577,10 @@ module vec_unit_tb
       VEC_MUL:    return 6'b100101;
       VEC_MULHSU: return 6'b100110;
       VEC_MULH:   return 6'b100111;
+      VEC_MADD:   return 6'b101001;
+      VEC_NMSUB:  return 6'b101011;
+      VEC_MACC:   return 6'b101101;
+      VEC_NMSAC:  return 6'b101111;
       VEC_SADDU:  return 6'b100000;
       VEC_SADD:   return 6'b100001;
       VEC_SSUBU:  return 6'b100010;
@@ -1603,7 +1612,7 @@ module vec_unit_tb
     int w;
     int regs;
     begin
-      is_mul = (o == VEC_MUL) || (o == VEC_MULH) || (o == VEC_MULHU) || (o == VEC_MULHSU);
+      is_mul = (vec_class(o) == VEC_CLS_MUL);
       narrow = (o == VEC_NCLIPU) || (o == VEC_NCLIP);
       uimm = narrow || (o == VEC_SSRL) || (o == VEC_SSRA);
       w = 8 << sew;
@@ -1633,7 +1642,7 @@ module vec_unit_tb
             1: b = xd;
             default: b = uimm ? ELEN'(im) : ELEN'($signed(im));
           endcase
-          {sat, r} = ref_lane(o, w, a, b, mode);
+          {sat, r} = ref_lane(o, w, a, b, grp_get(d, w, i), mode);
           grp_set(d, w, i, r);
           want_sat = want_sat || sat;
         end
@@ -1652,9 +1661,18 @@ module vec_unit_tb
   endfunction
 
   task automatic check_multiplies();
-    vec_op_e ops[4] = '{VEC_MUL, VEC_MULH, VEC_MULHU, VEC_MULHSU};
+    vec_op_e ops[8] = '{
+        VEC_MUL,
+        VEC_MULH,
+        VEC_MULHU,
+        VEC_MULHSU,
+        VEC_MACC,
+        VEC_NMSAC,
+        VEC_MADD,
+        VEC_NMSUB
+    };
     seed_all();
-    for (int k = 0; k < 4; k++) begin
+    for (int k = 0; k < 8; k++) begin
       for (int s = 0; s < 3; s++) begin
         run_lane(ops[k], 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'(VLEN / (8 << s)),
                  2'd0);
@@ -1718,7 +1736,11 @@ module vec_unit_tb
 
   // Random lane traffic
   task automatic soak_lanes(input int n);
-    vec_op_e ops[13] = '{
+    vec_op_e ops[17] = '{
+        VEC_MACC,
+        VEC_NMSAC,
+        VEC_MADD,
+        VEC_NMSUB,
         VEC_MUL,
         VEC_MULH,
         VEC_MULHU,
@@ -1736,16 +1758,17 @@ module vec_unit_tb
     vec_op_e o;
     int form;
     int smax;
+    logic no_imm;
     logic [2:0] sew;
     logic [2:0] lmul;
     begin
       seed_all();
       for (int i = 0; i < n; i++) begin
-        o = ops[$urandom%13];
+        o = ops[$urandom%17];
         form = $urandom % 3;
-        if (form == 2 && ((o == VEC_SSUBU) || (o == VEC_SSUB) || (o == VEC_SMUL) ||
-            (o == VEC_MUL) || (o == VEC_MULH) || (o == VEC_MULHU) || (o == VEC_MULHSU)))
-          form = 1;
+        no_imm = (o == VEC_SSUBU) || (o == VEC_SSUB) || (o == VEC_SMUL) ||
+            (vec_class(o) == VEC_CLS_MUL);
+        if ((form == 2) && no_imm) form = 1;
         smax = ((o == VEC_NCLIPU) || (o == VEC_NCLIP)) ? 2 : 3;
         sew  = 3'($urandom % smax);
         lmul = 3'($urandom % 2);
@@ -1767,7 +1790,7 @@ module vec_unit_tb
       vsew = 3'd1;
       #1 note("narrow clip at e16", 32'(is_vector), 32'd1);
       instr = enc(6'b101101, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
-      #1 note("multiply add", 32'(is_vector), 32'd0);
+      #1 note("multiply add", 32'(is_vector), 32'd1);
       instr = enc(6'b111000, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
       #1 note("widening multiply", 32'(is_vector), 32'd0);
       instr = enc(6'b001000, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
