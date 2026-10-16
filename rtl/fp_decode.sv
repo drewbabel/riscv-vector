@@ -26,28 +26,9 @@ module fp_decode
     output logic     [ 2:0] funct3
 );
 
-  localparam logic [2:0] RmRmm = 3'b100;
-  localparam logic [2:0] RmDyn = 3'b111;
-
-  localparam logic [4:0] Rs2Zero = 5'b00000;
-  localparam logic [4:0] Rs2W = 5'b00000;
-  localparam logic [4:0] Rs2Wu = 5'b00001;
-
-  localparam logic [2:0] Funct3Fsgnj = 3'b000;
-  localparam logic [2:0] Funct3Fsgnjn = 3'b001;
-  localparam logic [2:0] Funct3Fsgnjx = 3'b010;
-  localparam logic [2:0] Funct3Fmin = 3'b000;
-  localparam logic [2:0] Funct3Fmax = 3'b001;
-  localparam logic [2:0] Funct3Fle = 3'b000;
-  localparam logic [2:0] Funct3Flt = 3'b001;
-  localparam logic [2:0] Funct3Feq = 3'b010;
-  localparam logic [2:0] Funct3Fmv = 3'b000;
-  localparam logic [2:0] Funct3Fclass = 3'b001;
-
   logic [6:0] opcode;
   logic [1:0] fmt;
   logic [4:0] rs2;
-  logic [9:0] unused_regs;
 
   logic [2:0] rm_eff;
   logic       rm_ok;
@@ -58,7 +39,6 @@ module fp_decode
   assign fmt = instr[26:25];
   assign rs2 = instr[24:20];
   assign funct3 = instr[14:12];
-  assign unused_regs = {instr[19:15], instr[11:7]};
 
   assign rm_eff = (funct3 == RmDyn) ? frm : funct3;
   assign rm_ok = (rm_eff <= RmRmm);
@@ -200,25 +180,25 @@ module fp_decode
             end
 
             Funct5FcvtWS: begin
-              if (((rs2 == Rs2W) || (rs2 == Rs2Wu)) && rm_ok) begin
+              if (((rs2 == Rs2CvtW) || (rs2 == Rs2CvtWu)) && rm_ok) begin
                 legal       = 1'b1;
                 unit        = FP_CVT;
                 frs1_read   = 1'b1;
                 xrd_write   = 1'b1;
                 rm          = rm_eff;
                 to_int      = 1'b1;
-                is_unsigned = (rs2 == Rs2Wu);
+                is_unsigned = (rs2 == Rs2CvtWu);
               end
             end
 
             Funct5FcvtSW: begin
-              if (((rs2 == Rs2W) || (rs2 == Rs2Wu)) && rm_ok) begin
+              if (((rs2 == Rs2CvtW) || (rs2 == Rs2CvtWu)) && rm_ok) begin
                 legal       = 1'b1;
                 unit        = FP_CVT;
                 xrs1_read   = 1'b1;
                 frd_write   = 1'b1;
                 rm          = rm_eff;
-                is_unsigned = (rs2 == Rs2Wu);
+                is_unsigned = (rs2 == Rs2CvtWu);
               end
             end
 
