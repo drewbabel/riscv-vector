@@ -22,6 +22,7 @@ PKGS = [
     "alu_pkg.sv",
     "csr_pkg.sv",
     "opcode_pkg.sv",
+    "fp_pkg.sv",
     "muldiv_pkg.sv",
     "bp_pkg.sv",
     "cache_pkg.sv",

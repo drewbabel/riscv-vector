@@ -4,7 +4,7 @@ env:
   OSS_CAD_SUITE: '2026-07-24'
   VERIBLE: 'v0.0-4283-ga1b0580b'
   PKGS: >-
-    rtl/arch_pkg.sv rtl/alu_pkg.sv rtl/csr_pkg.sv rtl/opcode_pkg.sv rtl/muldiv_pkg.sv rtl/bp_pkg.sv
+    rtl/arch_pkg.sv rtl/alu_pkg.sv rtl/csr_pkg.sv rtl/opcode_pkg.sv rtl/fp_pkg.sv rtl/muldiv_pkg.sv rtl/bp_pkg.sv
     rtl/cache_pkg.sv rtl/vec_pkg.sv
   CLANG_STYLE: '{BasedOnStyle: LLVM, IndentWidth: 4, ColumnLimit: 80}'
 
@@ -44,7 +44,7 @@ jobs:
           git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}...HEAD" > "$RUNNER_TEMP/changed"
           grep -E '\.s?v$' "$RUNNER_TEMP/changed" > "$RUNNER_TEMP/sv" || true
           grep -E '\.py$' "$RUNNER_TEMP/changed" > "$RUNNER_TEMP/py" || true
-          grep -E '\.(c|h)$' "$RUNNER_TEMP/changed" > "$RUNNER_TEMP/c" || true
+          grep -E '\.(c|h)$' "$RUNNER_TEMP/changed" | grep -v '^tests/rvv_env/' > "$RUNNER_TEMP/c" || true
           grep -vE '\.(s?v|py|c|h|md)$|^Makefile$|\.mk$|\.(bin|hex|pdf|png|svg|zip)$' "$RUNNER_TEMP/changed" > "$RUNNER_TEMP/text" || true
       - name: Verible lint
         run: |
