@@ -63,7 +63,6 @@ module fp_add (
   logic        to_max;
   logic        uf;
 
-  // Operand fields
   assign sa = a[31];
   assign sb = b[31] ^ sub;
   assign ea = a[30:23];
@@ -78,7 +77,6 @@ module fp_add (
   assign inf_clash = a_inf && b_inf && (sa != sb);
   assign nv = (a_nan && !fa[22]) || (b_nan && !fb[22]) || inf_clash;
 
-  // Larger magnitude first
   assign swap = b[30:0] > a[30:0];
   assign sx = swap ? sb : sa;
   assign eff_sub = sa != sb;
@@ -89,12 +87,10 @@ module fp_add (
   assign d = ex - ey;
   assign sh = (d > 8'd27) ? 5'd27 : d[4:0];
 
-  // Align with sticky
   assign y_wide = {my, 30'd0} >> sh;
   assign y_al = {y_wide[53:28], y_wide[27] | (y_wide[26:0] != 27'd0)};
   assign sum = eff_sub ? {1'b0, mx, 3'd0} - {1'b0, y_al} : {1'b0, mx, 3'd0} + {1'b0, y_al};
 
-  // Subnormal shift cap
   assign limit = 27'h400_0000 >> (ex - 8'd1);
   assign lz_in = sum[26:0] | limit;
 

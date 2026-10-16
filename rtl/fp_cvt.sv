@@ -22,7 +22,6 @@ module fp_cvt (
   logic w16;
   assign w16 = (iw == 3'd1);
 
-  // Rounding increment
   function automatic logic round_up(input logic [2:0] mode, input logic neg, input logic lsb,
                                     input logic guard, input logic sticky);
     case (mode)
@@ -35,7 +34,6 @@ module fp_cvt (
     endcase
   endfunction
 
-  // Float to integer
   logic        f_sign;
   logic [ 7:0] f_exp;
   logic [22:0] f_frac;
@@ -62,12 +60,9 @@ module fp_cvt (
   assign f_sig = {f_exp != 8'd0, f_frac};
   assign f_nan = (f_exp == 8'hFF) && (f_frac != '0);
 
-  // Overflows 32 bits
   assign f_big = f_exp >= 8'd159;
-  // Below one half
   assign f_tiny = f_exp < 8'd126;
 
-  // Fixed point value
   assign f_fix = f_tiny ? '0 : (56'(f_sig) << 6'(f_exp - 8'd126));
   assign f_int = f_fix[55:24];
   assign f_guard = f_fix[23];
@@ -76,21 +71,18 @@ module fp_cvt (
   assign f_inc = round_up(rm, f_sign, f_int[0], f_guard, f_sticky);
   assign f_mag = {1'b0, f_int} + 33'(f_inc);
 
-  // Destination bounds
   assign f_pos_max = is_unsigned ? (w16 ? 32'h0000_FFFF : 32'hFFFF_FFFF) :
       (w16 ? 32'h0000_7FFF : 32'h7FFF_FFFF);
   assign f_neg_max = is_unsigned ? '0 : (w16 ? 32'h0000_8000 : 32'h8000_0000);
 
   assign f_nv = f_nan || f_big || (f_mag > {1'b0, f_sign ? f_neg_max : f_pos_max});
 
-  // Clip or negate
   assign f_full = f_nv ? ((f_nan || !f_sign) ? f_pos_max : f_neg_max) :
       (f_sign ? -f_mag[31:0] : f_mag[31:0]);
   assign f_res = w16 ? {16'd0, f_full[15:0]} : f_full;
 
   assign f_flags = f_nv ? FlagNv : ((f_guard || f_sticky) ? FlagNx : '0);
 
-  // Integer to float
   logic [31:0] i_val;
   logic        i_sign;
   logic [31:0] i_mag;
@@ -107,7 +99,6 @@ module fp_cvt (
   assign i_sign = !is_unsigned && i_val[31];
   assign i_mag  = i_sign ? -i_val : i_val;
 
-  // Normalize leading one
   always_comb begin
     i_norm = i_mag;
     i_lz   = '0;
@@ -122,7 +113,6 @@ module fp_cvt (
   assign i_guard = i_norm[7];
   assign i_sticky = i_norm[6:0] != '0;
 
-  // Pack and round
   assign i_inc = round_up(rm, i_sign, i_norm[8], i_guard, i_sticky);
   assign i_body = {8'd158 - 8'(i_lz), i_norm[30:8]} + 31'(i_inc);
 

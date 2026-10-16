@@ -58,7 +58,6 @@ module fp_rec7 (
     end
   end
 
-  // Normalize subnormal significand
   assign norm_top = is_sub ? 7'({frac, 7'b0} >> (5'd22 - lz)) : frac[22:16];
   assign norm_exp_lsb = is_sub ? lz[0] : exp_in[0];
   assign rsq_idx = {norm_exp_lsb, norm_top[6:1]};

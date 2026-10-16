@@ -15,7 +15,6 @@ module fp_div_sqrt (
     output logic        done
 );
 
-  // Rounding modes
   localparam logic [2:0] Rne = 3'd0;
   localparam logic [2:0] Rtz = 3'd1;
   localparam logic [2:0] Rdn = 3'd2;
@@ -46,10 +45,10 @@ module fp_div_sqrt (
   logic [2:0] rm_q;
 
   logic sign_q;
-  logic [9:0] exp_q;  // Biased result exponent
+  logic [9:0] exp_q;
   logic [27:0] rem_q;
-  logic [25:0] src_q;  // Divisor or radicand
-  logic [SigW-1:0] quo_q;  // Quotient or root
+  logic [25:0] src_q;
+  logic [SigW-1:0] quo_q;
   logic [4:0] cnt_q;
 
   function automatic logic [4:0] lzc24(input logic [23:0] x);
@@ -95,7 +94,6 @@ module fp_div_sqrt (
   assign a_exp = 10'(a_q[30:23]) + 10'(a_q[30:23] == 8'd0) - 10'(a_lz);
   assign b_exp = 10'(b_q[30:23]) + 10'(b_q[30:23] == 8'd0) - 10'(b_lz);
 
-  // Special case results
   logic a_neg;
   logic sign_div;
   logic special;
@@ -124,7 +122,6 @@ module fp_div_sqrt (
     end
   end
 
-  // Divide setup
   logic sig_lt;
   logic [24:0] div_rem;
   logic [9:0] div_exp;
@@ -132,13 +129,11 @@ module fp_div_sqrt (
   assign div_rem = sig_lt ? {a_sig, 1'b0} : {1'b0, a_sig};
   assign div_exp = a_exp - b_exp + 10'd127 - 10'(sig_lt);
 
-  // Odd exponent shifts radicand
   logic [25:0] sqrt_rad;
   logic [ 9:0] sqrt_exp;
   assign sqrt_rad = a_exp[0] ? {1'b0, a_sig, 1'b0} : {a_sig, 2'b00};
   assign sqrt_exp = (a_exp + 10'd126 + 10'(a_exp[0])) >> 1;
 
-  // One result bit
   logic [27:0] sqrt_sh;
   logic [27:0] rem_sh;
   logic [27:0] trial;
@@ -157,7 +152,6 @@ module fp_div_sqrt (
     rem_nxt = q_bit ? rem_sh - trial : rem_sh;
   end
 
-  // Subnormal shift
   logic sticky;
   logic sub;
   logic [9:0] sh_full;
@@ -169,7 +163,6 @@ module fp_div_sqrt (
   assign sh = !sub ? 5'd0 : (sh_full > 10'd31) ? 5'd31 : sh_full[4:0];
   assign shifted = {quo_q, 26'd0} >> sh;
 
-  // Rounding
   logic [23:0] mant;
   logic guard;
   logic st;
@@ -190,7 +183,6 @@ module fp_div_sqrt (
   assign ovf_inf = (rm_q == Rne) || (rm_q == Rmm) || ((rm_q == Rdn) && sign_q) ||
       ((rm_q == Rup) && !sign_q);
 
-  // Tininess after rounding
   logic carry24;
   logic tiny;
   assign carry24 = (&quo_q[25:2]) && round_up(rm_q, sign_q, quo_q[2], quo_q[1], quo_q[0] || sticky);

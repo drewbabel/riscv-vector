@@ -44,7 +44,6 @@ module fp_decode
   localparam logic [2:0] Funct3Fmv = 3'b000;
   localparam logic [2:0] Funct3Fclass = 3'b001;
 
-  // Instruction fields
   logic [6:0] opcode;
   logic [1:0] fmt;
   logic [4:0] rs2;

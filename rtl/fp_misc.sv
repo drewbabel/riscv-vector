@@ -37,7 +37,6 @@ module fp_misc (
   assign a_man_zero = ~|a[22:0];
   assign b_man_zero = ~|b[22:0];
 
-  // Bit 22 quiet
   logic a_nan, b_nan, a_snan, b_snan, any_nan, any_snan;
 
   assign a_nan    = a_exp_max & ~a_man_zero;
@@ -53,7 +52,6 @@ module fp_misc (
   assign mag_gt    = a_mag > b_mag;
   assign both_zero = ~|a_mag & ~|b_mag;
 
-  // Negative zero first
   always_comb begin
     if (a_sign != b_sign) ord_lt = a_sign;
     else if (a_sign) ord_lt = mag_gt;
