@@ -4,6 +4,7 @@ module extend_tb;
 
   int checks = 0;
   int errors = 0;
+  int max_errors = 0;
 
   localparam int Xlen = arch_pkg::XLEN;
 
@@ -29,6 +30,8 @@ module extend_tb;
     $finish;
   endtask
 
+  initial void'($value$plusargs("max_errors=%d", max_errors));
+
   initial begin
     $dumpfile("extend_tb.vcd");
     $dumpvars(0, extend_tb);
@@ -51,6 +54,7 @@ module extend_tb;
       if (imm_ext !== exp) begin
         errors++;
         $error("vec %0d instr=%h: got %h exp %h", i, instr, imm_ext, exp);
+        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
       end
     end
 

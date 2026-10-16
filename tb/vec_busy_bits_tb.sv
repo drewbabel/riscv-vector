@@ -8,6 +8,7 @@ module vec_busy_bits_tb ();
 
   int                checks = 0;
   int                errors = 0;
+  int                max_errors = 0;
 
   logic              clk = 1'b0;
   logic              rst_n = 1'b1;
@@ -55,6 +56,7 @@ module vec_busy_bits_tb ();
     if (got !== exp) begin
       errors++;
       $error("%s: got %b, expected %b", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -270,6 +272,8 @@ module vec_busy_bits_tb ();
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask  // Automatic
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("vec_busy_bits_tb.vcd");

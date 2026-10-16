@@ -19,6 +19,7 @@ module vec_mul_lane_tb
 
   int checks = 0;
   int error_count = 0;
+  int max_errors = 0;
 
   int op_idx;
   int sew_idx;
@@ -200,10 +201,13 @@ module vec_mul_lane_tb
 
         $display("FAIL op=%0d vsew=%b a=%h b=%h exp_result=%h result=%h exp_product=%h product=%h",
                  op, vsew, a, b, exp_result, result, exp_product, product);
+        if (error_count == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", error_count);
       end
     end
   endtask
 
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
 

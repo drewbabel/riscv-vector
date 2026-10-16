@@ -20,6 +20,7 @@ module vec_unit_tb
 
   int               checks = 0;
   int               errors = 0;
+  int               max_errors = 0;
 
   logic             clk = 1'b0;
   logic             rst_n;
@@ -291,11 +292,13 @@ module vec_unit_tb
       if (!vec_idle) begin
         errors = errors + 1;
         $display("FAIL never went idle at %0t", $time);
+        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
       end
       checks = checks + 1;
       if (dut.u_issue.u_busy.busy != '0) begin
         errors = errors + 1;
         $display("FAIL busy %h at idle %0t", dut.u_issue.u_busy.busy, $time);
+        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
       end
       @(negedge clk);
     end
@@ -343,6 +346,7 @@ module vec_unit_tb
         errors = errors + 1;
         if (errors < 12)
           $display("FAIL %0s v%0d got=%h want=%h at %0t", tag, r, got, shadow[r], $time);
+        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
       end
     end
   endtask
@@ -411,9 +415,9 @@ module vec_unit_tb
       issue(enc(6'b001100, 1'b1, 5'd4, 5'd3, 3'b000, 5'd5));
       drain();
       check_regs("gather");
-      issue(enc(6'b100101, 1'b1, 5'd4, 5'd3, 3'b010, 5'd5));
+      issue(enc(6'b111000, 1'b1, 5'd4, 5'd3, 3'b010, 5'd6));
       drain();
-      check_regs("multiply");
+      check_regs("widening multiply");
     end
   endtask
 
@@ -555,6 +559,7 @@ module vec_unit_tb
       if (mem[k] !== gmem[k]) begin
         errors = errors + 1;
         if (errors < 12) $display("FAIL %0s byte %0d got=%h want=%h", tag, k, mem[k], gmem[k]);
+        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
       end
     end
   endtask
@@ -564,6 +569,7 @@ module vec_unit_tb
     if (got !== want) begin
       errors = errors + 1;
       $display("FAIL %0s got=%h want=%h at %0t", what, got, want, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -1074,6 +1080,7 @@ module vec_unit_tb
     if (xreg_result !== want) begin
       errors = errors + 1;
       $display("FAIL move xs got=%h want=%h at %0t", xreg_result, want, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -1452,6 +1459,7 @@ module vec_unit_tb
       if (xreg_result !== want) begin
         errors = errors + 1;
         $display("FAIL mask summary got=%h want=%h at %0t", xreg_result, want, $time);
+        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
       end
       check_regs("mask summary");
     end
@@ -1471,11 +1479,507 @@ module vec_unit_tb
     end
   endtask
 
+  // Rounding increment model
+  function automatic longint ref_round(input longint v, input int d, input logic [1:0] mode);
+    if (d == 0) return 0;
+    case (mode)
+      2'd0: return longint'(v[d-1]);
+      2'd1: begin
+        return longint'(v[d-1] && (((d > 1) && ((v & ((64'sd1 <<< (d - 1)) - 1)) != 0)) || v[d]));
+      end
+      2'd2: return 0;
+      default: return longint'(!v[d] && ((v & ((64'sd1 <<< d) - 1)) != 0));
+    endcase
+  endfunction
+
+  // Lane element model
+  function automatic logic [ELEN:0] ref_lane(input vec_op_e o, input int w,
+                                             input logic [ELEN-1:0] a, input logic [ELEN-1:0] b,
+                                             input logic [ELEN-1:0] c, input logic [1:0] mode);
+    longint m, ua, ub, uc, sa, sb, ua2, sa2, v, smax, smin, umax;
+    longint unsigned uu;
+    int sh, sh2;
+    logic sat;
+    begin
+      m    = (64'sd1 <<< w) - 1;
+      ua   = longint'(a) & m;
+      ub   = longint'(b) & m;
+      uc   = longint'(c) & m;
+      sa   = ua[w-1] ? (ua - (64'sd1 <<< w)) : ua;
+      sb   = ub[w-1] ? (ub - (64'sd1 <<< w)) : ub;
+      ua2  = longint'(a) & ((64'sd1 <<< (2 * w)) - 1);
+      sa2  = ua2[2*w-1] ? (ua2 - (64'sd1 <<< (2 * w))) : ua2;
+      smax = (64'sd1 <<< (w - 1)) - 1;
+      smin = -(64'sd1 <<< (w - 1));
+      umax = m;
+      sh   = int'(b) & (w - 1);
+      sh2  = int'(b) & (2 * w - 1);
+      sat  = 1'b0;
+      case (o)
+        VEC_MUL: v = sa * sb;
+        VEC_MULH: v = (sa * sb) >>> w;
+        VEC_MULHU: begin
+          uu = longint'(ua) * longint'(ub);
+          v  = longint'(uu >> w);
+        end
+        VEC_MULHSU: v = (sa * ub) >>> w;
+        VEC_MACC: v = (ua * ub) + uc;
+        VEC_NMSAC: v = uc - (ua * ub);
+        VEC_MADD: v = (uc * ub) + ua;
+        VEC_NMSUB: v = ua - (uc * ub);
+        VEC_SADDU: begin
+          v = ua + ub;
+          if (v > umax) begin
+            sat = 1'b1;
+            v   = umax;
+          end
+        end
+        VEC_SSUBU: begin
+          v = ua - ub;
+          if (v < 0) begin
+            sat = 1'b1;
+            v   = 0;
+          end
+        end
+        VEC_SADD, VEC_SSUB, VEC_SMUL, VEC_NCLIP: begin
+          case (o)
+            VEC_SADD: v = sa + sb;
+            VEC_SSUB: v = sa - sb;
+            VEC_SMUL: v = ((sa * sb) >>> (w - 1)) + ref_round(sa * sb, w - 1, mode);
+            default:  v = (sa2 >>> sh2) + ref_round(sa2, sh2, mode);
+          endcase
+          if (v > smax) begin
+            sat = 1'b1;
+            v   = smax;
+          end else if (v < smin) begin
+            sat = 1'b1;
+            v   = smin;
+          end
+        end
+        VEC_SSRL: v = (ua >> sh) + ref_round(ua, sh, mode);
+        VEC_SSRA: v = (sa >>> sh) + ref_round(sa, sh, mode);
+        VEC_NCLIPU: begin
+          v = (ua2 >> sh2) + ref_round(ua2, sh2, mode);
+          if (v > umax) begin
+            sat = 1'b1;
+            v   = umax;
+          end
+        end
+        VEC_AADDU: v = ((ua + ub) >>> 1) + ref_round(ua + ub, 1, mode);
+        VEC_AADD: v = ((sa + sb) >>> 1) + ref_round(sa + sb, 1, mode);
+        VEC_ASUBU: v = ((ua - ub) >>> 1) + ref_round(ua - ub, 1, mode);
+        VEC_ASUB: v = ((sa - sb) >>> 1) + ref_round(sa - sb, 1, mode);
+        VEC_DIVU: v = (ub == 0) ? umax : (ua / ub);
+        VEC_REMU: v = (ub == 0) ? ua : (ua % ub);
+        VEC_DIV: begin
+          if (sb == 0) v = -1;
+          else if ((sa == smin) && (sb == -1)) v = smin;
+          else v = sa / sb;
+        end
+        VEC_REM: begin
+          if (sb == 0) v = sa;
+          else if ((sa == smin) && (sb == -1)) v = 0;
+          else v = sa % sb;
+        end
+        default: v = 0;
+      endcase
+      return {sat, ELEN'(v & m)};
+    end
+  endfunction
+
+  function automatic logic [5:0] lane_funct6(input vec_op_e o);
+    case (o)
+      VEC_MULHU:  return 6'b100100;
+      VEC_MUL:    return 6'b100101;
+      VEC_MULHSU: return 6'b100110;
+      VEC_MULH:   return 6'b100111;
+      VEC_MADD:   return 6'b101001;
+      VEC_NMSUB:  return 6'b101011;
+      VEC_MACC:   return 6'b101101;
+      VEC_NMSAC:  return 6'b101111;
+      VEC_SADDU:  return 6'b100000;
+      VEC_SADD:   return 6'b100001;
+      VEC_SSUBU:  return 6'b100010;
+      VEC_SSUB:   return 6'b100011;
+      VEC_SMUL:   return 6'b100111;
+      VEC_SSRL:   return 6'b101010;
+      VEC_SSRA:   return 6'b101011;
+      VEC_NCLIPU: return 6'b101110;
+      VEC_DIVU:   return 6'b100000;
+      VEC_DIV:    return 6'b100001;
+      VEC_REMU:   return 6'b100010;
+      VEC_REM:    return 6'b100011;
+      VEC_AADDU:  return 6'b001000;
+      VEC_AADD:   return 6'b001001;
+      VEC_ASUBU:  return 6'b001010;
+      VEC_ASUB:   return 6'b001011;
+      default:    return 6'b101111;
+    endcase
+  endfunction
+
+  function automatic logic div_form(input vec_op_e o);
+    return (o == VEC_DIVU) || (o == VEC_DIV) || (o == VEC_REMU) || (o == VEC_REM);
+  endfunction
+
+  function automatic logic avg_form(input vec_op_e o);
+    return (o == VEC_AADDU) || (o == VEC_AADD) || (o == VEC_ASUBU) || (o == VEC_ASUB);
+  endfunction
+
+  // Encode lane op
+  function automatic logic [31:0] lane_instr(input vec_op_e o, input int form, input logic [4:0] s1,
+                                             input logic [4:0] s2, input logic [4:0] d,
+                                             input logic vmb, input logic [4:0] im);
+    logic opm;
+    logic [2:0] f3;
+    logic [4:0] f2;
+    begin
+      opm = (vec_class(o) == VEC_CLS_MUL) || div_form(o) || avg_form(o);
+      case (form)
+        0: f3 = opm ? 3'b010 : 3'b000;
+        1: f3 = opm ? 3'b110 : 3'b100;
+        default: f3 = 3'b011;
+      endcase
+      case (form)
+        0: f2 = s1;
+        1: f2 = 5'd1;
+        default: f2 = im;
+      endcase
+      return enc(lane_funct6(o), vmb, s2, f2, f3, d);
+    end
+  endfunction
+
+  // Lane op model
+  task automatic model_lane(input vec_op_e o, input int form, input logic [4:0] s1,
+                            input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                            input logic [XLEN-1:0] xd, input logic [4:0] im, input int w,
+                            input int regs, input logic [VlW-1:0] len, input logic [1:0] mode,
+                            output logic want_sat);
+    logic narrow;
+    logic uimm;
+    logic sat;
+    logic [ELEN-1:0] a;
+    logic [ELEN-1:0] b;
+    logic [ELEN-1:0] r;
+    begin
+      narrow = (o == VEC_NCLIPU) || (o == VEC_NCLIP);
+      uimm = narrow || (o == VEC_SSRL) || (o == VEC_SSRA);
+      want_sat = 1'b0;
+      for (int i = 0; i < group_elems(w, regs); i++) begin
+        if ((i < len) && (vmb || shadow[0][i])) begin
+          a = narrow ? grp_get(s2, 2 * w, i) : grp_get(s2, w, i);
+          case (form)
+            0: b = grp_get(s1, w, i);
+            1: b = xd;
+            default: b = uimm ? ELEN'(im) : ELEN'($signed(im));
+          endcase
+          {sat, r} = ref_lane(o, w, a, b, grp_get(d, w, i), mode);
+          grp_set(d, w, i, r);
+          want_sat = want_sat || sat;
+        end
+      end
+    end
+  endtask
+
+  // Run one lane op
+  task automatic run_lane(input vec_op_e o, input int form, input logic [4:0] s1,
+                          input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                          input logic [XLEN-1:0] xd, input logic [4:0] im, input logic [2:0] sew,
+                          input logic [2:0] lmul, input logic [VlW-1:0] len,
+                          input logic [1:0] mode);
+    logic want_sat;
+    int   w;
+    int   regs;
+    begin
+      w = 8 << sew;
+      regs = lmul[2] ? 1 : (1 << lmul[1:0]);
+      csr_poke(VxrmAddr, XLEN'(mode));
+      csr_poke(VxsatAddr, '0);
+      vsew = sew;
+      vlmul = lmul;
+      vl = len;
+      xdata = xd;
+      model_lane(o, form, s1, s2, d, vmb, xd, im, w, regs, len, mode, want_sat);
+      issue(lane_instr(o, form, s1, s2, d, vmb, im));
+      drain();
+      check_regs($sformatf("lane %0s sew %0d form %0d", o.name(), w, form));
+      note($sformatf("vxsat after %0s", o.name()), 32'(vxsat), 32'(want_sat));
+    end
+  endtask
+
+  // Fill with the minimum
+  function automatic logic [VLEN-1:0] min_vec(input int w);
+    min_vec = '0;
+    for (int e = 0; e < VLEN / w; e++) min_vec[e*w+w-1] = 1'b1;
+  endfunction
+
+  task automatic check_multiplies();
+    vec_op_e ops[8] = '{
+        VEC_MUL,
+        VEC_MULH,
+        VEC_MULHU,
+        VEC_MULHSU,
+        VEC_MACC,
+        VEC_NMSAC,
+        VEC_MADD,
+        VEC_NMSUB
+    };
+    seed_all();
+    for (int k = 0; k < 8; k++) begin
+      for (int s = 0; s < 3; s++) begin
+        run_lane(ops[k], 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'(VLEN / (8 << s)),
+                 2'd0);
+        run_lane(ops[k], 1, 5'd0, 5'd8, 5'd13, 1'b1, $urandom, 5'd0, 3'(s), 3'd0,
+                 8'(VLEN / (8 << s)), 2'd0);
+      end
+      run_lane(ops[k], 0, 5'd4, 5'd8, 5'd16, 1'b1, '0, 5'd0, 3'd1, 3'd1, 8'd16, 2'd0);
+      run_lane(ops[k], 0, 5'd4, 5'd8, 5'd12, 1'b0, '0, 5'd0, 3'd0, 3'd0, 8'd16, 2'd0);
+      run_lane(ops[k], 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 3'd2, 3'd0, 8'd3, 2'd0);
+    end
+    seed_reg(5'd4, min_vec(32));
+    seed_reg(5'd8, min_vec(32));
+    run_lane(VEC_MULH, 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 3'd2, 3'd0, 8'd4, 2'd0);
+    run_lane(VEC_MULHSU, 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 3'd2, 3'd0, 8'd4, 2'd0);
+    seed_all();
+  endtask
+
+  task automatic check_fixed_ops();
+    vec_op_e ops[7] = '{VEC_SADDU, VEC_SADD, VEC_SSUBU, VEC_SSUB, VEC_SMUL, VEC_SSRL, VEC_SSRA};
+    int nforms;
+    seed_all();
+    for (int k = 0; k < 7; k++) begin
+      nforms = ((ops[k] == VEC_SSUBU) || (ops[k] == VEC_SSUB) || (ops[k] == VEC_SMUL)) ? 2 : 3;
+      for (int s = 0; s < 3; s++) begin
+        for (int f = 0; f < nforms; f++) begin
+          for (int md = 0; md < 4; md++) begin
+            run_lane(ops[k], f, 5'd4, 5'd8, 5'd12, 1'b1, $urandom, 5'($urandom), 3'(s), 3'd0,
+                     8'(VLEN / (8 << s)), 2'(md));
+          end
+        end
+      end
+      run_lane(ops[k], 0, 5'd4, 5'd8, 5'd16, 1'b0, '0, 5'd0, 3'd1, 3'd1, 8'd13, 2'd1);
+    end
+    for (int k = 0; k < 2; k++) begin
+      for (int s = 0; s < 2; s++) begin
+        for (int f = 0; f < 3; f++) begin
+          for (int md = 0; md < 4; md++) begin
+            run_lane((k == 1) ? VEC_NCLIP : VEC_NCLIPU, f, 5'd4, 5'd8, 5'd12, 1'b1, $urandom,
+                     5'($urandom), 3'(s), 3'd0, 8'(VLEN / (8 << s)), 2'(md));
+          end
+        end
+        run_lane((k == 1) ? VEC_NCLIP : VEC_NCLIPU, 0, 5'd2, 5'd16, 5'd20, 1'b0, '0, 5'd0, 3'(s),
+                 3'd1, 8'(VLEN / (8 << s) + 3), 2'd3);
+      end
+    end
+    for (int s = 0; s < 3; s++) begin
+      seed_reg(5'd4, min_vec(8 << s));
+      seed_reg(5'd8, min_vec(8 << s));
+      run_lane(VEC_SMUL, 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'(VLEN / (8 << s)),
+               2'd0);
+      run_lane(VEC_SADD, 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'(VLEN / (8 << s)),
+               2'd0);
+      run_lane(VEC_SSUB, 1, 5'd0, 5'd4, 5'd12, 1'b1, 32'd1, 5'd0, 3'(s), 3'd0, 8'(VLEN / (8 << s)),
+               2'd0);
+    end
+    seed_reg(5'd4, '0);
+    seed_reg(5'd8, '1);
+    run_lane(VEC_SADDU, 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 3'd0, 3'd0, 8'd16, 2'd0);
+    seed_all();
+  endtask
+
+  // Zero even elements
+  function automatic logic [VLEN-1:0] zero_even(input logic [VLEN-1:0] v, input int w);
+    zero_even = v;
+    for (int e = 0; e < VLEN / w; e += 2) zero_even = set_elem(zero_even, w, e, '0);
+  endfunction
+
+  // Divide forms
+  task automatic check_divides();
+    vec_op_e ops[4] = '{VEC_DIVU, VEC_DIV, VEC_REMU, VEC_REM};
+    int n;
+    seed_all();
+    for (int k = 0; k < 4; k++) begin
+      for (int s = 0; s < 3; s++) begin
+        n = VLEN / (8 << s);
+        run_lane(ops[k], 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'(n), 2'd0);
+        run_lane(ops[k], 1, 5'd0, 5'd8, 5'd13, 1'b1, $urandom, 5'd0, 3'(s), 3'd0, 8'(n), 2'd0);
+        run_lane(ops[k], 1, 5'd0, 5'd8, 5'd14, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'(n), 2'd0);
+      end
+      run_lane(ops[k], 0, 5'd4, 5'd8, 5'd16, 1'b1, '0, 5'd0, 3'd1, 3'd1, 8'd16, 2'd0);
+      run_lane(ops[k], 0, 5'd4, 5'd8, 5'd16, 1'b1, '0, 5'd0, 3'd2, 3'd2, 8'd13, 2'd0);
+      run_lane(ops[k], 0, 5'd4, 5'd8, 5'd12, 1'b0, '0, 5'd0, 3'd0, 3'd0, 8'd16, 2'd0);
+      run_lane(ops[k], 1, 5'd0, 5'd8, 5'd12, 1'b0, $urandom, 5'd0, 3'd2, 3'd0, 8'd3, 2'd0);
+    end
+    for (int s = 0; s < 3; s++) begin
+      n = VLEN / (8 << s);
+      for (int c = 0; c < 3; c++) begin
+        case (c)
+          0: seed_reg(5'd4, '0);
+          1: seed_reg(5'd4, zero_even(rand_vec(), 8 << s));
+          default: begin
+            seed_reg(5'd4, '1);
+            seed_reg(5'd8, min_vec(8 << s));
+          end
+        endcase
+        for (int k = 0; k < 4; k++) begin
+          run_lane(ops[k], 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'(n), 2'd0);
+        end
+      end
+      run_lane(VEC_DIV, 1, 5'd0, 5'd8, 5'd13, 1'b1, '1, 5'd0, 3'(s), 3'd0, 8'(n), 2'd0);
+      run_lane(VEC_REM, 1, 5'd0, 5'd8, 5'd14, 1'b1, '1, 5'd0, 3'(s), 3'd0, 8'(n), 2'd0);
+      seed_all();
+    end
+  endtask
+
+  // Averaging forms
+  task automatic check_averaging();
+    vec_op_e ops[4] = '{VEC_AADDU, VEC_AADD, VEC_ASUBU, VEC_ASUB};
+    logic [VLEN-1:0] ext[3];
+    int n;
+    seed_all();
+    for (int k = 0; k < 4; k++) begin
+      for (int s = 0; s < 3; s++) begin
+        for (int f = 0; f < 2; f++) begin
+          for (int md = 0; md < 4; md++) begin
+            run_lane(ops[k], f, 5'd4, 5'd8, 5'd12, 1'b1, $urandom, 5'd0, 3'(s), 3'd0,
+                     8'(VLEN / (8 << s)), 2'(md));
+          end
+        end
+      end
+      run_lane(ops[k], 0, 5'd4, 5'd8, 5'd16, 1'b0, '0, 5'd0, 3'd1, 3'd1, 8'd13, 2'd1);
+      run_lane(ops[k], 1, 5'd0, 5'd8, 5'd16, 1'b1, $urandom, 5'd0, 3'd0, 3'd2, 8'd50, 2'd3);
+    end
+    for (int s = 0; s < 3; s++) begin
+      n   = VLEN / (8 << s);
+      ext = '{min_vec(8 << s), ~min_vec(8 << s), '1};
+      for (int i = 0; i < 3; i++) begin
+        for (int j = 0; j < 3; j++) begin
+          seed_reg(5'd8, ext[i]);
+          seed_reg(5'd4, ext[j]);
+          for (int k = 0; k < 4; k++) begin
+            for (int md = 0; md < 4; md++) begin
+              run_lane(ops[k], 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'(n), 2'(md));
+            end
+          end
+        end
+      end
+    end
+    seed_all();
+  endtask
+
+  // Divide overlaps neighbours
+  task automatic check_divide_overlap();
+    logic sat;
+    begin
+      seed_all();
+      seed_reg(5'd4, zero_even(rand_vec(), 8));
+      csr_poke(VxrmAddr, 32'd1);
+      vsew  = 3'd0;
+      vlmul = 3'd0;
+      vl    = 8'd16;
+      xdata = '0;
+      model_lane(VEC_DIV, 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 8, 1, 8'd16, 2'd1, sat);
+      ref_apply(VEC_ADD, 0, 5'd5, 5'd6, 5'd20, 1'b1, '0, 5'd0, 8, 1, 16);
+      model_lane(VEC_MUL, 0, 5'd12, 5'd8, 5'd24, 1'b1, '0, 5'd0, 8, 1, 8'd16, 2'd1, sat);
+      model_lane(VEC_AADD, 0, 5'd12, 5'd20, 5'd28, 1'b1, '0, 5'd0, 8, 1, 8'd16, 2'd1, sat);
+      model_lane(VEC_REMU, 0, 5'd4, 5'd12, 5'd13, 1'b0, '0, 5'd0, 8, 1, 8'd16, 2'd1, sat);
+      model_lane(VEC_DIVU, 0, 5'd20, 5'd13, 5'd14, 1'b1, '0, 5'd0, 8, 1, 8'd16, 2'd1, sat);
+      issue(lane_instr(VEC_DIV, 0, 5'd4, 5'd8, 5'd12, 1'b1, 5'd0));
+      issue(enc(funct6_of(VEC_ADD), 1'b1, 5'd6, 5'd5, 3'b000, 5'd20));
+      issue(lane_instr(VEC_MUL, 0, 5'd12, 5'd8, 5'd24, 1'b1, 5'd0));
+      issue(lane_instr(VEC_AADD, 0, 5'd12, 5'd20, 5'd28, 1'b1, 5'd0));
+      issue(lane_instr(VEC_REMU, 0, 5'd4, 5'd12, 5'd13, 1'b0, 5'd0));
+      issue(lane_instr(VEC_DIVU, 0, 5'd20, 5'd13, 5'd14, 1'b1, 5'd0));
+      drain();
+      check_regs("divide overlap");
+    end
+  endtask
+
+  // Random lane traffic
+  task automatic soak_lanes(input int n);
+    vec_op_e ops[25] = '{
+        VEC_DIVU,
+        VEC_DIV,
+        VEC_REMU,
+        VEC_REM,
+        VEC_AADDU,
+        VEC_AADD,
+        VEC_ASUBU,
+        VEC_ASUB,
+        VEC_MACC,
+        VEC_NMSAC,
+        VEC_MADD,
+        VEC_NMSUB,
+        VEC_MUL,
+        VEC_MULH,
+        VEC_MULHU,
+        VEC_MULHSU,
+        VEC_SADDU,
+        VEC_SADD,
+        VEC_SSUBU,
+        VEC_SSUB,
+        VEC_SMUL,
+        VEC_SSRL,
+        VEC_SSRA,
+        VEC_NCLIPU,
+        VEC_NCLIP
+    };
+    vec_op_e o;
+    int form;
+    int smax;
+    logic no_imm;
+    logic [2:0] sew;
+    logic [2:0] lmul;
+    begin
+      seed_all();
+      for (int i = 0; i < n; i++) begin
+        o = ops[$urandom%25];
+        form = $urandom % 3;
+        no_imm = (o == VEC_SSUBU) || (o == VEC_SSUB) || (o == VEC_SMUL) ||
+            (vec_class(o) == VEC_CLS_MUL) || div_form(o) || avg_form(o);
+        if ((form == 2) && no_imm) form = 1;
+        smax = ((o == VEC_NCLIPU) || (o == VEC_NCLIP)) ? 2 : 3;
+        sew  = 3'($urandom % smax);
+        lmul = 3'($urandom % 2);
+        run_lane(o, form, 5'd4, 5'd16, 5'd24, 1'($urandom), $urandom, 5'($urandom), sew, lmul,
+                 8'($urandom % ((VLEN / (8 << sew)) * (int'(lmul) + 1) + 1)), 2'($urandom));
+      end
+    end
+  endtask
+
+  // Forms left trapping
+  task automatic check_lane_rules();
+    begin
+      vill  = 1'b0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      vsew  = 3'd2;
+      instr = enc(6'b101110, 1'b1, 5'd8, 5'd4, 3'b000, 5'd12);
+      #1 note("narrow clip at e32", 32'(is_vector), 32'd0);
+      vsew = 3'd1;
+      #1 note("narrow clip at e16", 32'(is_vector), 32'd1);
+      instr = enc(6'b101101, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
+      #1 note("multiply add", 32'(is_vector), 32'd1);
+      instr = enc(6'b111000, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
+      #1 note("widening multiply", 32'(is_vector), 32'd0);
+      instr = enc(6'b001000, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
+      #1 note("averaging add", 32'(is_vector), 32'd1);
+      instr = enc(6'b100001, 1'b1, 5'd8, 5'd4, 3'b110, 5'd12);
+      #1 note("divide", 32'(is_vector), 32'd1);
+      instr = enc(6'b100101, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
+      #1 note("multiply", 32'(is_vector), 32'd1);
+      instr = enc(6'b100111, 1'b1, 5'd8, 5'd4, 3'b000, 5'd12);
+      #1 note("fractional multiply", 32'(is_vector), 32'd1);
+      instr = 32'd0;
+    end
+  endtask
+
   task automatic verdict();
     $display("vec_unit: %0d checks, %0d errors", checks, errors);
     if (errors != 0) $fatal(1, "vec_unit FAILED");
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     repeat (Timeout) @(posedge clk);
@@ -1546,6 +2050,15 @@ module vec_unit_tb
 
     // Scalar moves
     check_scalar_moves();
+
+    // Multiply and fixed point
+    check_lane_rules();
+    check_multiplies();
+    check_fixed_ops();
+    check_divides();
+    check_averaging();
+    check_divide_overlap();
+    soak_lanes(200);
 
     verdict();
   end

@@ -20,6 +20,7 @@ module predict_tb ();
 
   int              checks = 0;
   int              errors = 0;
+  int              max_errors = 0;
 
   always #5 clk = ~clk;
 
@@ -47,6 +48,7 @@ module predict_tb ();
     if (got !== exp) begin
       $error("%s = %0d, expected %0d", name, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -100,6 +102,8 @@ module predict_tb ();
       if (core_mispred) mispredicts++;
     end
   end
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     // Run to sentinel

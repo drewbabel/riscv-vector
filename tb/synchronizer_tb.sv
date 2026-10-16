@@ -3,6 +3,7 @@
 module synchronizer_tb ();
 
   int   errors = 0;
+  int   max_errors = 0;
   int   checks = 0;
 
   logic clk = 0;
@@ -26,6 +27,7 @@ module synchronizer_tb ();
     if (got !== exp) begin
       errors++;
       $error("t=%0t %s mismatch: got=%b  exp=%b", $time, name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -37,6 +39,8 @@ module synchronizer_tb ();
     end
     $finish;
   endtask  // Automatic
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   // Stimulus
   initial begin

@@ -4,6 +4,7 @@ module control_decoder
   import csr_pkg::*;
   import opcode_pkg::*;
   import muldiv_pkg::*;
+  import fp_pkg::*;
 (
     input  wire                    [ 6:0] op,
     input  wire                    [ 2:0] funct3,
@@ -156,6 +157,30 @@ module control_decoder
         // Scalar result forms
         if (funct3 == Funct3Opcfg) reg_write = 1'b1;
         else if ((funct3 == Funct3Opmvv) && (funct12[11:6] == Funct6Vwxunary)) reg_write = 1'b1;
+      end
+
+      OpcodeOpFp: begin
+        if ((funct12[11:7] == Funct5FcvtWS) || (funct12[11:7] == Funct5FmvXW) ||
+            (funct12[11:7] == Funct5Fcmp))
+          reg_write = 1'b1;
+      end
+
+      OpcodeLoadFp: begin
+        if (funct3 == Funct3Flw) begin
+          imm_src    = ImmI;
+          alu_src    = 1'b1;
+          result_src = ResMem;
+          alu_op     = AluOpAdd;
+        end
+      end
+
+      OpcodeStoreFp: begin
+        if (funct3 == Funct3Flw) begin
+          imm_src   = ImmS;
+          alu_src   = 1'b1;
+          mem_write = 1'b1;
+          alu_op    = AluOpAdd;
+        end
       end
 
       default: ;  // Illegal opcode nop

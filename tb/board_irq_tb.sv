@@ -4,6 +4,7 @@ module board_irq_tb ();
 
   int          checks = 0;
   int          errors = 0;
+  int          max_errors = 0;
 
   logic        clk = 1'b0;
   logic        rst;
@@ -80,6 +81,7 @@ module board_irq_tb ();
     if (got !== exp_b) begin
       $error("%s got %02x exp %02x", name, got, exp_b);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -90,6 +92,8 @@ module board_irq_tb ();
   endtask  // Automatic
 
   logic [7:0] rxb[3];
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   // Watchdog
   initial begin

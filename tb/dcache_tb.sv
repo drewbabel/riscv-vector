@@ -47,6 +47,7 @@ module dcache_tb;
 
   int                   checks = 0;
   int                   errors = 0;
+  int                   max_errors = 0;
   int                   writebacks = 0;
   int                   reads = 0;
   int                   wb_mark = 0;
@@ -130,6 +131,7 @@ module dcache_tb;
     if (got !== exp) begin
       $error("%s: got %h exp %h", name, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -139,6 +141,7 @@ module dcache_tb;
     if (got !== exp) begin
       $error("%s: got %h exp %h", name, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -147,6 +150,7 @@ module dcache_tb;
     if (got !== exp) begin
       $error("%s: got %0d exp %0d", name, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -163,6 +167,7 @@ module dcache_tb;
       $error("%s: write backs %0d exp %0d, reads %0d exp %0d, misses %0d exp %0d", name,
              writebacks - wb_mark, wb, reads - rd_mark, rd, int'(miss_count) - miss_mark, miss);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -278,6 +283,8 @@ module dcache_tb;
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask  // Automatic
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("dcache_tb.vcd");

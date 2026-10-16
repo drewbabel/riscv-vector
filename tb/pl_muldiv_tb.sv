@@ -15,6 +15,7 @@ module pl_muldiv_tb ();
 
   int              checks = 0;
   int              errors = 0;
+  int              max_errors = 0;
 
   int              hold_run = 0;
   logic [Xlen-1:0] drain_x10, drain_x11;
@@ -39,6 +40,7 @@ module pl_muldiv_tb ();
     if (got !== exp) begin
       $error("%s = %0d (0x%08h), expected %0d (0x%08h)", name, got, got, exp, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -64,6 +66,8 @@ module pl_muldiv_tb ();
       drain_x11  = dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[11];
     end
   end
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("pl_muldiv_tb.vcd");

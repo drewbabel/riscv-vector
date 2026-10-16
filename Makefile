@@ -1,4 +1,5 @@
 #   make MOD=pc                  compile rtl/ + that tb, run (FAIL exits nonzero)
+#   make MOD=pc MAX_ERRORS=3     stop after 3 mismatches
 #   make vsim MOD=pc             fast 2-state Verilator run (perf sweeps + regression; not X-debug)
 #   make wave MOD=alu            same, then open the waveform in surfer (opens even on FAIL)
 #   make view MOD=alu            open testbench waveform in surfer (no rerun) (error if .vcd missing)
@@ -16,8 +17,8 @@
 SHELL := /bin/bash
 
 # packages must compile before any module that imports them
-PKGS := rtl/arch_pkg.sv rtl/alu_pkg.sv rtl/csr_pkg.sv rtl/opcode_pkg.sv rtl/muldiv_pkg.sv rtl/bp_pkg.sv \
-        rtl/cache_pkg.sv rtl/vec_pkg.sv
+PKGS := rtl/arch_pkg.sv rtl/alu_pkg.sv rtl/csr_pkg.sv rtl/opcode_pkg.sv rtl/fp_pkg.sv rtl/muldiv_pkg.sv \
+        rtl/bp_pkg.sv rtl/cache_pkg.sv rtl/vec_pkg.sv
 RTL := $(PKGS) $(filter-out $(PKGS),$(wildcard rtl/*.sv)) $(wildcard rtl/boards/bram/*.sv) \
        $(wildcard rtl/single_cycle/*.sv)
 TB  := tb/$(MOD)_tb.sv
@@ -50,7 +51,8 @@ TF_RM_rtz     := minMag
 TF_RM_rdn     := min
 TF_RM_rup     := max
 TF_RM_rmm     := near_maxMag
-TF_ROUNDED    := f32_add f32_sub f32_mul f32_div f32_sqrt i32_to_f32 ui32_to_f32
+TF_ROUNDED    := f32_add f32_sub f32_mul f32_div i32_to_f32 ui32_to_f32
+TF_SQRT_OPTS  := -level 2 -n 46464
 TF_EXACT      := f32_to_i32 f32_to_ui32
 TF_CMP        := f32_eq f32_le f32_lt
 TF_MULADD_STRIDE := 31
@@ -60,7 +62,7 @@ run:
 	@test -n "$(MOD)" || { echo "usage: make MOD=<module>  (e.g. MOD=alu)"; exit 1; }
 	@mkdir -p build
 	iverilog -g2012 -DSIM_BACKDOOR -s $(MOD)_tb -o $(SIM) $(RTL) $(TB)
-	vvp $(SIM)
+	vvp $(SIM) $(if $(MAX_ERRORS),+max_errors=$(MAX_ERRORS))
 
 vsim:
 	@test -n "$(MOD)" || { echo "usage: make vsim MOD=<module>  (fast 2-state Verilator run)"; exit 1; }
@@ -75,13 +77,13 @@ prog:
 	$(RVGCC) $(RVFLAGS) -o build/$(PROG).elf tests/$(PROG).s
 	$(RVCOPY) -O verilog --verilog-data-width=4 build/$(PROG).elf tests/$(PROG).hex
 	iverilog -g2012 -s prog_tb -o $(SIM) $(RTL) tb/prog_tb.sv
-	vvp $(SIM) +HEX=tests/$(PROG).hex
+	vvp $(SIM) +HEX=tests/$(PROG).hex $(if $(MAX_ERRORS),+max_errors=$(MAX_ERRORS))
 
 wave:
 	@test -n "$(MOD)" || { echo "usage: make wave MOD=<module>"; exit 1; }
 	@mkdir -p build
 	iverilog -g2012 -DSIM_BACKDOOR -s $(MOD)_tb -o $(SIM) $(RTL) $(TB)
-	-vvp $(SIM)
+	-vvp $(SIM) $(if $(MAX_ERRORS),+max_errors=$(MAX_ERRORS))
 	@$(if $(WAVE_STATE),$(MAKE) -s $(WAVE_STATE),true)
 	surfer $(VCD) $$(test -n "$(WAVE_STATE)" && echo "-s $(WAVE_STATE)") &
 
@@ -185,6 +187,7 @@ testfloat: $(TF_GEN)
 	@set -o pipefail && $(foreach r,$(TF_RMS),\
 	  $(foreach o,$(TF_ROUNDED),$(TF_GEN) $(TF_FLAGS) -r$(TF_RM_$(r)) $(o) > $(TF_DIR)/$(o)_$(r).txt &&) \
 	  $(foreach o,$(TF_EXACT),$(TF_GEN) $(TF_FLAGS) -r$(TF_RM_$(r)) -exact $(o) > $(TF_DIR)/$(o)_$(r).txt &&) \
+	  $(TF_GEN) $(TF_FLAGS) -r$(TF_RM_$(r)) $(TF_SQRT_OPTS) f32_sqrt > $(TF_DIR)/f32_sqrt_$(r).txt && \
 	  $(TF_GEN) $(TF_FLAGS) -r$(TF_RM_$(r)) f32_mulAdd | awk 'NR % $(TF_MULADD_STRIDE) == 0' > $(TF_DIR)/f32_mulAdd_$(r).txt &&) \
 	  $(foreach o,$(TF_CMP),$(TF_GEN) $(TF_FLAGS) $(o) > $(TF_DIR)/$(o).txt &&) true
 	@echo "wrote $$(ls $(TF_DIR) | wc -l | tr -d ' ') files to $(TF_DIR)"
