@@ -245,6 +245,20 @@ jobs:
         run: python3 tests/cosim.py --vec --rand 100
       - name: Randomized co-sim regression (500 programs)
         run: python3 tests/cosim.py --rand 500
+      - name: Generated RVV test sweep
+        run: |
+          git clone -q https://github.com/chipsalliance/riscv-vector-tests.git build/rvv-gen
+          git -C build/rvv-gen checkout -q f76bff121dce91b6b23e1d37be77a5e44af914c3
+          git -C build/rvv-gen submodule -q update --init env/riscv-test-env
+          mkdir -p build/rvv-gen/fixture
+          cp tests/rvv_env/fixture/*.S build/rvv-gen/fixture/
+          python3 tests/rvv_sweep.py prep build/rvv-gen/fixture
+          python3 tests/rvv_sweep.py run
+          python3 tests/rvv_sweep.py probe-prep build/rvv-gen/fixture
+          python3 tests/rvv_sweep.py probe
+          python3 tests/rvv_sweep.py status --out build/rvv/status.csv
+          awk -F, 'NR > 1 && $3 != "PASS" { bad = 1; print } END { exit bad }' build/rvv/results.csv
+          awk -F, 'NR > 1 && $3 != "DONE" { bad = 1; print } END { exit bad }' build/rvv/probe.csv
 
   gate-check:
     runs-on: ubuntu-latest
