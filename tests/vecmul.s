@@ -59,4 +59,30 @@ _start:
         vmv.v.x v31, t3
         vmulh.vv v31, v31, v31
 
+        vmv.v.v v20, v3
+        vmacc.vv v20, v4, v2
+        vmv.v.v v21, v3
+        vnmsac.vv v21, v4, v2
+        vmv.v.v v22, v3
+        vmadd.vv v22, v4, v2
+        vmv.v.v v23, v3
+        vnmsub.vv v23, v4, v2
+        vmacc.vx v20, t1, v4
+        vnmsac.vx v21, t1, v4
+        vmadd.vx v22, t1, v4
+        vnmsub.vx v23, t1, v4
+
+        li      a0, 8
+        vsetvli t0, a0, e16, m1, ta, ma
+        vmacc.vv v20, v4, v3
+        vnmsub.vx v21, t1, v4
+        li      a0, 16
+        vsetvli t0, a0, e8, m1, ta, ma
+        vmadd.vv v22, v4, v3
+        vnmsac.vx v23, t2, v4
+        vmacc.vv v28, v4, v3, v0.t
+        li      a0, 6
+        vsetvli t0, a0, e32, m2, ta, ma
+        vmacc.vv v24, v4, v2
+
 Ldone:  beq     x0, x0, Ldone
