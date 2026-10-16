@@ -1,0 +1,11 @@
+OUTPUT_ARCH( "riscv" )
+ENTRY(_start)
+SECTIONS
+{
+  . = 0x0;
+  .text.init : { *(.text.init) }
+  .text : { *(.text*) }
+  .data : { *(.data*) *(.sdata*) }
+  .bss : { *(.bss*) *(COMMON) }
+  _end = .;
+}

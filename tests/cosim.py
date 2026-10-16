@@ -2,10 +2,13 @@
 # Lockstep co-sim of the pipelined core against Spike
 # python3 tests/cosim.py <prog> | --rand [count] [seed0]
 
+import gzip
+import json
 import os
 import random
 import re
 import signal
+import struct
 import subprocess
 import sys
 
@@ -44,6 +47,13 @@ VECTOR = False
 VL_ADDR, VTYPE_ADDR, VSTART_ADDR = 0xC20, 0xC21, 0x008
 VTYPE_RESET = 0x8000_0000  # vill set out of reset
 
+GEN_MARCH = "rv32im_zicsr_zve32x_zvl128b"
+ENV_DIR = os.path.join(ROOT, "tests", "rvv_env")
+GEN_OUT = os.path.join(BUILD, "rvv")
+GEN_CAP = 2_000_000
+GEN_DEPTH = 131072
+SPAN = None
+
 
 def march():
     return VECTOR_MARCH if VECTOR else SCALAR_MARCH
@@ -60,7 +70,8 @@ def sh(cmd):
 # Compile the monitor
 def compile_monitor():
     os.makedirs(BUILD, exist_ok=True)
-    r = subprocess.run(["iverilog", "-g2012", "-DRISCV_FORMAL", "-s", "cosim", "-o", SIM, *RTL,
+    r = subprocess.run(["iverilog", "-g2012", "-DRISCV_FORMAL", f"-DCOSIM_DEPTH={DEPTH}", "-s",
+                        "cosim", "-o", SIM, *RTL,
                         os.path.join("tb", "cosim.sv")], cwd=ROOT, capture_output=True, text=True)
     notes = [l for l in r.stderr.splitlines() if "sorry: constant selects" not in l]
     if notes:
@@ -94,11 +105,17 @@ DUT_VMEM = []  # Vector store bytes
 FENCE_BUSY = []  # Fence retired early
 HUNG = []  # Never reached the end
 SPK_VMEM = []  # Vector store bytes
+SPK_VWR_AT = []
+SPK_VMEM_AT = []
+DUT_TRAP = []
+DTRAP_RE = re.compile(r"DTRAP (\d+) ([0-9a-f]+) ([0-9a-f]+)")
 VEC_WIDTH = {0: 1, 5: 2, 6: 4}  # width field to byte count
 
 
-def run_dut(dut_hex, vcd=False):
-    args = ["vvp", SIM, f"+hex={dut_hex}", "+n=8000"]
+def run_dut(dut_hex, vcd=False, n=8000, gen=False):
+    args = ["vvp", SIM, f"+hex={dut_hex}", f"+n={n}"]
+    if gen:
+        args += ["+preload_dmem", "+log_traps"]
     if vcd:
         args.append(f"+vcd={VCD}")
     out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True).stdout
@@ -110,7 +127,13 @@ def run_dut(dut_hex, vcd=False):
     TRACE.clear()
     DUT_VWR.clear()
     DUT_VMEM.clear()
+    DUT_TRAP.clear()
     for line in out.splitlines():
+        dt = DTRAP_RE.match(line)
+        if dt:
+            DUT_TRAP.append((len(trace), int(dt.group(1)), int(dt.group(2), 16),
+                             int(dt.group(3), 16)))
+            continue
         vm = VMEM_RE.match(line)
         if vm:  # strobed bytes of a beat
             addr, ws, wd = int(vm.group(1), 16), int(vm.group(2), 16), int(vm.group(3), 16)
@@ -151,17 +174,42 @@ VCSR_RE = re.compile(r"\bc(\d+)_\w+\s+0x([0-9a-f]+)")  # a control register Spik
 SPIKE_V_RE = re.compile(r"\bv(\d+)\s+0x([0-9a-f]{32})")  # a vector register Spike wrote
 
 
+def elf_span(path):
+    with open(path, "rb") as f:
+        head = f.read(52)
+        phoff, = struct.unpack_from("<I", head, 28)
+        phentsize, phnum = struct.unpack_from("<HH", head, 42)
+        f.seek(phoff)
+        ph = f.read(phentsize * phnum)
+    segs = [struct.unpack_from("<6I", ph, k * phentsize) for k in range(phnum)]
+    loads = [(s[2], s[2] + s[5]) for s in segs if s[0] == 1 and s[5]]
+    return min(a for a, _ in loads), max(b for _, b in loads)
+
+
 # Golden spike trace
-def run_spike(spike_elf, n):
+def run_spike(spike_elf, n, isa=None, park=False):
+    global SPAN
+    SPAN = elf_span(spike_elf) if park else None
     maxlines = 4 * n + 200  # Spike ignores SIGPIPE
-    cmd = ["spike", f"--isa={march()}", f"--pc={hex(BASE)}", "-l",
+    cmd = ["spike", f"--isa={isa or march()}", f"--pc={hex(BASE)}", "-l",
            "--log-commits", spike_elf]
+    if park:
+        maxlines = GEN_CAP + 200
+        cmd = ["spike", f"--isa={isa or march()}", f"--pc={hex(BASE)}", "--log-commits",
+               f"--instructions={GEN_CAP}", spike_elf]
     proc = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True,
                             start_new_session=True)
     lines = []
+    last = None
     try:
         for line in proc.stdout:
+            if park:
+                pm = SPIKE_RE.match(line)
+                if pm:
+                    if pm.group(1) == last:
+                        break
+                    last = pm.group(1)
             lines.append(line)
             if len(lines) >= maxlines:
                 break
@@ -176,6 +224,8 @@ def run_spike(spike_elf, n):
     trace = []
     SPK_VWR.clear()
     SPK_VMEM.clear()
+    SPK_VWR_AT.clear()
+    SPK_VMEM_AT.clear()
     vtag = 0
     shadow = {VL_ADDR: 0, VTYPE_ADDR: VTYPE_RESET, VSTART_ADDR: 0}
     for line in out.splitlines():
@@ -196,6 +246,7 @@ def run_spike(spike_elf, n):
         if vwr:
             for vreg, vhex in vwr:
                 SPK_VWR.append((vtag, int(vreg), int(vhex, 16)))
+                SPK_VWR_AT.append(len(trace))
             vtag += 1
         for addr, hexval in VCSR_RE.findall(tail):  # Spike prints only on change
             if int(addr) in shadow:
@@ -207,6 +258,7 @@ def run_spike(spike_elf, n):
                 for k in range(size):
                     SPK_VMEM.append(((int(eaddr, 16) + k) & (DEPTH * 4 - 1),
                                      (int(ehex, 16) >> (8 * k)) & 0xFF))
+                    SPK_VMEM_AT.append(len(trace))
         store = None
         sm = re.search(r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail)
         if sm and opcode == 0x23:
@@ -309,16 +361,29 @@ def compare_vmem():
     return True, n
 
 
+def rebased(d, s):
+    if SPAN is None or not d[1] or d[:2] != s[:2] or d[3:] != s[3:]:
+        return False
+    return s[2] == (d[2] + BASE) & MASK32 and SPAN[0] <= s[2] <= SPAN[1]
+
+
+def first_mismatch(dut, spike):
+    for i in range(min(len(dut), len(spike))):
+        if dut[i] != spike[i] and not rebased(dut[i], spike[i]):
+            return i
+    return None
+
+
 def compare(dut, spike):
     n = min(len(dut), len(spike))
-    for i in range(n):
-        if dut[i] != spike[i]:
-            why = ""
-            if dut[i][4] != spike[i][4] and dut[i][:4] == spike[i][:4]:
-                names = ("vl", "vtype", "vstart")
-                bad = [n for n, a, b in zip(names, dut[i][4], spike[i][4]) if a != b]
-                why = f" ({', '.join(bad)})"
-            return False, f"instr {i}{why}\n  DUT   {fmt(dut[i])}\n  Spike {fmt(spike[i])}" + locate(i)
+    i = first_mismatch(dut, spike)
+    if i is not None:
+        why = ""
+        if dut[i][4] != spike[i][4] and dut[i][:4] == spike[i][:4]:
+            names = ("vl", "vtype", "vstart")
+            bad = [n for n, a, b in zip(names, dut[i][4], spike[i][4]) if a != b]
+            why = f" ({', '.join(bad)})"
+        return False, f"instr {i}{why}\n  DUT   {fmt(dut[i])}\n  Spike {fmt(spike[i])}" + locate(i)
     if len(dut) != len(spike):
         return False, f"length DUT {len(dut)} Spike {len(spike)}"
     return True, n
@@ -636,8 +701,210 @@ def run_one(src):
     return True, why
 
 
+
+def gen_root(src):
+    d = os.path.dirname(os.path.abspath(src))
+    while d != os.path.dirname(d):
+        if os.path.exists(os.path.join(d, "macros", "general", "test_macros.h")):
+            return d
+        d = os.path.dirname(d)
+    sys.exit(f"no generator tree above {src}")
+
+
+def gen_build(src, out):
+    root = gen_root(src)
+    flags = [f"-march={GEN_MARCH}", "-mabi=ilp32", "-static", "-mcmodel=medany", "-nostdlib",
+             "-nostartfiles", "-DCOSIM_TEST_CASE", "-Wl,--no-warn-rwx-segments",
+             "-mno-relax", "-Wl,--no-relax",
+             f"-I{ENV_DIR}", f"-I{os.path.join(root, 'env', 'riscv-test-env')}",
+             f"-I{os.path.join(root, 'macros', 'general')}"]
+    os.makedirs(out, exist_ok=True)
+    sizes = {}
+    for side in ("dut", "spike"):
+        elf = os.path.join(out, f"{side}.elf")
+        sh([RVGCC, *flags, "-T", os.path.join(ENV_DIR, f"link_{side}.ld"), "-o", elf,
+            os.path.abspath(src)])
+        table = subprocess.run(["riscv64-elf-size", "-A", elf], capture_output=True, text=True,
+                               check=True).stdout.splitlines()[2:]
+        sizes[side] = [tuple(l.split()[:2]) for l in table if l.strip()]
+    if sizes["dut"] != sizes["spike"]:
+        sys.exit(f"image layouts differ for {src}")
+    sh(["riscv64-elf-objcopy", "-O", "verilog", "--verilog-data-width=4",
+        os.path.join(out, "dut.elf"), os.path.join(out, "dut.hex")])
+
+
+def gen_probe_build(src, out):
+    root = gen_root(src)
+    elf = os.path.join(out, "probe.elf")
+    sh([RVGCC, f"-march={GEN_MARCH}", "-mabi=ilp32", "-static", "-mcmodel=medany", "-nostdlib",
+        "-nostartfiles", "-DCOSIM_TEST_CASE", "-DTRAP_SKIP", "-Wl,--no-warn-rwx-segments",
+        "-mno-relax", "-Wl,--no-relax", f"-I{ENV_DIR}",
+        f"-I{os.path.join(root, 'env', 'riscv-test-env')}",
+        f"-I{os.path.join(root, 'macros', 'general')}",
+        "-T", os.path.join(ENV_DIR, "link_dut.ld"), "-o", elf, os.path.abspath(src)])
+    sh(["riscv64-elf-objcopy", "-O", "verilog", "--verilog-data-width=4", elf,
+        os.path.join(out, "probe.hex")])
+
+
+def gen_probe(out, cycles=None):
+    spike, _ = gen_load(os.path.join(out, "spike.json.gz"))
+    n = cycles or 40 * len(spike) + 20000
+    run_dut(os.path.join(os.path.abspath(out), "probe.hex"), n=n, gen=True)
+    words = {}
+    for insn, k in [(t[2], 0) for t in TRACE] + [(t[3], 1) for t in DUT_TRAP]:
+        if insn & 0x7F in (0x57, 0x07, 0x27):
+            words.setdefault(f"{insn:08x}", [0, 0])[k] += 1
+    return ("HUNG" if HUNG else "DONE"), json.dumps(words, separators=(",", ":"))
+
+
+def gen_parks(spike_elf):
+    out = subprocess.run(["riscv64-elf-nm", spike_elf], capture_output=True, text=True,
+                         check=True).stdout
+    parks = {}
+    for line in out.splitlines():
+        f = line.split()
+        if len(f) == 3 and f[2].startswith("park_"):
+            parks[f[2][5:]] = (int(f[0], 16) - BASE) & MASK32
+    return parks
+
+
+def gen_save(path, name, trace, parks, end):
+    data = {"test": name, "span": list(SPAN), "parks": parks, "end": end,
+            "trace": [[pc, rd, val, [s[0], [list(b) for b in s[1]]] if s else None,
+                       list(v) if v else None] for pc, rd, val, s, v in trace],
+            "vwr": [list(e) for e in SPK_VWR], "vwr_at": SPK_VWR_AT,
+            "vmem": [list(e) for e in SPK_VMEM], "vmem_at": SPK_VMEM_AT}
+    with gzip.open(path, "wt") as f:
+        json.dump(data, f, separators=(",", ":"))
+
+
+def gen_load(path):
+    global SPAN
+    with gzip.open(path, "rt") as f:
+        data = json.load(f)
+    SPAN = tuple(data["span"])
+    SPK_VWR[:] = [tuple(e) for e in data["vwr"]]
+    SPK_VWR_AT[:] = data["vwr_at"]
+    SPK_VMEM[:] = [tuple(e) for e in data["vmem"]]
+    SPK_VMEM_AT[:] = data["vmem_at"]
+    trace = [(pc, rd, val, (s[0], tuple(tuple(b) for b in s[1])) if s else None,
+              tuple(v) if v else None) for pc, rd, val, s, v in data["trace"]]
+    return trace, data
+
+
+def gen_spike(src, out):
+    name = os.path.splitext(os.path.basename(src))[0]
+    gen_build(src, out)
+    elf = os.path.join(out, "spike.elf")
+    trace = run_spike(elf, GEN_CAP, isa=GEN_MARCH, park=True)
+    parks = gen_parks(elf)
+    end = next((k for k, pc in parks.items() if trace and trace[-1][0] == pc), "cap")
+    gen_save(os.path.join(out, "spike.json.gz"), name, trace, parks, end)
+    return name, len(trace), end
+
+
+def first_elem(dut, spk, key):
+    for j in range(min(len(dut), len(spk))):
+        if key(dut[j]) != key(spk[j]):
+            return j
+    return None
+
+
+def gen_verdict(dut, spike, data):
+    marks = []
+    i = first_mismatch(dut, spike)
+    if i is not None:
+        insn = f" insn={TRACE[i][2]:08x}" if i < len(TRACE) else ""
+        marks.append((i, f"instr {i}{insn} DUT {fmt(dut[i])} | Spike {fmt(spike[i])}"))
+    j = first_elem(DUT_VWR, SPK_VWR, lambda e: e[1:])
+    if j is not None:
+        (_, dr, dv), (_, sr, sv) = DUT_VWR[j], SPK_VWR[j]
+        marks.append((SPK_VWR_AT[j], f"vector write {j} at instr {SPK_VWR_AT[j]} "
+                                     f"DUT v{dr}={dv:032x} | Spike v{sr}={sv:032x}"))
+    j = first_elem(DUT_VMEM, SPK_VMEM, lambda e: e)
+    if j is not None:
+        (da, dv), (sa, sv) = DUT_VMEM[j], SPK_VMEM[j]
+        marks.append((SPK_VMEM_AT[j], f"vector store byte {j} at instr {SPK_VMEM_AT[j]} "
+                                      f"DUT b{da:x}={dv:02x} | Spike b{sa:x}={sv:02x}"))
+    first = min(marks, key=lambda m: m[0]) if marks else None
+    if DUT_TRAP:
+        k, _, pc, insn = DUT_TRAP[0]
+        if first is None or first[0] >= k:
+            both = " spike also trapped" if i is None and data["end"] == "trap" else ""
+            return "TRAP", f"pc={pc:08x} insn={insn:08x}{both}"
+    if first is not None:
+        return "DIVERGE", first[1]
+    if HUNG:
+        return "HUNG", f"{HUNG[0][5:]} at instr {len(dut)} of {len(spike)}"
+    for what, a, b in (("length", len(dut), len(spike)),
+                       ("vector write count", len(DUT_VWR), len(SPK_VWR)),
+                       ("vector store byte count", len(DUT_VMEM), len(SPK_VMEM))):
+        if a != b:
+            return "DIVERGE", f"{what} DUT {a} Spike {b}"
+    if FENCE_BUSY:
+        return "DIVERGE", FENCE_BUSY[0]
+    if data["end"] != "pass":
+        return "DIVERGE", f"Spike ended at {data['end']}"
+    return "PASS", f"{len(dut)} instrs {len(DUT_VWR)} vreg writes {len(DUT_VMEM)} vstore bytes"
+
+
+def gen_dut(out, cycles=None):
+    spike, data = gen_load(os.path.join(out, "spike.json.gz"))
+    n = cycles or 40 * len(spike) + 20000
+    dut = run_dut(os.path.join(os.path.abspath(out), "dut.hex"), n=n, gen=True)
+    return gen_verdict(dut, spike, data)
+
+
+def gen_main(mode, args):
+    global VECTOR, DEPTH
+    VECTOR = True
+    DEPTH = GEN_DEPTH
+    build_sim = "--no-compile" not in args
+    args = [a for a in args if a != "--no-compile"]
+    cycles = None
+    if "--cycles" in args:
+        k = args.index("--cycles")
+        cycles = int(args[k + 1])
+        del args[k:k + 2]
+    if mode == "--compile":
+        compile_monitor()
+        return 0
+    if mode == "--gen-probe-build":
+        gen_probe_build(*args)
+        print("BUILT")
+        return 0
+    if mode == "--gen-probe":
+        if build_sim:
+            compile_monitor()
+        verdict, detail = gen_probe(args[0], cycles)
+        print(f"{verdict} {detail}")
+        return 0
+    if mode in ("--gen", "--gen-spike"):
+        if len(args) not in (1, 2):
+            sys.exit(f"usage: python3 tests/cosim.py {mode} <test.S> [outdir]")
+        src = args[0]
+        out = args[1] if len(args) == 2 else os.path.join(
+            GEN_OUT, os.path.splitext(os.path.basename(src))[0])
+        name, count, end = gen_spike(src, out)
+        if mode == "--gen-spike":
+            print(f"SPIKE {name} {count} instrs end={end}")
+            return 0
+    else:
+        if len(args) != 1:
+            sys.exit("usage: python3 tests/cosim.py --gen-dut <outdir> [--no-compile] [--cycles N]")
+        out = args[0]
+    if build_sim:
+        compile_monitor()
+    verdict, detail = gen_dut(out, cycles)
+    print(f"{verdict} {detail}")
+    return 0 if verdict == "PASS" else 1
+
+
 def main():
     global VECTOR
+    if len(sys.argv) >= 2 and sys.argv[1] in ("--gen", "--gen-spike", "--gen-dut", "--compile",
+                                              "--gen-probe-build", "--gen-probe"):
+        sys.exit(gen_main(sys.argv[1], sys.argv[2:]))
     if "--vec" in sys.argv[1:]:
         VECTOR = True
         sys.argv.remove("--vec")
