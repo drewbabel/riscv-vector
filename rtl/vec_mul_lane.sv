@@ -49,7 +49,13 @@ module vec_mul_lane
   assign b_signed = (op == VEC_MUL) || (op == VEC_MULH);
 
 
-  assign mul_valid = (op == VEC_MUL) || (op == VEC_MULH) || (op == VEC_MULHU) || (op == VEC_MULHSU);
+  always_comb begin
+    case (op)
+      VEC_MUL, VEC_MULH, VEC_MULHU, VEC_MULHSU, VEC_MACC, VEC_NMSAC, VEC_MADD, VEC_NMSUB:
+      mul_valid = 1'b1;
+      default: mul_valid = 1'b0;
+    endcase
+  end
 
 
   always_comb begin
@@ -96,6 +102,14 @@ module vec_mul_lane
 
         VEC_MULH, VEC_MULHU, VEC_MULHSU: begin
           result = ELEN'(full_product >> width) & result_mask;
+        end
+
+        VEC_MACC, VEC_MADD: begin
+          result = (full_product[ELEN-1:0] + c) & result_mask;
+        end
+
+        VEC_NMSAC, VEC_NMSUB: begin
+          result = (c - full_product[ELEN-1:0]) & result_mask;
         end
 
         default: begin
