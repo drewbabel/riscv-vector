@@ -2,29 +2,115 @@
 
 module fp_rec7_tb ();
 
-  localparam int Bias = 127;
-  localparam int MinChecks = 400000;
+  localparam int MinChecks = 480000;
+
+  int checks;
+  int errors;
+  int max_errors;
+
+  fp_rec7_bench #(
+      .EXP_W (8),
+      .FRAC_W(23),
+      .FMT   ("f32")
+  ) f32_bench ();
+
+  fp_rec7_bench #(
+      .EXP_W (11),
+      .FRAC_W(52),
+      .FMT   ("f64")
+  ) f64_bench ();
+
+  fp_rec7_bench #(
+      .EXP_W (5),
+      .FRAC_W(10),
+      .FMT   ("f16")
+  ) f16_bench ();
+
+  task automatic do_verdict();
+    checks = f32_bench.checks + f64_bench.checks + f16_bench.checks;
+    errors = f32_bench.errors + f64_bench.errors + f16_bench.errors;
+    if (f32_bench.checks < MinChecks || f64_bench.checks < MinChecks ||
+        f16_bench.checks < MinChecks)
+      $fatal(
+          1,
+          "TB UNDER-RAN: %0d, %0d and %0d checks, expected at least %0d each",
+          f32_bench.checks,
+          f64_bench.checks,
+          f16_bench.checks,
+          MinChecks
+      );
+    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $display("PASS: %0d checks", checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("fp_rec7_tb.vcd");
+    $dumpvars(0, f32_bench);
+    wait (f32_bench.done && f64_bench.done && f16_bench.done);
+    do_verdict();
+  end
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (f32_bench.errors + f64_bench.errors + f16_bench.errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches",
+             f32_bench.errors + f64_bench.errors + f16_bench.errors);
+    end
+  end
+
+endmodule
+
+module fp_rec7_bench
+  import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup;
+  import fp_pkg::FlagNv, fp_pkg::FlagDz, fp_pkg::FlagOf, fp_pkg::FlagNx;
+#(
+    parameter  int    EXP_W  = 8,
+    parameter  int    FRAC_W = 23,
+    parameter  string FMT    = "f32",
+    localparam int    FLEN   = 1 + EXP_W + FRAC_W
+) ();
+
+  localparam int Bias = (1 << (EXP_W - 1)) - 1;
   localparam int RandomN = 200000;
-  localparam logic [31:0] CanonNan = 32'h7fc0_0000;
-  localparam logic [4:0] FlagNv = 5'b10000;
-  localparam logic [4:0] FlagDz = 5'b01000;
-  localparam logic [4:0] FlagOfNx = 5'b00101;
+  localparam int ShowErrors = 20;
+  localparam int FillW = FRAC_W - 7;
+  localparam logic [FLEN-1:0] CanonNan = {1'b0, {EXP_W{1'b1}}, 1'b1, {(FRAC_W - 1) {1'b0}}};
+  localparam logic [FLEN-1:0] One = {2'b00, {(EXP_W - 1) {1'b1}}, {FRAC_W{1'b0}}};
+  localparam logic [FLEN-2:0] InfMag = {{EXP_W{1'b1}}, {FRAC_W{1'b0}}};
+  localparam logic [FLEN-2:0] MaxMag = {{(EXP_W - 1) {1'b1}}, 1'b0, {FRAC_W{1'b1}}};
 
   int checks = 0;
   int errors = 0;
-  int max_errors = 0;
   int sec_start = 0;
+  logic done = 1'b0;
 
   logic sqrt;
   logic [2:0] rm;
-  logic [31:0] a;
-  logic [31:0] result;
+  logic [FLEN-1:0] a;
+  logic [FLEN-1:0] result;
   logic [4:0] fflags;
 
-  int rec_exps[12] = '{1, 2, 3, 64, 126, 127, 128, 200, 251, 252, 253, 254};
-  int rsq_exps[6] = '{2, 4, 126, 128, 200, 254};
+  int rec_exps[12] = '{
+      1,
+      2,
+      3,
+      Bias / 2,
+      Bias - 1,
+      Bias,
+      Bias + 1,
+      Bias + Bias / 2,
+      2 * Bias - 3,
+      2 * Bias - 2,
+      2 * Bias - 1,
+      2 * Bias
+  };
+  int rsq_exps[6] = '{2, 4, Bias - 1, Bias + 1, 2 * (3 * Bias / 4), 2 * Bias};
 
-  fp_rec7 dut (
+  fp_rec7 #(
+      .ExpW (EXP_W),
+      .FracW(FRAC_W)
+  ) dut (
       .sqrt(sqrt),
       .rm(rm),
       .a(a),
@@ -300,59 +386,61 @@ module fp_rec7_tb ();
     endcase
   endfunction
 
-  function automatic int lead_zeros(input logic [22:0] f);
-    lead_zeros = 23;
-    for (int i = 0; i < 23; i++) if (f[i]) lead_zeros = 22 - i;
+  function automatic int lead_zeros(input logic [FRAC_W-1:0] f);
+    lead_zeros = FRAC_W;
+    for (int i = 0; i < FRAC_W; i++) if (f[i]) lead_zeros = FRAC_W - 1 - i;
   endfunction
 
-  function automatic int norm_exp(input logic [30:0] mag);
-    norm_exp = (mag[30:23] == 8'h00) ? -lead_zeros(mag[22:0]) : int'(mag[30:23]);
+  function automatic int norm_exp(input logic [FLEN-2:0] mag);
+    if (mag[FLEN-2:FRAC_W] == '0) norm_exp = -lead_zeros(mag[FRAC_W-1:0]);
+    else norm_exp = int'(mag[FLEN-2:FRAC_W]);
   endfunction
 
-  function automatic logic [22:0] norm_sig(input logic [30:0] mag);
-    norm_sig = (mag[30:23] == 8'h00) ? mag[22:0] << (lead_zeros(mag[22:0]) + 1) : mag[22:0];
+  function automatic logic [FRAC_W-1:0] norm_sig(input logic [FLEN-2:0] mag);
+    if (mag[FLEN-2:FRAC_W] == '0) norm_sig = mag[FRAC_W-1:0] << (lead_zeros(mag[FRAC_W-1:0]) + 1);
+    else norm_sig = mag[FRAC_W-1:0];
   endfunction
 
-  function automatic logic [36:0] ref_rec7(input logic [31:0] x, input logic [2:0] mode);
+  function automatic logic [FLEN+4:0] ref_rec7(input logic [FLEN-1:0] x, input logic [2:0] mode);
     logic s;
     logic to_max;
-    logic [22:0] sig;
-    logic [22:0] osig;
+    logic [FRAC_W-1:0] sig;
+    logic [FRAC_W-1:0] osig;
     int oe;
-    s = x[31];
-    to_max = (mode == 3'd1) || (mode == 3'd2 && !s) || (mode == 3'd3 && s);
-    if (x[30:23] == 8'hff && x[22:0] != '0) begin
-      ref_rec7 = {x[22] ? 5'b0 : FlagNv, CanonNan};
-    end else if (x[30:23] == 8'hff) begin
-      ref_rec7 = {5'b0, s, 31'h0};
-    end else if (x[30:0] == '0) begin
-      ref_rec7 = {FlagDz, s, 31'h7f80_0000};
+    s = x[FLEN-1];
+    to_max = (mode == RmRtz) || (mode == RmRdn && !s) || (mode == RmRup && s);
+    if (x[FLEN-2:FRAC_W] == '1 && x[FRAC_W-1:0] != '0) begin
+      ref_rec7 = {x[FRAC_W-1] ? 5'b0 : FlagNv, CanonNan};
+    end else if (x[FLEN-2:FRAC_W] == '1) begin
+      ref_rec7 = {5'b0, s, (FLEN - 1)'(0)};
+    end else if (x[FLEN-2:0] == '0) begin
+      ref_rec7 = {FlagDz, s, InfMag};
     end else begin
-      sig  = norm_sig(x[30:0]);
-      oe   = 2 * Bias - 1 - norm_exp(x[30:0]);
-      osig = {rec_table(7'(sig >> 16)), 16'h0};
-      if (oe > 2 * Bias) ref_rec7 = {FlagOfNx, s, to_max ? 31'h7f7f_ffff : 31'h7f80_0000};
-      else if (oe <= 0) ref_rec7 = {5'b0, s, 8'h00, 23'({1'b1, osig} >> (1 - oe))};
-      else ref_rec7 = {5'b0, s, 8'(oe), osig};
+      sig  = norm_sig(x[FLEN-2:0]);
+      oe   = 2 * Bias - 1 - norm_exp(x[FLEN-2:0]);
+      osig = {rec_table(sig[FRAC_W-1-:7]), FillW'(0)};
+      if (oe > 2 * Bias) ref_rec7 = {FlagOf | FlagNx, s, to_max ? MaxMag : InfMag};
+      else if (oe <= 0) ref_rec7 = {5'b0, s, EXP_W'(0), FRAC_W'({1'b1, osig} >> (1 - oe))};
+      else ref_rec7 = {5'b0, s, EXP_W'(oe), osig};
     end
   endfunction
 
-  function automatic logic [36:0] ref_rsqrt7(input logic [31:0] x);
-    logic [22:0] sig;
+  function automatic logic [FLEN+4:0] ref_rsqrt7(input logic [FLEN-1:0] x);
+    logic [FRAC_W-1:0] sig;
     int ne;
-    if (x[30:23] == 8'hff && x[22:0] != '0) begin
-      ref_rsqrt7 = {x[22] ? 5'b0 : FlagNv, CanonNan};
-    end else if (x[30:0] == '0) begin
-      ref_rsqrt7 = {FlagDz, x[31], 31'h7f80_0000};
-    end else if (x[31]) begin
+    if (x[FLEN-2:FRAC_W] == '1 && x[FRAC_W-1:0] != '0) begin
+      ref_rsqrt7 = {x[FRAC_W-1] ? 5'b0 : FlagNv, CanonNan};
+    end else if (x[FLEN-2:0] == '0) begin
+      ref_rsqrt7 = {FlagDz, x[FLEN-1], InfMag};
+    end else if (x[FLEN-1]) begin
       ref_rsqrt7 = {FlagNv, CanonNan};
-    end else if (x[30:23] == 8'hff) begin
-      ref_rsqrt7 = 37'h0;
+    end else if (x[FLEN-2:FRAC_W] == '1) begin
+      ref_rsqrt7 = '0;
     end else begin
-      sig = norm_sig(x[30:0]);
-      ne = norm_exp(x[30:0]);
+      sig = norm_sig(x[FLEN-2:0]);
+      ne = norm_exp(x[FLEN-2:0]);
       ref_rsqrt7 = {
-        5'b0, 1'b0, 8'((3 * Bias - 1 - ne) / 2), rsq_table({ne[0], 6'(sig >> 17)}), 16'h0
+        5'b0, 1'b0, EXP_W'((3 * Bias - 1 - ne) / 2), rsq_table({ne[0], sig[FRAC_W-1-:6]}), FillW'(0)
       };
     end
   endfunction
@@ -361,146 +449,158 @@ module fp_rec7_tb ();
     rnd32 = 32'($urandom);
   endfunction
 
-  function automatic logic [22:0] sub_sig(input int lz, input logic [6:0] t);
-    logic [22:0] lead;
-    logic [22:0] tmask;
-    logic [22:0] f;
-    lead = 23'd1 << (22 - lz);
-    tmask = 23'({7'h7f, 23'h0} >> (8 + lz));
-    f = lead | (23'(rnd32()) & (lead - 23'd1));
-    sub_sig = (f & ~tmask) | 23'({t, 23'h0} >> (8 + lz));
+  function automatic logic [FLEN-1:0] rnd_bits();
+    rnd_bits = FLEN'({$urandom, $urandom});
   endfunction
 
-  function automatic logic [31:0] special_val(input int k);
+  function automatic logic [FRAC_W-1:0] top_frac(input logic [22:0] p);
+    top_frac = FRAC_W'({p, 64'b0} >> (87 - FRAC_W));
+  endfunction
+
+  function automatic logic [FRAC_W-1:0] sub_sig(input int lz, input logic [6:0] t);
+    logic [FRAC_W-1:0] lead;
+    logic [FRAC_W-1:0] tmask;
+    logic [FRAC_W-1:0] f;
+    lead = FRAC_W'(1) << (FRAC_W - 1 - lz);
+    tmask = FRAC_W'({7'h7f, FRAC_W'(0)} >> (8 + lz));
+    f = lead | (FRAC_W'(rnd_bits()) & (lead - FRAC_W'(1)));
+    sub_sig = (f & ~tmask) | FRAC_W'({t, FRAC_W'(0)} >> (8 + lz));
+  endfunction
+
+  function automatic logic [FLEN-1:0] special_val(input int k);
     case (k)
-      0: special_val = 32'h0000_0000;
-      1: special_val = 32'h8000_0000;
-      2: special_val = 32'h7f80_0000;
-      3: special_val = 32'hff80_0000;
-      4: special_val = 32'h7fc0_0000;
-      5: special_val = 32'hffc0_0000;
-      6: special_val = 32'h7fff_ffff;
-      7: special_val = {1'(rnd32()), 8'hff, 1'b1, 22'(rnd32())};
-      8: special_val = 32'h7f80_0001;
-      9: special_val = 32'hff80_0001;
-      10: special_val = 32'h7fbf_ffff;
-      11: special_val = {1'(rnd32()), 8'hff, 1'b0, 22'(rnd32()) | 22'd1};
-      12: special_val = 32'h8000_0001;
-      13: special_val = 32'h807f_ffff;
-      14: special_val = {1'b1, 8'h00, 23'(rnd32()) | 23'd1};
-      15: special_val = 32'h8080_0000;
-      16: special_val = 32'hff7f_ffff;
-      17: special_val = {1'b1, 8'(1 + rnd32() % 254), 23'(rnd32())};
-      18: special_val = 32'h0000_0001;
-      19: special_val = 32'h001f_ffff;
-      20: special_val = 32'h801f_ffff;
-      21: special_val = {1'(rnd32()), 8'h00, 2'b00, 21'(rnd32()) | 21'd1};
-      22: special_val = 32'h0020_0000;
-      23: special_val = 32'h8020_0000;
-      24: special_val = 32'h003f_ffff;
-      25: special_val = 32'h0040_0000;
-      26: special_val = 32'h007f_ffff;
-      27: special_val = 32'h0080_0000;
-      28: special_val = 32'h7f7f_ffff;
-      29: special_val = 32'hff7f_ffff;
-      30: special_val = 32'h7f00_0000;
-      31: special_val = 32'h7e80_0000;
-      32: special_val = 32'h7e7f_ffff;
-      33: special_val = 32'h3f80_0000;
-      34: special_val = 32'hbf80_0000;
-      35: special_val = 32'h0071_8abc;
-      36: special_val = 32'h7f76_5432;
-      default: special_val = {1'(rnd32()), 8'(253 + rnd32() % 2), 23'(rnd32())};
+      0: special_val = '0;
+      1: special_val = {1'b1, (FLEN - 1)'(0)};
+      2: special_val = {1'b0, InfMag};
+      3: special_val = {1'b1, InfMag};
+      4: special_val = CanonNan;
+      5: special_val = {1'b1, CanonNan[FLEN-2:0]};
+      6: special_val = {1'b0, {(FLEN - 1) {1'b1}}};
+      7: special_val = {1'(rnd32()), {EXP_W{1'b1}}, 1'b1, (FRAC_W - 1)'(rnd_bits())};
+      8: special_val = {1'b0, InfMag} | FLEN'(1);
+      9: special_val = {1'b1, InfMag} | FLEN'(1);
+      10: special_val = {1'b0, {EXP_W{1'b1}}, 1'b0, {(FRAC_W - 1) {1'b1}}};
+      11:
+      special_val = {
+        1'(rnd32()), {EXP_W{1'b1}}, 1'b0, (FRAC_W - 1)'(rnd_bits()) | (FRAC_W - 1)'(1)
+      };
+      12: special_val = {1'b1, (FLEN - 1)'(1)};
+      13: special_val = {1'b1, EXP_W'(0), {FRAC_W{1'b1}}};
+      14: special_val = {1'b1, EXP_W'(0), FRAC_W'(rnd_bits()) | FRAC_W'(1)};
+      15: special_val = {1'b1, EXP_W'(1), FRAC_W'(0)};
+      16: special_val = {1'b1, MaxMag};
+      17: special_val = {1'b1, EXP_W'(1 + rnd32() % (2 * Bias)), FRAC_W'(rnd_bits())};
+      18: special_val = FLEN'(1);
+      19: special_val = {1'b0, EXP_W'(0), 2'b00, {(FRAC_W - 2) {1'b1}}};
+      20: special_val = {1'b1, EXP_W'(0), 2'b00, {(FRAC_W - 2) {1'b1}}};
+      21:
+      special_val = {1'(rnd32()), EXP_W'(0), 2'b00, (FRAC_W - 2)'(rnd_bits()) | (FRAC_W - 2)'(1)};
+      22: special_val = {1'b0, EXP_W'(0), 2'b01, (FRAC_W - 2)'(0)};
+      23: special_val = {1'b1, EXP_W'(0), 2'b01, (FRAC_W - 2)'(0)};
+      24: special_val = {1'b0, EXP_W'(0), 2'b01, {(FRAC_W - 2) {1'b1}}};
+      25: special_val = {1'b0, EXP_W'(0), 1'b1, (FRAC_W - 1)'(0)};
+      26: special_val = {1'b0, EXP_W'(0), {FRAC_W{1'b1}}};
+      27: special_val = {1'b0, EXP_W'(1), FRAC_W'(0)};
+      28: special_val = {1'b0, MaxMag};
+      29: special_val = {1'b1, MaxMag};
+      30: special_val = {1'b0, EXP_W'(2 * Bias), FRAC_W'(0)};
+      31: special_val = {1'b0, EXP_W'(2 * Bias - 1), FRAC_W'(0)};
+      32: special_val = {1'b0, EXP_W'(2 * Bias - 2), {FRAC_W{1'b1}}};
+      33: special_val = One;
+      34: special_val = {1'b1, One[FLEN-2:0]};
+      35: special_val = {1'b0, EXP_W'(0), top_frac(23'h71_8abc)};
+      36: special_val = {1'b0, EXP_W'(2 * Bias), top_frac(23'h76_5432)};
+      default: special_val = {1'(rnd32()), EXP_W'(2 * Bias - 1 + rnd32() % 2), FRAC_W'(rnd_bits())};
     endcase
   endfunction
 
-  function automatic logic [31:0] rand_input();
+  function automatic logic [FLEN-1:0] rand_input();
     logic [2:0] r;
     r = 3'(rnd32());
-    if (r[1:0] != 2'b00) rand_input = rnd32();
+    if (r[1:0] != 2'b00) rand_input = rnd_bits();
     else if (r[2]) rand_input = special_val(int'(rnd32() % 38));
-    else rand_input = {1'(rnd32()), 8'h00, sub_sig(int'(rnd32() % 23), 7'(rnd32()))};
+    else rand_input = {1'(rnd32()), EXP_W'(0), sub_sig(int'(rnd32() % FRAC_W), 7'(rnd32()))};
   endfunction
 
   task automatic check(input string sec, input logic op, input logic [2:0] mode,
-                       input logic [31:0] x);
-    logic [36:0] want;
+                       input logic [FLEN-1:0] x);
+    logic [FLEN+4:0] want;
     sqrt = op;
     rm = mode;
     a = x;
     #1;
     want = op ? ref_rsqrt7(x) : ref_rec7(x, mode);
     checks++;
-    if (result !== want[31:0] || fflags !== want[36:32]) begin
+    if (result !== want[FLEN-1:0] || fflags !== want[FLEN+4:FLEN]) begin
       errors++;
-      if (errors <= 20)
+      if (errors <= ShowErrors)
         $display(
-            "FAIL %s %s a=%h rm=%0d exp %h/%b got %h/%b",
+            "FAIL %s %s %s a=%h rm=%0d exp %h/%b got %h/%b",
+            FMT,
             sec,
             op ? "vfrsqrt7" : "vfrec7",
             x,
             mode,
-            want[31:0],
-            want[36:32],
+            want[FLEN-1:0],
+            want[FLEN+4:FLEN],
             result,
             fflags
         );
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
-  endtask
+  endtask  // Automatic
 
   task automatic section_done(input string sec);
-    $display("%s: %0d checks", sec, checks - sec_start);
+    $display("%s %s: %0d checks", FMT, sec, checks - sec_start);
     sec_start = checks;
-  endtask
-
-  task automatic dump_setup();
-    string dump_arg;
-    if ($value$plusargs("DUMP%s", dump_arg)) begin
-      $dumpfile({"fp_rec7_tb", dump_arg, ".vcd"});
-      $dumpvars(0, fp_rec7_tb);
-    end
-  endtask
+  endtask  // Automatic
 
   task automatic ref_selftest();
     if (ref_rsqrt7(
-            32'h0071_8abc
-        ) !== {5'b0, 32'h5f08_0000} || ref_rsqrt7(
-            32'h7f76_5432
-        ) !== {5'b0, 32'h1f82_0000} || ref_rec7(
-            32'h0071_8abc, 3'd0
-        ) !== {5'b0, 32'h7e90_0000} || ref_rec7(
-            32'h7f76_5432, 3'd0
-        ) !== {5'b0, 32'h0021_4000})
+            FLEN'(32'h0071_8abc)
+        ) !== (FLEN + 5)'({5'b0, 32'h5f08_0000}) || ref_rsqrt7(
+            FLEN'(32'h7f76_5432)
+        ) !== (FLEN + 5)'({5'b0, 32'h1f82_0000}) || ref_rec7(
+            FLEN'(32'h0071_8abc), RmRne
+        ) !== (FLEN + 5)'({5'b0, 32'h7e90_0000}) || ref_rec7(
+            FLEN'(32'h7f76_5432), RmRne
+        ) !== (FLEN + 5)'({5'b0, 32'h0021_4000}))
       $fatal(1, "TB REFERENCE BROKEN: spec examples disagree");
-  endtask
+  endtask  // Automatic
 
   task automatic table_rec7();
-    logic [15:0] fill;
+    logic [FillW-1:0] fill;
     for (int i = 0; i < 128; i++)
       for (int e = 0; e < 12; e++)
         for (int k = 0; k < 3; k++)
           for (int s = 0; s < 2; s++)
             for (int m = 0; m < 5; m++) begin
-              fill = (k == 0) ? 16'h0000 : (k == 1) ? 16'hffff : 16'(rnd32());
-              check("table_rec7", 1'b0, 3'(m), {1'(s), 8'(rec_exps[e]), 7'(i), fill});
+              case (k)
+                0: fill = '0;
+                1: fill = '1;
+                default: fill = FillW'(rnd_bits());
+              endcase
+              check("table_rec7", 1'b0, 3'(m), {1'(s), EXP_W'(rec_exps[e]), 7'(i), fill});
             end
     section_done("table_rec7");
-  endtask
+  endtask  // Automatic
 
   task automatic table_rsqrt7();
-    logic [16:0] fill;
-    logic [ 7:0] ex;
+    logic [  FillW:0] fill;
+    logic [EXP_W-1:0] ex;
     for (int i = 0; i < 128; i++)
       for (int e = 0; e < 6; e++)
         for (int k = 0; k < 3; k++)
           for (int m = 0; m < 5; m++) begin
-            fill = (k == 0) ? 17'h0 : (k == 1) ? 17'h1ffff : 17'(rnd32());
-            ex   = 8'(rsq_exps[e] - ((i >= 64) ? 1 : 0));
+            case (k)
+              0: fill = '0;
+              1: fill = '1;
+              default: fill = (FillW + 1)'(rnd_bits());
+            endcase
+            ex = EXP_W'(rsq_exps[e] - ((i >= 64) ? 1 : 0));
             check("table_rsqrt7", 1'b1, 3'(m), {1'b0, ex, 6'(i), fill});
           end
     section_done("table_rsqrt7");
-  endtask
+  endtask  // Automatic
 
   task automatic specials();
     for (int k = 0; k < 38; k++)
@@ -508,37 +608,26 @@ module fp_rec7_tb ();
         for (int op = 0; op < 2; op++)
           for (int m = 0; m < 5; m++) check("specials", 1'(op), 3'(m), special_val(k));
     section_done("specials");
-  endtask
+  endtask  // Automatic
 
   task automatic subnormals();
-    for (int lz = 0; lz < 23; lz++)
+    for (int lz = 0; lz < FRAC_W; lz++)
       for (int t = 0; t < 128; t++)
         for (int op = 0; op < 2; op++)
           for (int s = 0; s < 2; s++)
             for (int m = 0; m < 5; m++)
-              check("subnormals", 1'(op), 3'(m), {1'(s), 8'h00, sub_sig(lz, 7'(t))});
+              check("subnormals", 1'(op), 3'(m), {1'(s), EXP_W'(0), sub_sig(lz, 7'(t))});
     section_done("subnormals");
-  endtask
+  endtask  // Automatic
 
   task automatic random_sweep(input logic op);
     for (int i = 0; i < RandomN; i++)
       check(op ? "random_rsqrt7" : "random_rec7", op, 3'(rnd32() % 5), rand_input());
     section_done(op ? "random_rsqrt7" : "random_rec7");
-  endtask
-
-  task automatic do_verdict();
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $display("PASS: %0d checks", checks);
-    $finish;
-  endtask
-
-  initial void'($value$plusargs("max_errors=%d", max_errors));
+  endtask  // Automatic
 
   initial begin
-    dump_setup();
-    ref_selftest();
+    if (EXP_W == 8 && FRAC_W == 23) ref_selftest();
 
     table_rec7();
     table_rsqrt7();
@@ -550,7 +639,7 @@ module fp_rec7_tb ();
     random_sweep(1'b0);
     random_sweep(1'b1);
 
-    do_verdict();
+    done = 1'b1;
   end
 
 endmodule

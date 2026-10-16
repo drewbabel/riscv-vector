@@ -3,21 +3,96 @@
 module fp_add_tb ();
 
   localparam int MinChecks = 464000;
-  localparam int MaxPrint  = 20;
+
+  int checks;
+  int errors;
+  int max_errors;
+
+  fp_add_bench #(
+      .EXP_W (8),
+      .FRAC_W(23),
+      .FMT   ("f32")
+  ) f32_bench ();
+
+  fp_add_bench #(
+      .EXP_W (11),
+      .FRAC_W(52),
+      .FMT   ("f64")
+  ) f64_bench ();
+
+  fp_add_bench #(
+      .EXP_W (5),
+      .FRAC_W(10),
+      .FMT   ("f16")
+  ) f16_bench ();
+
+  task automatic do_verdict();
+    checks = f32_bench.checks + f64_bench.checks + f16_bench.checks;
+    errors = f32_bench.errors + f64_bench.errors + f16_bench.errors;
+    if (f32_bench.checks < MinChecks || f64_bench.checks < MinChecks ||
+        f16_bench.checks < MinChecks)
+      $fatal(
+          1,
+          "TB UNDER-RAN: %0d, %0d and %0d checks, expected at least %0d each",
+          f32_bench.checks,
+          f64_bench.checks,
+          f16_bench.checks,
+          MinChecks
+      );
+    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $display("PASS: %0d checks", checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("fp_add_tb.vcd");
+    $dumpvars(0, f32_bench);
+    wait (f32_bench.done && f64_bench.done && f16_bench.done);
+    do_verdict();
+  end
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (f32_bench.errors + f64_bench.errors + f16_bench.errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches",
+             f32_bench.errors + f64_bench.errors + f16_bench.errors);
+    end
+  end
+
+endmodule
+
+module fp_add_bench
+  import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup, fp_pkg::RmRmm;
+  import fp_pkg::FlagNv;
+#(
+    parameter  int    EXP_W  = 8,
+    parameter  int    FRAC_W = 23,
+    parameter  string FMT    = "f32",
+    localparam int    FLEN   = 1 + EXP_W + FRAC_W
+) ();
+
+  localparam int ShowErrors = 20;
+  localparam string TfDir = "build/testfloat/";
+
+  localparam logic [FLEN-1:0] PosInf = {1'b0, {EXP_W{1'b1}}, {FRAC_W{1'b0}}};
+  localparam logic [FLEN-1:0] One = {2'b00, {(EXP_W - 1) {1'b1}}, {FRAC_W{1'b0}}};
+  localparam logic [FLEN-1:0] CanonNan = {1'b0, {EXP_W{1'b1}}, 1'b1, {(FRAC_W - 1) {1'b0}}};
 
   int checks = 0;
   int errors = 0;
-  int max_errors = 0;
-  int stride = 1;
+  logic done = 1'b0;
 
   logic sub;
   logic [2:0] rm;
-  logic [31:0] a;
-  logic [31:0] b;
-  logic [31:0] result;
+  logic [FLEN-1:0] a;
+  logic [FLEN-1:0] b;
+  logic [FLEN-1:0] result;
   logic [4:0] fflags;
 
-  fp_add dut (
+  fp_add #(
+      .ExpW (EXP_W),
+      .FracW(FRAC_W)
+  ) dut (
       .sub(sub),
       .rm(rm),
       .a(a),
@@ -26,21 +101,12 @@ module fp_add_tb ();
       .fflags(fflags)
   );
 
-  task automatic dump_if_asked();
-    string dump_arg;
-    if ($value$plusargs("DUMP%s", dump_arg)) begin
-      $display("DUMP%s: writing fp_add_tb.vcd", dump_arg);
-      $dumpfile("fp_add_tb.vcd");
-      $dumpvars(0, fp_add_tb);
-    end
-  endtask
-
-  task automatic check(input string path, input int line, input logic [31:0] exp_res,
+  task automatic check(input string path, input int line, input logic [FLEN-1:0] exp_res,
                        input logic [4:0] exp_flags);
     checks++;
     if (result !== exp_res || fflags !== exp_flags) begin
       errors++;
-      if (errors <= MaxPrint)
+      if (errors <= ShowErrors)
         $display(
             "FAIL %s:%0d sub=%0d rm=%0d a=%h b=%h exp %h/%b got %h/%b",
             path,
@@ -54,82 +120,67 @@ module fp_add_tb ();
             result,
             fflags
         );
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
-  endtask
+  endtask  // Automatic
 
-  task automatic run_file(input string path, input logic op_sub, input logic [2:0] op_rm);
+  task automatic run_file(input string op, input logic op_sub, input string rname,
+                          input logic [2:0] op_rm);
+    string path;
     int fd;
     int line;
-    logic [31:0] fa;
-    logic [31:0] fb;
-    logic [31:0] exp_res;
+    logic [FLEN-1:0] fa;
+    logic [FLEN-1:0] fb;
+    logic [FLEN-1:0] exp_res;
     logic [4:0] exp_flags;
-    fd = $fopen(path, "r");
+    path = {TfDir, FMT, "_", op, "_", rname, ".txt"};
+    fd   = $fopen(path, "r");
     if (fd == 0) $fatal(1, "TB MISSING FILE: %s (run make testfloat)", path);
     line = 0;
     while ($fscanf(
         fd, "%h %h %h %h\n", fa, fb, exp_res, exp_flags
     ) == 4) begin
       line++;
-      if ((line - 1) % stride == 0) begin
-        sub = op_sub;
-        rm  = op_rm;
-        a   = fa;
-        b   = fb;
-        #1;
-        check(path, line, exp_res, exp_flags);
-      end
+      sub = op_sub;
+      rm  = op_rm;
+      a   = fa;
+      b   = fb;
+      #1;
+      check(path, line, exp_res, exp_flags);
     end
-    if ($feof(fd) == 0) $fatal(1, "TB PARSE STOPPED: %s after line %0d", path, line);
+    if (!$feof(fd)) $fatal(1, "TB BAD LINE: %s:%0d", path, line + 1);
     $fclose(fd);
+    if (line == 0) $fatal(1, "TB EMPTY FILE: %s", path);
     $display("%s: %0d lines", path, line);
-  endtask
+  endtask  // Automatic
+
+  task automatic run_op(input string op, input logic op_sub);
+    run_file(op, op_sub, "rne", RmRne);
+    run_file(op, op_sub, "rtz", RmRtz);
+    run_file(op, op_sub, "rdn", RmRdn);
+    run_file(op, op_sub, "rup", RmRup);
+    run_file(op, op_sub, "rmm", RmRmm);
+  endtask  // Automatic
 
   task automatic run_nan_bits();
-    for (int i = 0; i < 23; i++) begin
+    for (int i = 0; i < FRAC_W; i++) begin
       sub = 1'b0;
-      rm  = 3'd0;
-      a   = 32'h7F80_0000 | (32'd1 << i);
-      b   = 32'h3F80_0000;
+      rm  = RmRne;
+      a   = PosInf | (FLEN'(1) << i);
+      b   = One;
       #1;
-      check("nan_bits_a", i, 32'h7FC0_0000, {i != 22, 4'b0000});
-      a = 32'h3F80_0000;
-      b = 32'h7F80_0000 | (32'd1 << i);
+      check({FMT, " nan_bits_a"}, i, CanonNan, (i != FRAC_W - 1) ? FlagNv : '0);
+      a = One;
+      b = PosInf | (FLEN'(1) << i);
       #1;
-      check("nan_bits_b", i, 32'h7FC0_0000, {i != 22, 4'b0000});
+      check({FMT, " nan_bits_b"}, i, CanonNan, (i != FRAC_W - 1) ? FlagNv : '0);
     end
-  endtask
-
-  task automatic do_verdict();
-    if (checks < MinChecks / stride)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected %0d", checks, MinChecks / stride);
-    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $display("PASS: %0d checks", checks);
-    $finish;
-  endtask
-
-  initial void'($value$plusargs("max_errors=%d", max_errors));
+  endtask  // Automatic
 
   initial begin
-    void'($value$plusargs("stride=%d", stride));
-    if (stride < 1) $fatal(1, "TB BAD STRIDE: %0d", stride);
-    dump_if_asked();
-
-    run_file("build/testfloat/f32_add_rne.txt", 1'b0, 3'd0);
-    run_file("build/testfloat/f32_add_rtz.txt", 1'b0, 3'd1);
-    run_file("build/testfloat/f32_add_rdn.txt", 1'b0, 3'd2);
-    run_file("build/testfloat/f32_add_rup.txt", 1'b0, 3'd3);
-    run_file("build/testfloat/f32_add_rmm.txt", 1'b0, 3'd4);
-
-    run_file("build/testfloat/f32_sub_rne.txt", 1'b1, 3'd0);
-    run_file("build/testfloat/f32_sub_rtz.txt", 1'b1, 3'd1);
-    run_file("build/testfloat/f32_sub_rdn.txt", 1'b1, 3'd2);
-    run_file("build/testfloat/f32_sub_rup.txt", 1'b1, 3'd3);
-    run_file("build/testfloat/f32_sub_rmm.txt", 1'b1, 3'd4);
-
+    run_op("add", 1'b0);
+    run_op("sub", 1'b1);
     run_nan_bits();
-    do_verdict();
+    done = 1'b1;
   end
 
 endmodule

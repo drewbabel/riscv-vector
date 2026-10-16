@@ -2,25 +2,103 @@
 
 module fp_fma_tb ();
 
-  localparam int MinChecks  = 3_950_000;
-  localparam int MaxPrinted = 20;
+  localparam int MinChecks = 3_950_000;
+
+  int checks;
+  int errors;
+  int max_errors;
+
+  fp_fma_bench #(
+      .EXP_W (8),
+      .FRAC_W(23),
+      .FMT   ("f32")
+  ) f32_bench ();
+
+  fp_fma_bench #(
+      .EXP_W (11),
+      .FRAC_W(52),
+      .FMT   ("f64")
+  ) f64_bench ();
+
+  fp_fma_bench #(
+      .EXP_W (5),
+      .FRAC_W(10),
+      .FMT   ("f16")
+  ) f16_bench ();
+
+  task automatic do_verdict();
+    checks = f32_bench.checks + f64_bench.checks + f16_bench.checks;
+    errors = f32_bench.errors + f64_bench.errors + f16_bench.errors;
+    if (f32_bench.checks < MinChecks || f64_bench.checks < MinChecks ||
+        f16_bench.checks < MinChecks)
+      $fatal(
+          1,
+          "TB UNDER-RAN: %0d, %0d and %0d checks, expected at least %0d each",
+          f32_bench.checks,
+          f64_bench.checks,
+          f16_bench.checks,
+          MinChecks
+      );
+    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $display("PASS: %0d checks", checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("fp_fma_tb.vcd");
+    $dumpvars(0, f32_bench);
+    wait (f32_bench.done && f64_bench.done && f16_bench.done);
+    do_verdict();
+  end
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (f32_bench.errors + f64_bench.errors + f16_bench.errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches",
+             f32_bench.errors + f64_bench.errors + f16_bench.errors);
+    end
+  end
+
+endmodule
+
+module fp_fma_bench
+  import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup, fp_pkg::RmRmm;
+  import fp_pkg::FlagNx;
+#(
+    parameter  int    EXP_W  = 8,
+    parameter  int    FRAC_W = 23,
+    parameter  string FMT    = "f32",
+    localparam int    FLEN   = 1 + EXP_W + FRAC_W
+) ();
+
+  localparam int ShowErrors = 20;
+  localparam string TfDir = "build/testfloat/";
+  localparam int Bias = (1 << (EXP_W - 1)) - 1;
+  localparam int CarryW = (FRAC_W < 15) ? FRAC_W : 15;
+
+  localparam logic [FLEN-1:0] One = {2'b00, {(EXP_W - 1) {1'b1}}, {FRAC_W{1'b0}}};
+  localparam logic [FLEN-1:0] OnesBelow = {
+    1'b0, EXP_W'(Bias + CarryW), {CarryW{1'b1}}, {(FRAC_W - CarryW) {1'b0}}
+  };
+  localparam logic [FLEN-1:0] CarryOut = {1'b0, EXP_W'(Bias + CarryW + 1), {FRAC_W{1'b0}}};
 
   int checks = 0;
   int errors = 0;
-  int max_errors = 0;
-  int stride = 1;
-  string dump_arg;
+  logic done = 1'b0;
 
   logic neg_prod;
   logic neg_add;
   logic [2:0] rm;
-  logic [31:0] a;
-  logic [31:0] b;
-  logic [31:0] c;
-  logic [31:0] result;
+  logic [FLEN-1:0] a;
+  logic [FLEN-1:0] b;
+  logic [FLEN-1:0] c;
+  logic [FLEN-1:0] result;
   logic [4:0] fflags;
 
-  fp_fma dut (
+  fp_fma #(
+      .ExpW (EXP_W),
+      .FracW(FRAC_W)
+  ) dut (
       .neg_prod(neg_prod),
       .neg_add(neg_add),
       .rm(rm),
@@ -42,12 +120,12 @@ module fp_fma_tb ();
     endcase
   endfunction
 
-  task automatic check(input string path, input int line, input logic [31:0] exp_res,
+  task automatic check(input string path, input int line, input logic [FLEN-1:0] exp_res,
                        input logic [4:0] exp_flags);
     checks++;
     if (result !== exp_res || fflags !== exp_flags) begin
       errors++;
-      if (errors <= MaxPrinted)
+      if (errors <= ShowErrors)
         $display(
             "FAIL %s:%0d %s rm=%0d a=%h b=%h c=%h exp %h/%b got %h/%b",
             path,
@@ -64,42 +142,43 @@ module fp_fma_tb ();
             result,
             fflags
         );
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
-  endtask
+  endtask  // Automatic
 
   task automatic run_form(input string path, input int line, input logic np, input logic na,
-                          input logic [31:0] x, input logic [31:0] y, input logic [31:0] z,
-                          input logic [31:0] exp_res, input logic [4:0] exp_flags);
+                          input logic [FLEN-1:0] x, input logic [FLEN-1:0] y,
+                          input logic [FLEN-1:0] z, input logic [FLEN-1:0] exp_res,
+                          input logic [4:0] exp_flags);
     neg_prod = np;
     neg_add = na;
-    a = {x[31] ^ np, x[30:0]};
+    a = {x[FLEN-1] ^ np, x[FLEN-2:0]};
     b = y;
-    c = {z[31] ^ na, z[30:0]};
+    c = {z[FLEN-1] ^ na, z[FLEN-2:0]};
     #1;
     check(path, line, exp_res, exp_flags);
-  endtask
+  endtask  // Automatic
 
-  task automatic run_vec(input string path, input int line, input logic [31:0] x,
-                         input logic [31:0] y, input logic [31:0] z, input logic [31:0] exp_res,
-                         input logic [4:0] exp_flags);
+  task automatic run_vec(input string path, input int line, input logic [FLEN-1:0] x,
+                         input logic [FLEN-1:0] y, input logic [FLEN-1:0] z,
+                         input logic [FLEN-1:0] exp_res, input logic [4:0] exp_flags);
     run_form(path, line, 1'b0, 1'b0, x, y, z, exp_res, exp_flags);
     run_form(path, line, 1'b0, 1'b1, x, y, z, exp_res, exp_flags);
     run_form(path, line, 1'b1, 1'b0, x, y, z, exp_res, exp_flags);
     run_form(path, line, 1'b1, 1'b1, x, y, z, exp_res, exp_flags);
-  endtask
+  endtask  // Automatic
 
-  task automatic run_file(input string path, input logic [2:0] mode);
+  task automatic run_file(input string rname, input logic [2:0] mode);
+    string path;
     int fd;
     int line;
-    logic [31:0] x;
-    logic [31:0] y;
-    logic [31:0] z;
-    logic [31:0] exp_res;
+    logic [FLEN-1:0] x;
+    logic [FLEN-1:0] y;
+    logic [FLEN-1:0] z;
+    logic [FLEN-1:0] exp_res;
     logic [4:0] exp_flags;
-    string skip;
-    fd = $fopen(path, "r");
-    if (fd == 0) $fatal(1, "%s missing, run make testfloat", path);
+    path = {TfDir, FMT, "_mulAdd_", rname, ".txt"};
+    fd   = $fopen(path, "r");
+    if (fd == 0) $fatal(1, "TB MISSING FILE: %s (run make testfloat)", path);
     rm   = mode;
     line = 0;
     while ($fscanf(
@@ -107,42 +186,25 @@ module fp_fma_tb ();
     ) == 5) begin
       line++;
       run_vec(path, line, x, y, z, exp_res, exp_flags);
-      for (int k = 1; k < stride; k++) if ($fgets(skip, fd) != 0) line++;
     end
-    if (!$feof(fd)) $fatal(1, "%s: parse stopped after line %0d", path, line);
+    if (!$feof(fd)) $fatal(1, "TB BAD LINE: %s:%0d", path, line + 1);
     $fclose(fd);
-    $display("%s: %0d lines read", path, line);
-  endtask
-
-  task automatic do_verdict();
-    if (checks < MinChecks / stride)
-      $fatal(1, "TB UNDER-RAN: %0d checks, need %0d", checks, MinChecks / stride);
-    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $display("PASS: %0d checks", checks);
-    $finish;
-  endtask
-
-  initial void'($value$plusargs("max_errors=%d", max_errors));
+    if (line == 0) $fatal(1, "TB EMPTY FILE: %s", path);
+    $display("%s: %0d lines", path, line);
+  endtask  // Automatic
 
   initial begin
-    void'($value$plusargs("stride=%d", stride));
-    if ($value$plusargs("DUMP%s", dump_arg) && dump_arg == "") begin
-      $dumpfile("fp_fma_tb.vcd");
-      $dumpvars(0, fp_fma_tb);
-    end
+    run_file("rne", RmRne);
+    run_file("rtz", RmRtz);
+    run_file("rdn", RmRdn);
+    run_file("rup", RmRup);
+    run_file("rmm", RmRmm);
 
-    run_file("build/testfloat/f32_mulAdd_rne.txt", 3'd0);
-    run_file("build/testfloat/f32_mulAdd_rtz.txt", 3'd1);
-    run_file("build/testfloat/f32_mulAdd_rdn.txt", 3'd2);
-    run_file("build/testfloat/f32_mulAdd_rup.txt", 3'd3);
-    run_file("build/testfloat/f32_mulAdd_rmm.txt", 3'd4);
-
-    rm = 3'd3;
-    run_vec("directed", 1, 32'h3F80_0000, 32'h3F80_0000, 32'h0000_0008, 32'h3F80_0001, 5'b00001);
-    rm = 3'd0;
-    run_vec("directed", 2, 32'h3F80_0000, 32'h3F80_0000, 32'h477F_FF00, 32'h4780_0000, 5'b00000);
-
-    do_verdict();
+    rm = RmRup;
+    run_vec({FMT, " directed"}, 1, One, One, FLEN'(8), One | FLEN'(1), FlagNx);
+    rm = RmRne;
+    run_vec({FMT, " directed"}, 2, One, One, OnesBelow, CarryOut, '0);
+    done = 1'b1;
   end
 
 endmodule

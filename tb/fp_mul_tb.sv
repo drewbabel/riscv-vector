@@ -2,20 +2,96 @@
 
 module fp_mul_tb ();
 
-  localparam int MinChecks  = 232000;
+  localparam int MinChecks = 232000;
+
+  int checks;
+  int errors;
+  int max_errors;
+
+  fp_mul_bench #(
+      .EXP_W (8),
+      .FRAC_W(23),
+      .FMT   ("f32")
+  ) f32_bench ();
+
+  fp_mul_bench #(
+      .EXP_W (11),
+      .FRAC_W(52),
+      .FMT   ("f64")
+  ) f64_bench ();
+
+  fp_mul_bench #(
+      .EXP_W (5),
+      .FRAC_W(10),
+      .FMT   ("f16")
+  ) f16_bench ();
+
+  task automatic do_verdict();
+    checks = f32_bench.checks + f64_bench.checks + f16_bench.checks;
+    errors = f32_bench.errors + f64_bench.errors + f16_bench.errors;
+    if (f32_bench.checks < MinChecks || f64_bench.checks < MinChecks ||
+        f16_bench.checks < MinChecks)
+      $fatal(
+          1,
+          "TB UNDER-RAN: %0d, %0d and %0d checks, expected at least %0d each",
+          f32_bench.checks,
+          f64_bench.checks,
+          f16_bench.checks,
+          MinChecks
+      );
+    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $display("PASS: %0d checks", checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("fp_mul_tb.vcd");
+    $dumpvars(0, f32_bench);
+    wait (f32_bench.done && f64_bench.done && f16_bench.done);
+    do_verdict();
+  end
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (f32_bench.errors + f64_bench.errors + f16_bench.errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches",
+             f32_bench.errors + f64_bench.errors + f16_bench.errors);
+    end
+  end
+
+endmodule
+
+module fp_mul_bench
+  import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup, fp_pkg::RmRmm;
+  import fp_pkg::FlagNv;
+#(
+    parameter  int    EXP_W  = 8,
+    parameter  int    FRAC_W = 23,
+    parameter  string FMT    = "f32",
+    localparam int    FLEN   = 1 + EXP_W + FRAC_W
+) ();
+
   localparam int ShowErrors = 20;
+  localparam string TfDir = "build/testfloat/";
+
+  localparam logic [FLEN-1:0] PosInf = {1'b0, {EXP_W{1'b1}}, {FRAC_W{1'b0}}};
+  localparam logic [FLEN-1:0] One = {2'b00, {(EXP_W - 1) {1'b1}}, {FRAC_W{1'b0}}};
+  localparam logic [FLEN-1:0] CanonNan = {1'b0, {EXP_W{1'b1}}, 1'b1, {(FRAC_W - 1) {1'b0}}};
 
   int checks = 0;
   int errors = 0;
-  int max_errors = 0;
+  logic done = 1'b0;
 
   logic [2:0] rm;
-  logic [31:0] a;
-  logic [31:0] b;
-  logic [31:0] result;
+  logic [FLEN-1:0] a;
+  logic [FLEN-1:0] b;
+  logic [FLEN-1:0] result;
   logic [4:0] fflags;
 
-  fp_mul dut (
+  fp_mul #(
+      .ExpW (EXP_W),
+      .FracW(FRAC_W)
+  ) dut (
       .rm(rm),
       .a(a),
       .b(b),
@@ -23,7 +99,7 @@ module fp_mul_tb ();
       .fflags(fflags)
   );
 
-  task automatic check(input string path, input int line, input logic [31:0] exp_res,
+  task automatic check(input string path, input int line, input logic [FLEN-1:0] exp_res,
                        input logic [4:0] exp_flags);
     checks++;
     if (result !== exp_res || fflags !== exp_flags) begin
@@ -41,78 +117,63 @@ module fp_mul_tb ();
             result,
             fflags
         );
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
-  endtask
+  endtask  // Automatic
 
-  task automatic run_file(input string path, input logic [2:0] mode);
+  task automatic run_file(input string rname, input logic [2:0] mode);
+    string path;
     int fd;
-    int code;
-    int lines;
-    logic [31:0] va;
-    logic [31:0] vb;
-    logic [31:0] vres;
+    int line;
+    logic [FLEN-1:0] va;
+    logic [FLEN-1:0] vb;
+    logic [FLEN-1:0] vres;
     logic [4:0] vflags;
-    fd = $fopen(path, "r");
+    path = {TfDir, FMT, "_mul_", rname, ".txt"};
+    fd   = $fopen(path, "r");
     if (fd == 0) $fatal(1, "TB MISSING FILE: %s (run make testfloat)", path);
-    lines = 0;
-    rm = mode;
-    forever begin
-      code = $fscanf(fd, "%h %h %h %h\n", va, vb, vres, vflags);
-      if (code != 4) break;
-      lines++;
-      a = va;
-      b = vb;
+    line = 0;
+    while ($fscanf(
+        fd, "%h %h %h %h\n", va, vb, vres, vflags
+    ) == 4) begin
+      line++;
+      rm = mode;
+      a  = va;
+      b  = vb;
       #1;
-      check(path, lines, vres, vflags);
+      check(path, line, vres, vflags);
     end
-    if (!$feof(fd)) $fatal(1, "TB BAD LINE: %s:%0d", path, lines + 1);
+    if (!$feof(fd)) $fatal(1, "TB BAD LINE: %s:%0d", path, line + 1);
     $fclose(fd);
-    $display("%s: %0d lines", path, lines);
-  endtask
+    if (line == 0) $fatal(1, "TB EMPTY FILE: %s", path);
+    $display("%s: %0d lines", path, line);
+  endtask  // Automatic
 
   task automatic run_nan_payloads();
-    logic [31:0] nan;
-    logic [ 4:0] flags;
-    rm = 3'd0;
-    for (int i = 0; i < 23; i++) begin
-      nan = 32'h7F80_0000 | (32'd1 << i);
-      flags = (i == 22) ? 5'b00000 : 5'b10000;
+    logic [FLEN-1:0] nan;
+    logic [4:0] flags;
+    rm = RmRne;
+    for (int i = 0; i < FRAC_W; i++) begin
+      nan = PosInf | (FLEN'(1) << i);
+      flags = (i == FRAC_W - 1) ? '0 : FlagNv;
       a = nan;
-      b = 32'h3F80_0000;
+      b = One;
       #1;
-      check("nan payload a", i, 32'h7FC0_0000, flags);
-      a = 32'h3F80_0000;
+      check({FMT, " nan payload a"}, i, CanonNan, flags);
+      a = One;
       b = nan;
       #1;
-      check("nan payload b", i, 32'h7FC0_0000, flags);
+      check({FMT, " nan payload b"}, i, CanonNan, flags);
     end
-  endtask
-
-  task automatic do_verdict();
-    if (checks < MinChecks) $fatal(1, "TB UNDER-RAN: %0d checks, expected %0d", checks, MinChecks);
-    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $display("PASS: %0d checks", checks);
-    $finish;
-  endtask
-
-  initial void'($value$plusargs("max_errors=%d", max_errors));
+  endtask  // Automatic
 
   initial begin
-    string dump_tag;
-    if ($value$plusargs("DUMP%s", dump_tag)) begin
-      $dumpfile({"fp_mul_tb", dump_tag, ".vcd"});
-      $dumpvars(0, fp_mul_tb);
-    end
-
-    run_file("build/testfloat/f32_mul_rne.txt", 3'd0);
-    run_file("build/testfloat/f32_mul_rtz.txt", 3'd1);
-    run_file("build/testfloat/f32_mul_rdn.txt", 3'd2);
-    run_file("build/testfloat/f32_mul_rup.txt", 3'd3);
-    run_file("build/testfloat/f32_mul_rmm.txt", 3'd4);
+    run_file("rne", RmRne);
+    run_file("rtz", RmRtz);
+    run_file("rdn", RmRdn);
+    run_file("rup", RmRup);
+    run_file("rmm", RmRmm);
     run_nan_payloads();
-
-    do_verdict();
+    done = 1'b1;
   end
 
 endmodule
