@@ -2,21 +2,23 @@
 
 module control_decoder_tb ();
 
-  int         checks = 0;
-  int         errors = 0;
-  int         max_errors = 0;
+  int          checks = 0;
+  int          errors = 0;
+  int          max_errors = 0;
 
-  logic [6:0] op;
-  logic       reg_write;
-  logic [2:0] imm_src;
-  logic [1:0] alu_a_src;
-  logic       pc_target_src;
-  logic       alu_src;
-  logic       mem_write;
-  logic [1:0] result_src;
-  logic       branch;
-  logic       jump;
-  logic [1:0] alu_op;
+  logic [ 6:0] op;
+  logic [ 2:0] funct3 = 3'b000;
+  logic [11:0] funct12 = 12'h000;
+  logic        reg_write;
+  logic [ 2:0] imm_src;
+  logic [ 1:0] alu_a_src;
+  logic        pc_target_src;
+  logic        alu_src;
+  logic        mem_write;
+  logic [ 1:0] result_src;
+  logic        branch;
+  logic        jump;
+  logic [ 1:0] alu_op;
 
   localparam logic [6:0] OpcodeOp = 7'b0110011;
   localparam logic [6:0] OpcodeOpImm = 7'b0010011;
@@ -27,6 +29,13 @@ module control_decoder_tb ();
   localparam logic [6:0] OpcodeJalr = 7'b1100111;
   localparam logic [6:0] OpcodeLui = 7'b0110111;
   localparam logic [6:0] OpcodeAuipc = 7'b0010111;
+  localparam logic [6:0] OpcodeOpFp = 7'b1010011;
+  localparam logic [6:0] OpcodeLoadFp = 7'b0000111;
+  localparam logic [6:0] OpcodeStoreFp = 7'b0100111;
+  localparam logic [6:0] OpcodeFmadd = 7'b1000011;
+  localparam logic [6:0] OpcodeFmsub = 7'b1000111;
+  localparam logic [6:0] OpcodeFnmsub = 7'b1001011;
+  localparam logic [6:0] OpcodeFnmadd = 7'b1001111;
 
   localparam logic [2:0] ImmI = 3'd0;
   localparam logic [2:0] ImmS = 3'd1;
@@ -48,6 +57,8 @@ module control_decoder_tb ();
 
   control_decoder dut (
       .op           (op),
+      .funct3       (funct3),
+      .funct12      (funct12),
       .reg_write    (reg_write),
       .imm_src      (imm_src),
       .alu_a_src    (alu_a_src),
@@ -84,6 +95,113 @@ module control_decoder_tb ();
       errors++;
       $display("%s mismatch: got %b, exp %b", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
+  endtask
+
+  // Default decode
+  task automatic chk_default(input string name);
+    #1;
+    check1({name, " reg_write"}, reg_write, 1'b0);
+    check3({name, " imm_src"}, imm_src, ImmI);
+    check2({name, " alu_a_src"}, alu_a_src, SrcARs1);
+    check1({name, " pc_target_src"}, pc_target_src, 1'b0);
+    check1({name, " alu_src"}, alu_src, 1'b0);
+    check1({name, " mem_write"}, mem_write, 1'b0);
+    check2({name, " result_src"}, result_src, ResAlu);
+    check1({name, " branch"}, branch, 1'b0);
+    check1({name, " jump"}, jump, 1'b0);
+    check2({name, " alu_op"}, alu_op, AluAdd);
+  endtask
+
+  // Float compute
+  task automatic chk_op_fp();
+    logic [2:0] f3s[4];
+    logic exp;
+    f3s[0] = 3'b000;
+    f3s[1] = 3'b001;
+    f3s[2] = 3'b010;
+    f3s[3] = 3'b111;
+    op = OpcodeOpFp;
+    for (int f5 = 0; f5 < 32; f5++) begin
+      for (int i = 0; i < 4; i++) begin
+        funct12 = {5'(f5), 2'b00, 5'(i)};
+        funct3 = f3s[i];
+        exp = (5'(f5) == 5'b11000) || (5'(f5) == 5'b11100) || (5'(f5) == 5'b10100);
+        #1;
+        check1($sformatf("opfp %b reg_write", 5'(f5)), reg_write, exp);
+        check1("opfp mem_write", mem_write, 1'b0);
+        check1("opfp branch", branch, 1'b0);
+        check1("opfp jump", jump, 1'b0);
+      end
+    end
+  endtask
+
+  // Float load
+  task automatic chk_flw();
+    op = OpcodeLoadFp;
+    funct3 = 3'b010;
+    funct12 = 12'hffc;
+    #1;
+    check1("flw reg_write", reg_write, 1'b0);
+    check3("flw imm_src", imm_src, ImmI);
+    check1("flw alu_src", alu_src, 1'b1);
+    check1("flw mem_write", mem_write, 1'b0);
+    check2("flw result_src", result_src, ResMem);
+    check1("flw branch", branch, 1'b0);
+    check1("flw jump", jump, 1'b0);
+    check2("flw alu_op", alu_op, AluAdd);
+    check2("flw alu_a_src", alu_a_src, SrcARs1);
+    check1("flw pc_target_src", pc_target_src, 1'b0);
+  endtask
+
+  // Float store
+  task automatic chk_fsw();
+    op = OpcodeStoreFp;
+    funct3 = 3'b010;
+    funct12 = 12'h7e5;
+    #1;
+    check1("fsw reg_write", reg_write, 1'b0);
+    check3("fsw imm_src", imm_src, ImmS);
+    check1("fsw alu_src", alu_src, 1'b1);
+    check1("fsw mem_write", mem_write, 1'b1);
+    check1("fsw branch", branch, 1'b0);
+    check1("fsw jump", jump, 1'b0);
+    check2("fsw alu_op", alu_op, AluAdd);
+    check2("fsw alu_a_src", alu_a_src, SrcARs1);
+    check1("fsw pc_target_src", pc_target_src, 1'b0);
+  endtask
+
+  // Fused opcodes
+  task automatic chk_fused();
+    logic [6:0] ops[4];
+    ops[0] = OpcodeFmadd;
+    ops[1] = OpcodeFmsub;
+    ops[2] = OpcodeFnmsub;
+    ops[3] = OpcodeFnmadd;
+    for (int o = 0; o < 4; o++) begin
+      for (int f3 = 0; f3 < 8; f3++) begin
+        op = ops[o];
+        funct3 = 3'(f3);
+        funct12 = 12'(o * 1000 + f3);
+        chk_default($sformatf("fused %b rm %b", ops[o], 3'(f3)));
+      end
+    end
+  endtask
+
+  // Vector memory
+  task automatic chk_vec_mem();
+    logic [2:0] f3s[4];
+    f3s[0] = 3'b000;
+    f3s[1] = 3'b101;
+    f3s[2] = 3'b110;
+    f3s[3] = 3'b111;
+    for (int i = 0; i < 4; i++) begin
+      funct3 = f3s[i];
+      funct12 = 12'h020;
+      op = OpcodeLoadFp;
+      chk_default($sformatf("vload %b", f3s[i]));
+      op = OpcodeStoreFp;
+      chk_default($sformatf("vstore %b", f3s[i]));
     end
   endtask
 
@@ -225,6 +343,12 @@ module control_decoder_tb ();
     #1;
     check1("illegal reg_write", reg_write, 1'b0);
     check1("illegal mem_write", mem_write, 1'b0);
+
+    chk_op_fp();
+    chk_flw();
+    chk_fsw();
+    chk_fused();
+    chk_vec_mem();
 
     verdict();
   end
