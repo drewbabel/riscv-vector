@@ -12,6 +12,7 @@ module vec_issue_tb
 
   int checks = 0;
   int errors = 0;
+  int max_errors = 0;
 
   logic clk = 1'b0;
   logic rst_n;
@@ -175,6 +176,7 @@ module vec_issue_tb
     if (got !== want) begin
       errors = errors + 1;
       if (errors < 20) $display("FAIL %0s got=%h want=%h at %0t", what, got, want, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -202,6 +204,7 @@ module vec_issue_tb
     if (sb_head == sb_tail) begin
       errors = errors + 1;
       $display("FAIL start with empty scoreboard at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end else begin
       note("op", 32'(sb_op[sb_head]), 32'(seq_op));
       note("src", 32'(sb_src[sb_head]), 32'(seq_src));
@@ -245,21 +248,25 @@ module vec_issue_tb
     if (seq_start && seq_busy) begin
       errors = errors + 1;
       $display("FAIL start while busy at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     checks = checks + 1;
     if (vec_idle && (seq_start || seq_busy)) begin
       errors = errors + 1;
       $display("FAIL idle while running at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     checks = checks + 1;
     if (vec_hold && vec_idle && !writes_xreg) begin
       errors = errors + 1;
       $display("FAIL hold while idle at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     checks = checks + 1;
     if (vec_hold && !instr_valid) begin
       errors = errors + 1;
       $display("FAIL hold with no instruction at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -333,6 +340,7 @@ module vec_issue_tb
     if (!cancel && !dut.accept) begin
       errors = errors + 1;
       $display("FAIL released without accept at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     @(posedge clk);
     #1 instr_valid = 1'b0;
@@ -371,6 +379,7 @@ module vec_issue_tb
       if (!vec_idle) begin
         errors = errors + 1;
         $display("FAIL never went idle at %0t", $time);
+        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
       end
     end
   endtask
@@ -385,6 +394,7 @@ module vec_issue_tb
     if (vec_hold) begin
       errors = errors + 1;
       $display("FAIL held on an empty slot at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     @(posedge clk);
     #1 instr_valid = 1'b0;
@@ -404,6 +414,7 @@ module vec_issue_tb
     if (!vec_hold) begin
       errors = errors + 1;
       $display("FAIL no hold on a full slot at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     while (vec_hold) @(negedge clk);
     @(posedge clk);
@@ -425,6 +436,7 @@ module vec_issue_tb
     if (!vec_idle) begin
       errors = errors + 1;
       $display("FAIL accepted while disabled at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     instr_valid = 1'b0;
     @(negedge clk);
@@ -507,6 +519,7 @@ module vec_issue_tb
     if (!vec_hold) begin
       errors = errors + 1;
       $display("FAIL no wait after accept at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     guard = 0;
     while (vec_hold && guard < 50) begin
@@ -520,11 +533,13 @@ module vec_issue_tb
     if (vec_hold) begin
       errors = errors + 1;
       $display("FAIL wait never released at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     checks = checks + 1;
     if (accepted != acc0 + 1) begin
       errors = errors + 1;
       $display("FAIL accepted %0d during wait at %0t", accepted - acc0, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     settle();
   endtask
@@ -534,11 +549,14 @@ module vec_issue_tb
     if (accepted != launched) begin
       errors = errors + 1;
       $display("FAIL accepted %0d launched %0d", accepted, launched);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     $display("vec_issue: %0d checks, %0d errors, %0d instructions", checks, errors, launched);
     if (errors != 0) $fatal(1, "vec_issue FAILED");
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     // Quiet start

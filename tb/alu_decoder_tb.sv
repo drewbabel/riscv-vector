@@ -6,6 +6,7 @@ module alu_decoder_tb
 
   int                     checks = 0;
   int                     errors = 0;
+  int                     max_errors = 0;
 
   logic             [1:0] alu_op;
   logic             [2:0] funct3;
@@ -35,6 +36,8 @@ module alu_decoder_tb
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("alu_decoder_tb.vcd");
@@ -71,6 +74,7 @@ module alu_decoder_tb
         errors++;
         $display("vec %0d (alu_op=%b funct3=%b f7=%b o5=%b): got %s exp %s", i, alu_op, funct3,
                  funct7b5, op5, got.name(), exp.name());
+        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
       end
     end
 

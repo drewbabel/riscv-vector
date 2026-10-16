@@ -44,6 +44,7 @@ module mem_word_if_tb;
 
   int                   checks = 0;
   int                   errors = 0;
+  int                   max_errors = 0;
   int                   max_lat = 6;
   int                   en_period = 1;
   int                   i_done = 0;
@@ -117,6 +118,7 @@ module mem_word_if_tb;
     checks++;
     errors++;
     $error("t=%0t  %s", $time, what);
+    if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
   endtask  // Automatic
 
   task automatic check(input string what, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
@@ -124,6 +126,7 @@ module mem_word_if_tb;
     if (got !== exp) begin
       $error("t=%0t  %s: saw %h, memory holds %h", $time, what, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -132,6 +135,7 @@ module mem_word_if_tb;
     if (got !== exp) begin
       $error("t=%0t  %s: counted %0d, expected %0d", $time, what, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -301,6 +305,8 @@ module mem_word_if_tb;
   endtask  // Automatic
 
   logic [Xlen-1:0] got;
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("mem_word_if_tb.vcd");

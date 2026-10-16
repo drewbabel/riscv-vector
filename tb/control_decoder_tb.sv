@@ -4,6 +4,7 @@ module control_decoder_tb ();
 
   int         checks = 0;
   int         errors = 0;
+  int         max_errors = 0;
 
   logic [6:0] op;
   logic       reg_write;
@@ -64,6 +65,7 @@ module control_decoder_tb ();
     if (got !== exp) begin
       errors++;
       $display("%s mismatch: got %b, exp %b", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -72,6 +74,7 @@ module control_decoder_tb ();
     if (got !== exp) begin
       errors++;
       $display("%s mismatch: got %b, exp %b", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -80,6 +83,7 @@ module control_decoder_tb ();
     if (got !== exp) begin
       errors++;
       $display("%s mismatch: got %b, exp %b", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -88,6 +92,8 @@ module control_decoder_tb ();
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("control_decoder_tb.vcd");

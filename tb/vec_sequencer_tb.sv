@@ -13,6 +13,7 @@ module vec_sequencer_tb ();
 
   int                      checks = 0;
   int                      errors = 0;
+  int                      max_errors = 0;
 
   logic                    clk = 1'b0;
   logic                    rst_n;
@@ -191,6 +192,7 @@ module vec_sequencer_tb ();
   task automatic fail(input string what);
     errors++;
     if (errors < 12) $display("FAIL %s at %0t", what, $time);
+    if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
   endtask
 
   // One phase
@@ -353,6 +355,8 @@ module vec_sequencer_tb ();
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("vec_sequencer_tb.vcd");

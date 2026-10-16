@@ -9,6 +9,7 @@ module vec_div_lane_tb
 
   int checks = 0;
   int errors = 0;
+  int max_errors = 0;
 
   logic clk = 1'b0;
   logic rst_n = 1'b0;
@@ -52,6 +53,7 @@ module vec_div_lane_tb
     if (rst_n && busy && done) begin
       errors++;
       $display("FAIL busy and done both high at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
 
   // Width helpers
@@ -132,6 +134,7 @@ module vec_div_lane_tb
     if (stall_pct == 0 && busy !== 1'b1) begin
       errors++;
       $display("FAIL %s sew=%0d busy not high after start", o.name(), 8 << sew);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     while (done !== 1'b1) @(negedge clk);
     checks++;
@@ -141,6 +144,7 @@ module vec_div_lane_tb
         $display(
             "FAIL %s sew=%0d a=%h b=%h got %h exp %h", o.name(), 8 << sew, x, y, result, exp_res
         );
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     // done pulses one enabled cycle, result holds
     if (stall_pct == 0) begin
@@ -148,6 +152,7 @@ module vec_div_lane_tb
       if (done !== 1'b0 || result !== exp_res) begin
         errors++;
         $display("FAIL %s sew=%0d done not a pulse or result not held", o.name(), 8 << sew);
+        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
       end
     end
   endtask
@@ -203,6 +208,7 @@ module vec_div_lane_tb
     if (result !== exp_res) begin
       errors++;
       $display("FAIL start while busy disturbed result: got %h exp %h", result, exp_res);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     @(negedge clk);
   endtask
@@ -217,6 +223,7 @@ module vec_div_lane_tb
     if (busy !== 1'b0 || done !== 1'b0) begin
       errors++;
       $display("FAIL reset mid divide: busy=%b done=%b", busy, done);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     rst_n = 1'b1;
   endtask
@@ -226,6 +233,8 @@ module vec_div_lane_tb
     if (errors != 0) $fatal(1, "vec_div_lane FAILED");
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     repeat (Timeout) @(posedge clk);

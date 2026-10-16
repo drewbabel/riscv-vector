@@ -18,6 +18,7 @@ module vec_config_tb ();
 
   int              checks = 0;
   int              errors = 0;
+  int              max_errors = 0;
 
   logic [    31:0] instr;
   logic [Xlen-1:0] rs1_data;
@@ -137,14 +138,17 @@ module vec_config_tb ();
     if (is_vset !== exp.is_vset) begin
       errors++;
       $error("%s is_vset: got %b, exp %b", name, is_vset, exp.is_vset);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     if (vl_d !== exp.vl) begin
       errors++;
       $error("%s vl_d: got %0d, exp %0d", name, vl_d, exp.vl);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     if (vtype_d !== exp.vtype) begin
       errors++;
       $error("%s vtype_d: got %h, exp %h", name, vtype_d, exp.vtype);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -245,6 +249,8 @@ module vec_config_tb ();
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("vec_config_tb.vcd");

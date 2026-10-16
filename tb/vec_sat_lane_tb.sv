@@ -8,6 +8,7 @@ module vec_sat_lane_tb
 
   int checks = 0;
   int errors = 0;
+  int max_errors = 0;
 
   vec_op_e op;
   logic [2:0] vsew;
@@ -201,6 +202,7 @@ module vec_sat_lane_tb
             exp_res,
             exp_sat
         );
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -262,6 +264,8 @@ module vec_sat_lane_tb
     if (errors != 0) $fatal(1, "vec_sat_lane FAILED");
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     // Exhaustive bytes

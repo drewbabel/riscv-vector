@@ -7,6 +7,7 @@ module vec_decode_tb
 
   int              checks = 0;
   int              errors = 0;
+  int              max_errors = 0;
 
   logic     [31:0] instr;
   logic            valid;
@@ -76,9 +77,9 @@ module vec_decode_tb
     mop = top[2:1];
     mask_bit = top[0];
     case (width)
-      3'b000: w = 2'd0;
-      3'b101: w = 2'd1;
-      3'b110: w = 2'd2;
+      3'b000:  w = 2'd0;
+      3'b101:  w = 2'd1;
+      3'b110:  w = 2'd2;
       default: return 6'b0;
     endcase
     if (nf != 3'b000 || mew) return 6'b0;
@@ -164,6 +165,7 @@ module vec_decode_tb
       errors++;
       $display("FAIL op f6=%b f3=%b got=%0d/%0d/%0d exp=%0d/%0d/%0d at %0t", funct6, funct3, op,
                src, eew, exp_op, exp_src, exp_eew, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -177,6 +179,7 @@ module vec_decode_tb
     if (got !== exp) begin
       errors++;
       $display("FAIL flags f6=%b f3=%b got=%b exp=%b at %0t", funct6, funct3, got, exp, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -188,6 +191,7 @@ module vec_decode_tb
     if (valid !== 1'b0 || op !== VEC_ILLEGAL) begin
       errors++;
       $display("FAIL illegal f6=%b f3=%b got=%0d at %0t", funct6, funct3, op, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -199,6 +203,7 @@ module vec_decode_tb
     if (vs2 !== rs2 || vs1 !== rs1 || simm !== rs1 || vd !== rd || vm !== mask_bit) begin
       errors++;
       $display("FAIL fields got vs2=%0d vs1=%0d vd=%0d vm=%b at %0t", vs2, vs1, vd, vm, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -221,6 +226,7 @@ module vec_decode_tb
             errors++;
             $display("FAIL sweep f3=%b f6=%b vs1=%0d got=%b exp=%b at %0t", forms[f], 6'(c), u,
                      valid, exp, $time);
+            if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
           end
         end
       end
@@ -240,17 +246,18 @@ module vec_decode_tb
     if (got !== exp || op !== exp_op || (exp[5] && (!reads_xreg || vd !== 5'd3 ||
         vm !== top[0] || src !== VEC_SRC_NONE))) begin
       errors++;
-      $display("FAIL mem top=%b rs2=%b w=%b store=%b got=%b exp=%b at %0t", top, rs2, width,
-               store, got, exp, $time);
+      $display("FAIL mem top=%b rs2=%b w=%b store=%b got=%b exp=%b at %0t", top, rs2, width, store,
+               got, exp, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
   task automatic sweep_mem();
     for (int s = 0; s < 2; s++)
-    for (int t = 0; t < 128; t++)
-    for (int r = 0; r < 32; r++)
-    for (int w = 0; w < 8; w++)
-    chk_mem(7'(t), 5'(r), 3'(w), 1'(s), ref_mem(7'(t), 5'(r), 3'(w), 1'(s)));
+      for (int t = 0; t < 128; t++)
+        for (int r = 0; r < 32; r++)
+          for (int w = 0; w < 8; w++)
+            chk_mem(7'(t), 5'(r), 3'(w), 1'(s), ref_mem(7'(t), 5'(r), 3'(w), 1'(s)));
   endtask
 
   task automatic chk_not_vector();
@@ -260,6 +267,7 @@ module vec_decode_tb
     if (valid !== 1'b0 || src !== VEC_SRC_NONE) begin
       errors++;
       $display("FAIL non vector opcode at %0t", $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -268,6 +276,8 @@ module vec_decode_tb
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("vec_decode_tb.vcd");

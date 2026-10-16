@@ -10,6 +10,7 @@ module vec_reduce_tb ();
 
   int                     checks = 0;
   int                     errors = 0;
+  int                     max_errors = 0;
 
   logic                   clk = 1'b0;
   logic                   rst_n;
@@ -101,6 +102,7 @@ module vec_reduce_tb ();
     if (got !== want) begin
       errors = errors + 1;
       if (errors < 12) $display("FAIL %0s got=%h want=%h at %0t", tag, got, want, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -191,6 +193,7 @@ module vec_reduce_tb ();
     if (result[31:0] !== 32'd17) begin
       errors = errors + 1;
       $display("FAIL directed sum got=%0d want=17", result[31:0]);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
     @(negedge clk);
     step  = 1'b0;
@@ -202,6 +205,8 @@ module vec_reduce_tb ();
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("vec_reduce_tb.vcd");

@@ -4,6 +4,7 @@ module rr_arbiter_tb ();
 
   int checks = 0;
   int errors = 0;
+  int max_errors = 0;
 
   localparam int N = 4;
 
@@ -71,6 +72,7 @@ module rr_arbiter_tb ();
     if (got !== exp) begin
       errors++;
       $error("t=%0t %s mismatch: got=%0d exp=%0d", $time, name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -79,6 +81,7 @@ module rr_arbiter_tb ();
     if (got !== exp) begin
       errors++;
       $error("t=%0t %s mismatch: got=%b exp=%b", $time, name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -87,6 +90,7 @@ module rr_arbiter_tb ();
     if (got !== exp) begin
       errors++;
       $error("t=%0t %s mismatch: got=%b exp=%b", $time, name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -101,6 +105,8 @@ module rr_arbiter_tb ();
       @(posedge clk);
     end
   endtask  // Automatic
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("tb.vcd");

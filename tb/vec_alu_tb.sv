@@ -12,6 +12,7 @@ module vec_alu_tb
 
   int checks = 0;
   int errors = 0;
+  int max_errors = 0;
 
   vec_op_e op;
   vec_src_e src;
@@ -163,6 +164,7 @@ module vec_alu_tb
             $display(
                 "FAIL op=%0d sew=%0d src=%0d elem=%0d got=%h want=%h", op, vsew, src, e, got, want
             );
+          if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
         end
       end
     end
@@ -298,6 +300,8 @@ module vec_alu_tb
     if (errors != 0) $fatal(1, "vec_alu FAILED");
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     // Quiet start

@@ -11,6 +11,7 @@ module vec_mixed_tb ();
 
   int                  checks = 0;
   int                  errors = 0;
+  int                  max_errors = 0;
 
   vec_op_e             op;
   vec_src_e            src;
@@ -136,6 +137,7 @@ module vec_mixed_tb ();
         errors = errors + 1;
         if (errors < 12)
           $display("FAIL %0s lane %0d got=%h want=%h sew=%0d", tag, e, got, want, sew_bits());
+        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
       end
     end
   endtask
@@ -248,6 +250,8 @@ module vec_mixed_tb ();
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("vec_mixed_tb.vcd");
