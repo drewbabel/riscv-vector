@@ -5,6 +5,8 @@ module fp_decode_tb
   import opcode_pkg::*;
 ();
 
+  localparam int MinChecks = 9000;
+
   int              checks = 0;
   int              errors = 0;
   int              max_errors = 0;
@@ -62,7 +64,7 @@ module fp_decode_tb
         $display("FAIL %s word=%h frm=%b %s: exp %0h got %0h", name, word, frm, field, exp, got);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
-  endtask
+  endtask  // Automatic
 
   task automatic drive(input logic [31:0] word, input logic [2:0] frm_in);
     instr = word;
@@ -70,9 +72,8 @@ module fp_decode_tb
     #1;
     check("pass", word, "funct5", 32'(funct5), 32'(word[31:27]));
     check("pass", word, "funct3", 32'(funct3), 32'(word[14:12]));
-  endtask
+  endtask  // Automatic
 
-  // Legal decode
   task automatic chk_fp(input string name, input logic [31:0] word, input logic [2:0] frm_in,
                         input fp_unit_e exp_unit, input logic [5:0] exp_regs,
                         input logic [2:0] exp_rm, input logic [5:0] exp_ops);
@@ -93,25 +94,22 @@ module fp_decode_tb
     check(name, word, "to_int", 32'(to_int), 32'(exp_ops[2]));
     check(name, word, "is_unsigned", 32'(is_unsigned), 32'(exp_ops[1]));
     check(name, word, "sqrt", 32'(sqrt), 32'(exp_ops[0]));
-  endtask
+  endtask  // Automatic
 
-  // Illegal float
   task automatic chk_illegal(input string name, input logic [31:0] word, input logic [2:0] frm_in);
     drive(word, frm_in);
     check(name, word, "is_fp", 32'(is_fp), 32'(1'b1));
     check(name, word, "illegal", 32'(illegal), 32'(1'b1));
     check(name, word, "unit", 32'(unit), 32'(FP_NONE));
-  endtask
+  endtask  // Automatic
 
-  // Not float
   task automatic chk_not_fp(input string name, input logic [31:0] word);
     drive(word, 3'b000);
     check(name, word, "is_fp", 32'(is_fp), 32'(1'b0));
     check(name, word, "illegal", 32'(illegal), 32'(1'b0));
     check(name, word, "unit", 32'(unit), 32'(FP_NONE));
-  endtask
+  endtask  // Automatic
 
-  // Toolchain reference words
   task automatic legal_table();
     chk_fp("fmadd.s f20, f9, f25, f3, rne", 32'h19948a43, 3'd6, FP_FMA, 6'b111100, 3'd0, 6'b000000);
     chk_fp("fmadd.s f3, f7, f14, f3, rtz", 32'h18e391c3, 3'd3, FP_FMA, 6'b111100, 3'd1, 6'b000000);
@@ -329,7 +327,7 @@ module fp_decode_tb
     chk_fp("fsw f21, -4(x14)", 32'hff572e27, 3'd4, FP_STORE, 6'b010001, 3'd0, 6'b000000);
     chk_fp("fsw f30, 2047(x2)", 32'h7fe12fa7, 3'd4, FP_STORE, 6'b010001, 3'd0, 6'b000000);
     chk_fp("fsw f29, -2048(x17)", 32'h81d8a027, 3'd5, FP_STORE, 6'b010001, 3'd0, 6'b000000);
-  endtask
+  endtask  // Automatic
 
   task automatic illegal_table();
     chk_illegal("fmadd.s fmt 01", 32'h1b948a43, 3'd0);
@@ -494,7 +492,7 @@ module fp_decode_tb
     chk_illegal("fmv.x.w funct3 111", 32'he00c7cd3, 3'd0);
     chk_illegal("fmv.w.x funct3 001", 32'hf00d9b53, 3'd0);
     chk_illegal("fmv.w.x funct3 111", 32'hf00dfb53, 3'd0);
-  endtask
+  endtask  // Automatic
 
   task automatic not_fp_table();
     chk_not_fp("vle32.v v1, (x2)", 32'h02016087);
@@ -509,9 +507,8 @@ module fp_decode_tb
     chk_not_fp("csrrs x5, fcsr, x0", 32'h003022f3);
     chk_not_fp("csrrwi x0, frm, 3", 32'h0021d073);
     chk_not_fp("lw x1, 8(x2)", 32'h00812083);
-  endtask
+  endtask  // Automatic
 
-  // Reference legality
   task automatic ref_op_fp(input logic [6:0] funct7, input logic [4:0] rs2, input logic [2:0] f3,
                            input logic [2:0] frm_in, output logic exp_ill,
                            output logic [2:0] exp_rm, output fp_unit_e exp_unit);
@@ -570,9 +567,8 @@ module fp_decode_tb
     exp_rm  = 3'b000;
     if (uses_rm) exp_rm = (f3 == 3'b111) ? frm_in : f3;
     if (exp_ill) exp_unit = FP_NONE;
-  endtask
+  endtask  // Automatic
 
-  // OpFp exhaustive
   task automatic sweep_op_fp();
     logic [4:0] rs2s[4];
     logic exp_ill;
@@ -598,9 +594,8 @@ module fp_decode_tb
         end
       end
     end
-  endtask
+  endtask  // Automatic
 
-  // Fused exhaustive
   task automatic sweep_fused();
     logic [6:0] ops[4];
     logic [31:0] word;
@@ -628,9 +623,8 @@ module fp_decode_tb
         end
       end
     end
-  endtask
+  endtask  // Automatic
 
-  // Memory funct3 sweep
   task automatic sweep_mem();
     logic [31:0] word;
     for (int s = 0; s < 2; s++) begin
@@ -646,18 +640,15 @@ module fp_decode_tb
         end
       end
     end
-  endtask
+  endtask  // Automatic
 
   task automatic do_verdict();
-    if (checks < 9000) begin
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least 9000", checks);
-    end else if (errors == 0) begin
-      $display("PASS: %0d checks", checks);
-    end else begin
-      $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    end
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
+    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $display("PASS: %0d checks", checks);
     $finish;
-  endtask
+  endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 

@@ -98,7 +98,6 @@ module control_decoder_tb ();
     end
   endtask
 
-  // Default decode
   task automatic chk_default(input string name);
     #1;
     check1({name, " reg_write"}, reg_write, 1'b0);
@@ -113,14 +112,9 @@ module control_decoder_tb ();
     check2({name, " alu_op"}, alu_op, AluAdd);
   endtask
 
-  // Float compute
   task automatic chk_op_fp();
-    logic [2:0] f3s[4];
+    logic [2:0] f3s[4] = '{3'b000, 3'b001, 3'b010, 3'b111};
     logic exp;
-    f3s[0] = 3'b000;
-    f3s[1] = 3'b001;
-    f3s[2] = 3'b010;
-    f3s[3] = 3'b111;
     op = OpcodeOpFp;
     for (int f5 = 0; f5 < 32; f5++) begin
       for (int i = 0; i < 4; i++) begin
@@ -136,7 +130,6 @@ module control_decoder_tb ();
     end
   endtask
 
-  // Float load
   task automatic chk_flw();
     op = OpcodeLoadFp;
     funct3 = 3'b010;
@@ -154,7 +147,6 @@ module control_decoder_tb ();
     check1("flw pc_target_src", pc_target_src, 1'b0);
   endtask
 
-  // Float store
   task automatic chk_fsw();
     op = OpcodeStoreFp;
     funct3 = 3'b010;
@@ -171,13 +163,8 @@ module control_decoder_tb ();
     check1("fsw pc_target_src", pc_target_src, 1'b0);
   endtask
 
-  // Fused opcodes
   task automatic chk_fused();
-    logic [6:0] ops[4];
-    ops[0] = OpcodeFmadd;
-    ops[1] = OpcodeFmsub;
-    ops[2] = OpcodeFnmsub;
-    ops[3] = OpcodeFnmadd;
+    logic [6:0] ops[4] = '{OpcodeFmadd, OpcodeFmsub, OpcodeFnmsub, OpcodeFnmadd};
     for (int o = 0; o < 4; o++) begin
       for (int f3 = 0; f3 < 8; f3++) begin
         op = ops[o];
@@ -188,13 +175,8 @@ module control_decoder_tb ();
     end
   endtask
 
-  // Vector memory
   task automatic chk_vec_mem();
-    logic [2:0] f3s[4];
-    f3s[0] = 3'b000;
-    f3s[1] = 3'b101;
-    f3s[2] = 3'b110;
-    f3s[3] = 3'b111;
+    logic [2:0] f3s[4] = '{3'b000, 3'b101, 3'b110, 3'b111};
     for (int i = 0; i < 4; i++) begin
       funct3 = f3s[i];
       funct12 = 12'h020;

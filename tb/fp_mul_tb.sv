@@ -23,7 +23,6 @@ module fp_mul_tb ();
       .fflags(fflags)
   );
 
-  // One vector
   task automatic check(input string path, input int line, input logic [31:0] exp_res,
                        input logic [4:0] exp_flags);
     checks++;
@@ -46,7 +45,6 @@ module fp_mul_tb ();
     end
   endtask
 
-  // One TestFloat file
   task automatic run_file(input string path, input logic [2:0] mode);
     int fd;
     int code;
@@ -73,7 +71,6 @@ module fp_mul_tb ();
     $display("%s: %0d lines", path, lines);
   endtask
 
-  // One hot NaN payloads
   task automatic run_nan_payloads();
     logic [31:0] nan;
     logic [ 4:0] flags;
@@ -108,7 +105,6 @@ module fp_mul_tb ();
       $dumpvars(0, fp_mul_tb);
     end
 
-    // Every rounding mode
     run_file("build/testfloat/f32_mul_rne.txt", 3'd0);
     run_file("build/testfloat/f32_mul_rtz.txt", 3'd1);
     run_file("build/testfloat/f32_mul_rdn.txt", 3'd2);
