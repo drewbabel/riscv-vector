@@ -11,6 +11,7 @@ module csr_tb;
   localparam int Vlen = arch_pkg::VLEN;
   localparam int VlW = $clog2(Vlen + 1);
   localparam int VstartW = $clog2(Vlen);
+  localparam int MinChecks = 853;
 
   logic               clk;
   logic               rst_n;
@@ -49,8 +50,17 @@ module csr_tb;
   logic [    VlW-1:0] vl_q;
   logic [   Xlen-1:0] vtype_q;
 
+  logic               core_en;
+  logic               is_fp_instr;
+  logic               fp_state_we;
+  logic               fp_flags_we;
+  logic [        4:0] fp_flags;
+  logic [        2:0] frm_q;
+
   logic [   Xlen-1:0] exp_mscratch;
   logic [VstartW-1:0] exp_vstart;
+  logic [        4:0] exp_fflags;
+  logic [        2:0] exp_frm;
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
@@ -62,7 +72,7 @@ module csr_tb;
       .VLEN(Vlen)
   ) dut (
       .clk                 (clk),
-      .core_en             (1'b1),
+      .core_en             (core_en),
       .cycle_en            (1'b1),
       .rst_n               (rst_n),
       .csr_access          (csr_access),
@@ -96,7 +106,12 @@ module csr_tb;
       .vec_vxsat           (vec_vxsat),
       .vec_csr_we          (vec_csr_we),
       .vec_csr_waddr       (vec_csr_waddr),
-      .vec_csr_wdata       (vec_csr_wdata)
+      .vec_csr_wdata       (vec_csr_wdata),
+      .is_fp_instr         (is_fp_instr),
+      .fp_state_we         (fp_state_we),
+      .fp_flags_we         (fp_flags_we),
+      .fp_flags            (fp_flags),
+      .frm_q               (frm_q)
   );
 
   task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
@@ -130,6 +145,13 @@ module csr_tb;
     {exc_instr_misaligned, exc_load_misaligned, exc_store_misaligned} = 0;
     exp_mscratch                                                      = 0;
     exp_vstart                                                        = 0;
+    core_en                                                           = 1;
+    is_fp_instr                                                       = 0;
+    fp_state_we                                                       = 0;
+    fp_flags_we                                                       = 0;
+    fp_flags                                                          = 0;
+    exp_fflags                                                        = 0;
+    exp_frm                                                           = 0;
     rst_n                                                             = 0;
     @(posedge clk);
     @(posedge clk);
@@ -412,7 +434,431 @@ module csr_tb;
     check("vl_off_unchanged", csr_rdata, 32'd7);
   endtask
 
+  task automatic set_status(input logic [1:0] fs, input logic [1:0] vs);
+    csr_op(Funct3Csrrw, MstatusAddr, (Xlen'(fs) << MstatusFsLo) | (Xlen'(vs) << MstatusVsLo));
+  endtask
+
+  task automatic fp_instr(input logic state_we, input logic we, input logic [4:0] flags);
+    #1;
+    is_fp_instr = 1;
+    fp_state_we = state_we;
+    fp_flags_we = we;
+    fp_flags    = flags;
+    @(posedge clk);
+    #1;
+    is_fp_instr = 0;
+    fp_state_we = 0;
+    fp_flags_we = 0;
+    fp_flags    = 0;
+  endtask
+
+  task automatic fp_trap(input string name, input logic [4:0] flags, input logic exp);
+    #1;
+    is_fp_instr = 1;
+    fp_state_we = 1;
+    fp_flags_we = 1;
+    fp_flags    = flags;
+    #1;
+    check(name, Xlen'(trap_taken), Xlen'(exp));
+    @(posedge clk);
+    #1;
+    is_fp_instr = 0;
+    fp_state_we = 0;
+    fp_flags_we = 0;
+    fp_flags    = 0;
+  endtask
+
+  function automatic logic [11:0] fp_addr_of(input int idx);
+    case (idx)
+      0: fp_addr_of = FflagsAddr;
+      1: fp_addr_of = FrmAddr;
+      default: fp_addr_of = FcsrAddr;
+    endcase
+  endfunction
+
+  function automatic logic [Xlen-1:0] fp_model_read(input logic [11:0] addr);
+    case (addr)
+      FflagsAddr: fp_model_read = Xlen'(exp_fflags);
+      FrmAddr: fp_model_read = Xlen'(exp_frm);
+      default: fp_model_read = Xlen'({exp_frm, exp_fflags});
+    endcase
+  endfunction
+
+  function automatic void fp_model_write(input logic [11:0] addr, input logic [7:0] wdata);
+    case (addr)
+      FflagsAddr: exp_fflags = wdata[4:0];
+      FrmAddr: exp_frm = wdata[2:0];
+      default: {exp_frm, exp_fflags} = wdata[7:0];
+    endcase
+  endfunction
+
+  function automatic logic [Xlen-1:0] op_result(input logic [2:0] op, input logic [Xlen-1:0] cur,
+                                                input logic [Xlen-1:0] val);
+    logic [Xlen-1:0] wsrc;
+    wsrc = op[2] ? {{(Xlen - 5) {1'b0}}, val[4:0]} : val;
+    case (op)
+      Funct3Csrrw, Funct3Csrrwi: op_result = wsrc;
+      Funct3Csrrs, Funct3Csrrsi: op_result = cur | wsrc;
+      Funct3Csrrc, Funct3Csrrci: op_result = cur & ~wsrc;
+      default: op_result = cur;
+    endcase
+  endfunction
+
+  function automatic logic op_writes(input logic [2:0] op, input logic [4:0] imm);
+    case (op)
+      Funct3Csrrw, Funct3Csrrwi: op_writes = 1'b1;
+      Funct3Csrrs, Funct3Csrrc: op_writes = src_spec != 5'd0;
+      default: op_writes = imm != 5'd0;
+    endcase
+  endfunction
+
+  task automatic fp_apply(input logic [2:0] op, input logic [11:0] addr,
+                          input logic [Xlen-1:0] val);
+    logic [Xlen-1:0] old;
+    old = fp_model_read(addr);
+    csr_drive(op, addr, val);
+    #1;
+    check($sformatf("fp_%h_no_trap", addr), Xlen'(trap_taken), 32'h0);
+    check($sformatf("fp_%h_read_old", addr), csr_rdata, old);
+    csr_commit();
+    if (op_writes(op, val[4:0])) fp_model_write(addr, 8'(op_result(op, old, val)));
+    check($sformatf("fp_%h_read_new", addr), csr_rdata, fp_model_read(addr));
+    check("frm_q_tracks_frm", Xlen'(frm_q), Xlen'(exp_frm));
+  endtask
+
+  task automatic check_fs(input string name, input logic [1:0] fs, input logic sd);
+    csr_peek(MstatusAddr);
+    check({name, "_fs"}, Xlen'(csr_rdata[MstatusFsLo+1:MstatusFsLo]), Xlen'(fs));
+    check({name, "_sd"}, Xlen'(csr_rdata[MstatusSd]), Xlen'(sd));
+  endtask
+
+  task automatic check_trap_record(input string name, input logic [Xlen-1:0] epc);
+    check({name, "_mepc"}, mepc_out, epc);
+    csr_peek(McauseAddr);
+    check({name, "_mcause"}, csr_rdata, Xlen'(CauseIllegalInstr));
+  endtask
+
+  task automatic test_fp_reset();
+    csr_peek(FflagsAddr);
+    check("fflags_reset", csr_rdata, 32'h0);
+    csr_peek(FrmAddr);
+    check("frm_reset", csr_rdata, 32'h0);
+    csr_peek(FcsrAddr);
+    check("fcsr_reset", csr_rdata, 32'h0);
+    check("frm_q_reset", Xlen'(frm_q), 32'h0);
+    check_fs("fs_reset", FsOff, 1'b0);
+  endtask
+
+  task automatic test_fp_rw();
+    set_status(FsInitial, VsClean);
+    for (int a = 0; a < 3; a++) begin
+      fp_apply(Funct3Csrrw, fp_addr_of(a), 32'hFFFF_FF55);
+      fp_apply(Funct3Csrrc, fp_addr_of(a), 32'h0000_0F0F);
+      fp_apply(Funct3Csrrs, fp_addr_of(a), 32'h0000_00A0);
+      fp_apply(Funct3Csrrwi, fp_addr_of(a), 32'h0000_0015);
+      fp_apply(Funct3Csrrsi, fp_addr_of(a), 32'h0000_000A);
+      fp_apply(Funct3Csrrci, fp_addr_of(a), 32'h0000_0013);
+    end
+    repeat (120) fp_apply(op_of($urandom_range(0, 5)), fp_addr_of($urandom_range(0, 2)), $urandom);
+  endtask
+
+  task automatic test_fp_alias();
+    set_status(FsDirty, VsClean);
+    fp_apply(Funct3Csrrw, FcsrAddr, 32'hFFFF_FFB6);
+    csr_peek(FflagsAddr);
+    check("fcsr_to_fflags", csr_rdata, 32'h16);
+    csr_peek(FrmAddr);
+    check("fcsr_to_frm", csr_rdata, 32'h5);
+    check("fcsr_to_frm_q", Xlen'(frm_q), 32'h5);
+
+    fp_apply(Funct3Csrrw, FrmAddr, 32'h3);
+    csr_peek(FcsrAddr);
+    check("frm_to_fcsr", csr_rdata, 32'h76);
+    fp_apply(Funct3Csrrw, FflagsAddr, 32'h9);
+    csr_peek(FcsrAddr);
+    check("fflags_to_fcsr", csr_rdata, 32'h69);
+    fp_apply(Funct3Csrrs, FrmAddr, 32'h4);
+    csr_peek(FcsrAddr);
+    check("frm_set_to_fcsr", csr_rdata, 32'hE9);
+    fp_apply(Funct3Csrrci, FflagsAddr, 32'h1);
+    csr_peek(FcsrAddr);
+    check("fflags_clear_to_fcsr", csr_rdata, 32'hE8);
+  endtask
+
+  task automatic test_fs_off();
+    set_status(FsDirty, VsClean);
+    fp_apply(Funct3Csrrw, FcsrAddr, 32'hA7);
+    set_status(FsOff, VsClean);
+
+    for (int a = 0; a < 3; a++) begin
+      for (int k = 0; k < 2; k++) begin
+        logic [11:0] addr;
+        logic [Xlen-1:0] epc;
+        addr = fp_addr_of(a);
+        epc  = 32'h0000_2000 + 32'(a * 16 + k * 4);
+        csr_op(Funct3Csrrw, McauseAddr, 32'h0);
+        pc = epc;
+        src_spec = k[0] ? 5'd0 : 5'd1;
+        csr_trap($sformatf("fs_off_%h_traps", addr), k[0] ? Funct3Csrrs : Funct3Csrrw, addr, 32'h18,
+                 1'b1);
+        src_spec = 5'd1;
+        check_trap_record($sformatf("fs_off_%h", addr), epc);
+        csr_peek(addr);
+        check($sformatf("fs_off_%h_unchanged", addr), csr_rdata, fp_model_read(addr));
+        check("fs_off_frm_q_unchanged", Xlen'(frm_q), Xlen'(exp_frm));
+        check_fs("fs_off_stays_off", FsOff, 1'b0);
+      end
+    end
+
+    csr_op(Funct3Csrrw, McauseAddr, 32'h0);
+    pc = 32'h0000_2100;
+    fp_trap("fp_instr_off_traps", 5'h18, 1'b1);
+    check_trap_record("fp_instr_off", 32'h0000_2100);
+    csr_peek(FflagsAddr);
+    check("fp_instr_off_no_accrue", csr_rdata, Xlen'(exp_fflags));
+    check_fs("fp_instr_off_stays_off", FsOff, 1'b0);
+    pc = 0;
+  endtask
+
+  task automatic test_fs_dirty();
+    for (int f = 0; f < 4; f++) begin
+      for (int v = 0; v < 4; v++) begin
+        set_status(2'(f), 2'(v));
+        csr_peek(MstatusAddr);
+        check("fs_writable", Xlen'(csr_rdata[MstatusFsLo+1:MstatusFsLo]), Xlen'(f));
+        check("vs_beside_fs", Xlen'(csr_rdata[MstatusVsLo+1:MstatusVsLo]), Xlen'(v));
+        check("sd_either_dirty", Xlen'(csr_rdata[MstatusSd]), Xlen'(f == 3 || v == 3));
+      end
+    end
+
+    set_status(FsClean, VsClean);
+    fp_instr(1'b1, 1'b0, 5'h0);
+    check_fs("fp_state_we_dirties", FsDirty, 1'b1);
+
+    set_status(FsInitial, VsClean);
+    fp_instr(1'b0, 1'b0, 5'h0);
+    check_fs("fp_instr_alone_keeps_initial", FsInitial, 1'b0);
+    fp_instr(1'b0, 1'b1, 5'h0);
+    check_fs("zero_flags_keep_initial", FsInitial, 1'b0);
+    fp_instr(1'b0, 1'b0, 5'h1F);
+    check_fs("flags_without_we_keep_initial", FsInitial, 1'b0);
+    fp_instr(1'b0, 1'b1, 5'h04);
+    exp_fflags = exp_fflags | 5'h04;
+    check_fs("fp_flags_dirty", FsDirty, 1'b1);
+
+    set_status(FsClean, VsClean);
+    #1;
+    fp_flags_we = 1;
+    fp_flags    = 5'h01;
+    @(posedge clk);
+    #1;
+    fp_flags_we = 0;
+    fp_flags    = 0;
+    exp_fflags  = exp_fflags | 5'h01;
+    check_fs("fp_flags_alone_dirty", FsDirty, 1'b1);
+
+    for (int a = 0; a < 3; a++) begin
+      set_status(FsClean, VsClean);
+      fp_apply(Funct3Csrrwi, fp_addr_of(a), 32'h3);
+      check_fs($sformatf("fp_%h_write_dirties", fp_addr_of(a)), FsDirty, 1'b1);
+    end
+
+    set_status(FsClean, VsClean);
+    src_spec = 5'd0;
+    fp_apply(Funct3Csrrs, FflagsAddr, 32'h0);
+    src_spec = 5'd1;
+    fp_apply(Funct3Csrrci, FcsrAddr, 32'h0);
+    check_fs("fp_read_stays_clean", FsClean, 1'b0);
+
+    core_en = 0;
+    fp_instr(1'b1, 1'b1, 5'h1F);
+    core_en = 1;
+    check_fs("fp_instr_core_en_low", FsClean, 1'b0);
+  endtask
+
+  task automatic test_fp_accrue();
+    set_status(FsDirty, VsClean);
+    fp_apply(Funct3Csrrw, FflagsAddr, 32'h0);
+
+    core_en = 0;
+    fp_instr(1'b1, 1'b1, 5'h1F);
+    core_en = 1;
+    csr_peek(FflagsAddr);
+    check("accrue_core_en_low", csr_rdata, 32'h0);
+
+    fp_instr(1'b1, 1'b1, 5'h01);
+    fp_instr(1'b1, 1'b1, 5'h04);
+    fp_instr(1'b1, 1'b0, 5'h10);
+    fp_instr(1'b1, 1'b1, 5'h04);
+    csr_peek(FflagsAddr);
+    check("accrue_or", csr_rdata, 32'h05);
+    exp_fflags = 5'h05;
+
+    #1;
+    exc_illegal = 1;
+    fp_flags_we = 1;
+    fp_flags    = 5'h1A;
+    @(posedge clk);
+    #1;
+    exc_illegal = 0;
+    fp_flags_we = 0;
+    fp_flags    = 0;
+    csr_peek(FflagsAddr);
+    check("accrue_blocked_by_trap", csr_rdata, 32'h05);
+
+    for (int t = 0; t < 200; t++) begin
+      logic en;
+      logic we;
+      logic [4:0] flags;
+      if (t % 8 == 0) fp_apply(Funct3Csrrw, FflagsAddr, 32'h0);
+      en = $urandom_range(0, 3) != 0;
+      we = $urandom_range(0, 3) != 0;
+      flags = $urandom_range(0, 3) == 0 ? 5'($urandom) : 5'(1 << $urandom_range(0, 4));
+      core_en = en;
+      fp_instr(1'b1, we, flags);
+      core_en = 1;
+      if (en && we) exp_fflags = exp_fflags | flags;
+      csr_peek(FflagsAddr);
+      check("fflags_accrue", csr_rdata, Xlen'(exp_fflags));
+    end
+
+    fp_apply(Funct3Csrrw, FcsrAddr, 32'h01);
+    csr_drive(Funct3Csrrw, FflagsAddr, 32'h10);
+    fp_flags_we = 1;
+    fp_flags    = 5'h0C;
+    csr_commit();
+    fp_flags_we = 0;
+    fp_flags    = 0;
+    csr_peek(FflagsAddr);
+    check("fflags_write_wins", csr_rdata, 32'h10);
+
+    csr_drive(Funct3Csrrw, FcsrAddr, 32'h41);
+    fp_flags_we = 1;
+    fp_flags    = 5'h1E;
+    csr_commit();
+    fp_flags_we = 0;
+    fp_flags    = 0;
+    csr_peek(FcsrAddr);
+    check("fcsr_write_wins", csr_rdata, 32'h41);
+
+    csr_drive(Funct3Csrrs, FflagsAddr, 32'h02);
+    fp_flags_we = 1;
+    fp_flags    = 5'h1C;
+    csr_commit();
+    fp_flags_we = 0;
+    fp_flags    = 0;
+    csr_peek(FflagsAddr);
+    check("fflags_set_wins", csr_rdata, 32'h03);
+
+    csr_drive(Funct3Csrrw, FrmAddr, 32'h6);
+    fp_flags_we = 1;
+    fp_flags    = 5'h10;
+    csr_commit();
+    fp_flags_we = 0;
+    fp_flags    = 0;
+    csr_peek(FcsrAddr);
+    check("frm_write_keeps_accrue", csr_rdata, 32'hD3);
+    exp_fflags = 5'h13;
+    exp_frm    = 3'h6;
+  endtask
+
+  task automatic test_frm_q();
+    set_status(FsDirty, VsClean);
+    for (int r = 0; r < 8; r++) begin
+      fp_apply(Funct3Csrrwi, FrmAddr, Xlen'(r));
+      check("frm_q_value", Xlen'(frm_q), Xlen'(r));
+    end
+    fp_apply(Funct3Csrrw, FcsrAddr, 32'h40);
+    check("frm_q_from_fcsr", Xlen'(frm_q), 32'h2);
+    fp_instr(1'b1, 1'b1, 5'h1F);
+    exp_fflags = 5'h1F;
+    check("frm_q_holds_on_accrue", Xlen'(frm_q), 32'h2);
+  endtask
+
+  task automatic test_fp_random();
+    logic [1:0] exp_fs;
+    set_status(FsDirty, VsClean);
+    exp_fs = FsDirty;
+    for (int t = 0; t < 2000; t++) begin
+      int              kind;
+      logic [     2:0] op;
+      logic [    11:0] addr;
+      logic [Xlen-1:0] val;
+      logic [Xlen-1:0] old;
+      logic [     4:0] flags;
+      logic [     1:0] new_fs;
+      logic            en;
+      logic            fp;
+      logic            we;
+      logic            st;
+      logic            ill;
+      logic            acc;
+      logic            wr;
+      logic            trap;
+      kind     = $urandom_range(0, 15);
+      op       = op_of($urandom_range(0, 5));
+      addr     = fp_addr_of($urandom_range(0, 2));
+      val      = $urandom;
+      flags    = 5'($urandom);
+      new_fs   = 2'($urandom_range(0, 3));
+      src_spec = $urandom_range(0, 7) == 0 ? 5'd0 : 5'd1;
+      en       = $urandom_range(0, 7) != 0;
+      ill      = $urandom_range(0, 15) == 0;
+      fp       = kind != 10 && $urandom_range(0, 2) == 0;
+      st       = fp && $urandom_range(0, 1) == 1;
+      we       = kind != 10 && (fp || exp_fs != FsOff) && $urandom_range(0, 1) == 1;
+      acc      = kind < 10;
+      wr       = acc && op_writes(op, val[4:0]);
+      trap     = ill || ((fp || acc) && exp_fs == FsOff);
+      old      = fp_model_read(addr);
+
+      if (acc) csr_drive(op, addr, val);
+      else if (kind == 10)
+        csr_drive(Funct3Csrrw, MstatusAddr,
+                  (Xlen'(new_fs) << MstatusFsLo) | (Xlen'(VsClean) << MstatusVsLo));
+      else #1;
+      core_en     = en;
+      exc_illegal = ill;
+      is_fp_instr = fp;
+      fp_state_we = st;
+      fp_flags_we = we;
+      fp_flags    = flags;
+      #1;
+      check("rand_trap", Xlen'(trap_taken), Xlen'(trap));
+      if (acc) check("rand_read_old", csr_rdata, old);
+      @(posedge clk);
+      #1;
+      csr_access  = 0;
+      core_en     = 1;
+      exc_illegal = 0;
+      is_fp_instr = 0;
+      fp_state_we = 0;
+      fp_flags_we = 0;
+      fp_flags    = 0;
+
+      if (en && !trap) begin
+        if (wr) fp_model_write(addr, 8'(op_result(op, old, val)));
+        if (we && !(wr && addr != FrmAddr)) exp_fflags = exp_fflags | flags;
+        if (kind == 10) exp_fs = new_fs;
+        else if ((fp && st) || (we && flags != 5'd0) || wr) exp_fs = FsDirty;
+      end
+      csr_peek(FcsrAddr);
+      check("rand_fcsr", csr_rdata, Xlen'({exp_frm, exp_fflags}));
+      check("rand_frm_q", Xlen'(frm_q), Xlen'(exp_frm));
+      check_fs("rand", exp_fs, exp_fs == FsDirty);
+    end
+    src_spec = 5'd1;
+  endtask
+
+  task automatic test_fp_reset_clears();
+    set_status(FsDirty, VsClean);
+    fp_apply(Funct3Csrrw, FcsrAddr, 32'hFF);
+    do_reset();
+    test_fp_reset();
+  endtask
+
   task automatic verdict();
+    if (checks < MinChecks) $fatal(1, "TB UNDER-RAN: %0d checks, floor %0d", checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
@@ -422,6 +868,7 @@ module csr_tb;
     $dumpfile("csr_tb.vcd");
     $dumpvars(0, csr_tb);
     do_reset();
+    test_fp_reset();
     test_mscratch();
     test_mip();
     test_mtvec();
@@ -431,6 +878,14 @@ module csr_tb;
     test_readonly();
     test_fixed_point();
     test_vs_off();
+    test_fp_rw();
+    test_fp_alias();
+    test_fs_off();
+    test_fs_dirty();
+    test_fp_accrue();
+    test_frm_q();
+    test_fp_random();
+    test_fp_reset_clears();
     verdict();
   end
 
