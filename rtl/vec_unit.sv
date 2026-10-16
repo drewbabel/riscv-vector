@@ -73,6 +73,8 @@ module vec_unit
   localparam int OffW = $clog2(VLEN);
   localparam int CountW = $clog2(MaxElems + 1);
   localparam int GrpW = AWIDTH + 1;
+  localparam int Widths = $clog2(ELEN / 8) + 1;
+  localparam int WSelW = $clog2(Widths);
   localparam int SelW = VlW + 1;
   localparam int SumW = VlW + 4;
   localparam int RegBytes = VLEN / 8;
@@ -229,6 +231,11 @@ module vec_unit
   vec_geom_t                dec_geom_s;
   vec_geom_t                seq_geom_s;
   vec_geom_t                geom_ex;
+
+  // Divide forms
+  function automatic logic is_div(input vec_op_e op);
+    is_div = (op == VEC_DIVU) || (op == VEC_DIV) || (op == VEC_REMU) || (op == VEC_REM);
+  endfunction
 
   assign dec_cls = vec_class(dec_op);
   assign seq_cls = vec_class(seq_op);
@@ -440,14 +447,12 @@ module vec_unit
   logic op_ready;
   logic accept_now;
 
-  // Built multiply ops
+  // Widening multiplies trap
   logic mul_built;
-  assign mul_built = (dec_op == VEC_MUL) || (dec_op == VEC_MULH) || (dec_op == VEC_MULHU) ||
-      (dec_op == VEC_MULHSU) || (dec_op == VEC_MACC) || (dec_op == VEC_NMSAC) ||
-      (dec_op == VEC_MADD) || (dec_op == VEC_NMSUB);
+  assign mul_built = (dec_cls != VEC_CLS_MUL) || !dec_geom_s.widen;
 
-  assign op_ready = (dec_cls != VEC_CLS_NONE) && ((dec_cls != VEC_CLS_MUL) || mul_built) &&
-      group_legal && (dec_mem || (width_legal && scalar_legal));
+  assign op_ready = (dec_cls != VEC_CLS_NONE) && mul_built && group_legal &&
+      (dec_mem || (width_legal && scalar_legal));
   assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 
@@ -530,14 +535,23 @@ module vec_unit
       .store_pending(store_pending)
   );
 
-  // Book the write
-  logic seq_deep;
-  logic slot_free;
-  logic seq_hold;
+  // Divide lanes
+  logic                 div_op_x2;
+  logic                 div_go;
+  logic                 div_run_q;
+  logic                 div_stall;
+  logic                 div_hold;
+  logic [MUL_LANES-1:0] div_pend_q;
+  logic [MUL_LANES-1:0] div_done;
 
-  assign seq_deep = (seq_cls == VEC_CLS_RED) || (seq_cls == VEC_CLS_MUL) ||
-      (seq_cls == VEC_CLS_SAT);
-  assign seq_hold = seq_busy && !slot_free;
+  // Book the write
+  logic                 seq_deep;
+  logic                 slot_free;
+  logic                 seq_hold;
+
+  assign
+      seq_deep = (seq_cls == VEC_CLS_RED) || (seq_cls == VEC_CLS_MUL) || (seq_cls == VEC_CLS_SAT);
+  assign seq_hold = seq_busy && (!slot_free || div_hold);
 
   vec_write_slots #(
       .DEPTH(DeepWb)
@@ -545,7 +559,7 @@ module vec_unit
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en),
-      .start(seq_busy && slot_free),
+      .start(seq_busy && !seq_hold),
       .depth(seq_deep ? SlotW'(DeepWb) : SlotW'(ShallowWb)),
       .free(slot_free)
   );
@@ -786,9 +800,6 @@ module vec_unit
   );
 
   // Multiply operand select
-  localparam int Widths = $clog2(ELEN / 8) + 1;
-  localparam int WSelW  = $clog2(Widths);
-
   logic                    narrow_ex;
   logic                    vd_mul_ex;
   logic    [     VLEN-1:0] vd_data;
@@ -818,6 +829,8 @@ module vec_unit
     logic [  ELEN-1:0] c_x2;
     logic [  ELEN-1:0] mul_res;
     logic [  ELEN-1:0] sat_res;
+    logic [  ELEN-1:0] div_res;
+    logic [  ELEN-1:0] res_sel;
     logic [2*ELEN-1:0] product;
     logic              sat;
 
@@ -873,7 +886,29 @@ module vec_unit
         .sat(sat)
     );
 
-    assign lane_res[l] = (cls_x2 == VEC_CLS_SAT) ? sat_res : mul_res;
+    vec_div_lane #(
+        .ELEN(ELEN)
+    ) u_div (
+        .clk(clk),
+        .rst_n(rst_n),
+        .core_en(core_en),
+        .start(div_go && active_x2[l]),
+        .op(op_x2),
+        .vsew(vsew_x2),
+        .a(a_x2),
+        .b(b_x2),
+        .result(div_res),
+        .busy(),
+        .done(div_done[l])
+    );
+
+    always_comb begin
+      if (cls_x2 == VEC_CLS_SAT) res_sel = sat_res;
+      else if (div_op_x2) res_sel = div_res;
+      else res_sel = mul_res;
+    end
+
+    assign lane_res[l] = res_sel;
     assign lane_sat[l] = sat && active_x2[l];
   end
 
@@ -893,6 +928,23 @@ module vec_unit
 
   assign lane_result = lane_pack[vsew_x2[WSelW-1:0]];
 
+  // Divide stall
+  assign div_op_x2 = is_div(op_x2);
+  assign div_go = valid_x2 && div_op_x2 && !div_run_q;
+  assign div_stall = valid_x2 && div_op_x2 && (!div_run_q || ((div_pend_q & ~div_done) != '0));
+  assign div_hold = (valid_ex && is_div(op_ex)) || div_stall;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      div_run_q  <= 1'b0;
+      div_pend_q <= '0;
+    end else if (core_en) begin
+      div_run_q <= div_stall;
+      if (div_go) div_pend_q <= active_x2;
+      else div_pend_q <= div_pend_q & ~div_done;
+    end
+  end
+
   // Deep units
   logic deep_ex;
   assign deep_ex = (cls_ex == VEC_CLS_RED) || (cls_ex == VEC_CLS_MUL) || (cls_ex == VEC_CLS_SAT);
@@ -904,7 +956,7 @@ module vec_unit
       wen_x2      <= 1'b0;
       reg_done_x2 <= 1'b0;
       last_x2     <= 1'b0;
-    end else if (core_en) begin
+    end else if (core_en && !div_stall) begin
       valid_x2    <= valid_ex && deep_ex;
       wen_x2      <= wen_ex && deep_ex;
       reg_done_x2 <= reg_done_ex && deep_ex;
@@ -930,7 +982,7 @@ module vec_unit
       sat_wb      <= 1'b0;
     end else if (core_en) begin
       sat_wb <= valid_x2 && (cls_x2 == VEC_CLS_SAT) && (lane_sat != '0);
-      if (valid_x2) begin  // Slot row keeps one
+      if (valid_x2 && !div_stall) begin  // Slot row keeps one
         valid_wb    <= 1'b1;
         wen_wb      <= wen_x2;
         reg_done_wb <= reg_done_x2;
