@@ -1,5 +1,9 @@
 `default_nettype none
 
+`ifndef COSIM_DEPTH
+`define COSIM_DEPTH 256
+`endif
+
 module cosim ();
 
   int checks = 0;
@@ -9,7 +13,7 @@ module cosim ();
   localparam int Vregs = arch_pkg::NumRegs;
   localparam int VlW = $clog2(Vlen + 1);
   localparam int VstartW = $clog2(Vlen);
-  localparam int Depth = 256;
+  localparam int Depth = `COSIM_DEPTH;
 
   logic             clk = 1'b0;
   logic             rst_n;
@@ -125,7 +129,6 @@ module cosim ();
     $display("COMMIT %08x %0d %08x %0d %08x %1x %08x %02x %02x %1x %02x", r_pc,
              (r_rw && rd != 0) ? rd : 0, r_wdata, |r_wmask, r_maddr, r_wmask, r_sdata, r_vl,
              r_vtype_bits, r_vtype_ill, r_vstart);
-    // time pc insn
     $display("TRACE %0t %08x %08x", $time, r_pc, r_insn);
     checks++;
   endtask  // Automatic
@@ -142,6 +145,8 @@ module cosim ();
     logic [Xlen-1:0] last_pc;
     logic            have_last;
     logic            stop;
+    int              log_traps;
+    int              preload;
 
     if (!$value$plusargs("hex=%s", hexfile)) $fatal(1, "cosim needs +hex");
     if (!$value$plusargs("n=%d", max_commits)) max_commits = 4000;
@@ -153,6 +158,16 @@ module cosim ();
     $readmemh(hexfile, dut.imem_inst.mem);
     if ($isunknown(dut.imem_inst.mem[0]) || dut.imem_inst.mem[0] == 32'h0)
       $fatal(1, "%s missing or empty", hexfile);
+    if (!$value$plusargs("preload_dmem=%d", preload)) preload = 0;
+    if (!$value$plusargs("log_traps=%d", log_traps)) log_traps = 0;
+    if (preload != 0)
+      for (int l = 0; l < Depth / 4; l++)
+      dut.dmem_inst.mem[l] = {
+        dut.imem_inst.mem[4*l+3],
+        dut.imem_inst.mem[4*l+2],
+        dut.imem_inst.mem[4*l+1],
+        dut.imem_inst.mem[4*l]
+      };
     do_reset();
 
     // Park sentinel stops
@@ -162,6 +177,8 @@ module cosim ();
       @(posedge clk);
       #1;
       if (r_vretire) emit_vcommit();
+      if ((log_traps != 0) && r_valid && r_trap)
+        $display("DTRAP %0t %08x %08x", $time, r_pc, r_insn);
       // Spike skips traps
       if (r_valid && !r_trap) begin
         if (have_last && r_pc === last_pc) stop = 1;
