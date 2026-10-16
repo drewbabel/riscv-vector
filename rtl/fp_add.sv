@@ -1,15 +1,9 @@
 `default_nettype none
 
 module fp_add
-  import fp_pkg::RmRne;
-  import fp_pkg::RmRtz;
-  import fp_pkg::RmRdn;
-  import fp_pkg::RmRup;
-  import fp_pkg::RmRmm;
-  import fp_pkg::FlagNv;
-  import fp_pkg::FlagOf;
-  import fp_pkg::FlagUf;
-  import fp_pkg::FlagNx;
+  import fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup;
+  import fp_pkg::FlagNv, fp_pkg::FlagOf, fp_pkg::FlagUf, fp_pkg::FlagNx;
+  import fp_pkg::fp_round_up, fp_pkg::fp_lzc, fp_pkg::FpLzcW;
 #(
     parameter  int ExpW  = fp_pkg::ExpW,
     parameter  int FracW = fp_pkg::FracW,
@@ -37,6 +31,10 @@ module fp_add
   localparam logic [FLEN-2:0] MaxMag = {{(ExpW - 1) {1'b1}}, 1'b0, {FracW{1'b1}}};
   localparam logic [ExpSumW-1:0] ExpOvf = {1'b0, {ExpW{1'b1}}};
   localparam logic [AlignW-1:0] LimitTop = {1'b1, {(AlignW - 1) {1'b0}}};
+
+  if (!((ExpW >= 2) && (FracW >= 2) && (AlignW <= FpLzcW))) begin : g_width_error
+    $error("ExpW and FracW outside the supported range");
+  end
 
   logic               sa;
   logic               sb;
@@ -106,21 +104,18 @@ module fp_add
   assign d = ex - ey;
   assign sh = (d > ExpW'(AlignW)) ? ShW'(AlignW) : ShW'(d);
 
+  // Align with sticky
   assign y_wide = {my, {(WideW - SigW) {1'b0}}} >> sh;
   assign y_al = {
     y_wide[WideW-1-:AlignW-1], y_wide[WideW-AlignW] | (y_wide[WideW-AlignW-1:0] != '0)
   };
-  assign sum = eff_sub ? {1'b0, mx, {GrsW{1'b0}}} - {1'b0, y_al} : {1'b0, mx, {GrsW{1'b0}}} + {1'b0, y_al};
+  assign sum = eff_sub ?
+      {1'b0, mx, {GrsW{1'b0}}} - {1'b0, y_al} : {1'b0, mx, {GrsW{1'b0}}} + {1'b0, y_al};
 
+  // Normalize leading one
   assign limit = LimitTop >> (ex - ExpW'(1));
   assign lz_in = sum[AlignW-1:0] | limit;
-
-  always_comb begin
-    lz = '0;
-    for (int i = 0; i < AlignW; i++) begin
-      if (lz_in[i]) lz = LzW'(AlignW - 1 - i);
-    end
-  end
+  assign lz = LzW'(fp_lzc(FpLzcW'(lz_in), AlignW));
 
   assign n = sum[AlignW] ? {sum[AlignW:2], sum[1] | sum[0]} : sum[AlignW-1:0] << lz;
   assign e = sum[AlignW] ? {1'b0, ex} + ExpSumW'(1) : {1'b0, ex} - ExpSumW'(lz);
@@ -131,16 +126,7 @@ module fp_add
   assign st = |n[GrsW-2:0];
   assign inexact = g | st;
 
-  always_comb begin
-    case (rm)
-      RmRne:   inc = g & (st | lsb);
-      RmRtz:   inc = 1'b0;
-      RmRdn:   inc = sx & inexact;
-      RmRup:   inc = ~sx & inexact;
-      RmRmm:   inc = g;
-      default: inc = 1'b0;
-    endcase
-  end
+  assign inc = fp_round_up(rm, sx, lsb, g, st);
 
   assign {r_top, r_mag} = {e_field, n[AlignW-2:GrsW]} + FLEN'(inc);
   assign ovf = {r_top, r_mag[FLEN-2:FracW]} >= ExpOvf;
@@ -162,7 +148,9 @@ module fp_add
       fflags = FlagOf | FlagNx;
     end else begin
       result = {sx, r_mag};
-      fflags = (uf ? FlagUf : '0) | (inexact ? FlagNx : '0);
+      fflags = '0;
+      if (uf) fflags = fflags | FlagUf;
+      if (inexact) fflags = fflags | FlagNx;
     end
   end
 

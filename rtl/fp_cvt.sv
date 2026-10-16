@@ -1,24 +1,23 @@
 `default_nettype none
 
 module fp_cvt
-  import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup, fp_pkg::RmRmm;
-  import fp_pkg::FlagNv, fp_pkg::FlagNx;
+  import fp_pkg::FlagNv, fp_pkg::FlagNx, fp_pkg::fp_round_up, fp_pkg::fp_lzc, fp_pkg::FpLzcW;
 #(
     parameter  int XLEN  = arch_pkg::XLEN,
     parameter  int ExpW  = fp_pkg::ExpW,
     parameter  int FracW = fp_pkg::FracW,
-    localparam int FLEN  = 1 + ExpW + FracW
+    localparam int FLEN  = 1 + ExpW + FracW,
+    localparam int OpW   = (FLEN > XLEN) ? FLEN : XLEN
 ) (
-    input  wire                                    to_int,
-    input  wire                                    is_unsigned,
-    input  wire  [                            2:0] iw,
-    input  wire  [                            2:0] rm,
-    input  wire  [(FLEN > XLEN ? FLEN : XLEN)-1:0] a,
-    output logic [(FLEN > XLEN ? FLEN : XLEN)-1:0] result,
-    output logic [                            4:0] fflags
+    input  wire            to_int,
+    input  wire            is_unsigned,
+    input  wire  [    2:0] iw,
+    input  wire  [    2:0] rm,
+    input  wire  [OpW-1:0] a,
+    output logic [OpW-1:0] result,
+    output logic [    4:0] fflags
 );
 
-  localparam int OpW = (FLEN > XLEN) ? FLEN : XLEN;
   localparam int SigW = FracW + 1;
   localparam int Bias = (1 << (ExpW - 1)) - 1;
   localparam int HalfW = XLEN / 2;
@@ -38,21 +37,14 @@ module fp_cvt
   localparam logic [XLEN-1:0] SMaxHalf = {{(XLEN - HalfW + 1) {1'b0}}, {(HalfW - 1) {1'b1}}};
   localparam logic [XLEN-1:0] SMinHalf = {{(XLEN - HalfW) {1'b0}}, 1'b1, {(HalfW - 1) {1'b0}}};
 
-  logic w_half;
-  assign w_half = (iw == 3'd1);
+  if (!(((Bias + XLEN) <= ((1 << ExpW) - 2)) && (XLEN <= FpLzcW))) begin : g_width_error
+    $error("ExpW and FracW outside the supported range");
+  end
 
-  function automatic logic round_up(input logic [2:0] mode, input logic neg, input logic lsb,
-                                    input logic guard, input logic sticky);
-    case (mode)
-      RmRne:   round_up = guard && (sticky || lsb);
-      RmRtz:   round_up = 1'b0;
-      RmRdn:   round_up = neg && (guard || sticky);
-      RmRup:   round_up = !neg && (guard || sticky);
-      RmRmm:   round_up = guard;
-      default: round_up = 1'b0;
-    endcase
-  endfunction
+  logic half;
+  assign half = (iw == 3'd1);
 
+  // Float to integer
   logic             f_sign;
   logic [ ExpW-1:0] f_exp;
   logic [FracW-1:0] f_frac;
@@ -87,20 +79,35 @@ module fp_cvt
   assign f_guard = f_fix[SigW-1];
   assign f_sticky = (f_fix[SigW-2:0] != '0) || (f_tiny && (a[FLEN-2:0] != '0));
 
-  assign f_inc = round_up(rm, f_sign, f_int[0], f_guard, f_sticky);
+  assign f_inc = fp_round_up(rm, f_sign, f_int[0], f_guard, f_sticky);
   assign f_mag = {1'b0, f_int} + (XLEN + 1)'(f_inc);
 
-  assign f_pos_max = is_unsigned ? (w_half ? UMaxHalf : UMax) : (w_half ? SMaxHalf : SMax);
-  assign f_neg_max = is_unsigned ? '0 : (w_half ? SMinHalf : SMin);
+  // Destination bounds
+  always_comb begin
+    if (is_unsigned) begin
+      f_pos_max = half ? UMaxHalf : UMax;
+      f_neg_max = '0;
+    end else begin
+      f_pos_max = half ? SMaxHalf : SMax;
+      f_neg_max = half ? SMinHalf : SMin;
+    end
+  end
 
   assign f_nv = f_nan || f_big || (f_mag > {1'b0, f_sign ? f_neg_max : f_pos_max});
 
-  assign f_full = f_nv ? ((f_nan || !f_sign) ? f_pos_max : f_neg_max) :
-      (f_sign ? -f_mag[XLEN-1:0] : f_mag[XLEN-1:0]);
-  assign f_res = w_half ? {{(XLEN - HalfW) {1'b0}}, f_full[HalfW-1:0]} : f_full;
+  always_comb begin
+    if (f_nv) begin
+      f_full  = (f_nan || !f_sign) ? f_pos_max : f_neg_max;
+      f_flags = FlagNv;
+    end else begin
+      f_full  = f_sign ? -f_mag[XLEN-1:0] : f_mag[XLEN-1:0];
+      f_flags = (f_guard || f_sticky) ? FlagNx : '0;
+    end
+  end
 
-  assign f_flags = f_nv ? FlagNv : ((f_guard || f_sticky) ? FlagNx : '0);
+  assign f_res = half ? {{(XLEN - HalfW) {1'b0}}, f_full[HalfW-1:0]} : f_full;
 
+  // Integer to float
   logic [ XLEN-1:0] i_val;
   logic             i_sign;
   logic [ XLEN-1:0] i_mag;
@@ -114,27 +121,20 @@ module fp_cvt
   logic [ FLEN-1:0] i_res;
   logic [      4:0] i_flags;
 
-  assign i_val = w_half ? {{(XLEN - HalfW) {a[HalfW-1] && !is_unsigned}}, a[HalfW-1:0]} :
-      a[XLEN-1:0];
+  assign i_val = half ? {{(XLEN - HalfW) {a[HalfW-1] && !is_unsigned}}, a[HalfW-1:0]} : a[XLEN-1:0];
   assign i_sign = !is_unsigned && i_val[XLEN-1];
   assign i_mag = i_sign ? -i_val : i_val;
 
-  always_comb begin
-    i_norm = i_mag;
-    i_lz   = '0;
-    for (int s = LzW - 1; s >= 0; s--) begin
-      if ((i_norm >> (XLEN - (1 << s))) == '0) begin
-        i_norm = i_norm << (1 << s);
-        i_lz   = i_lz | LzW'(1 << s);
-      end
-    end
-  end
+  // Normalize leading one
+  assign i_lz = LzW'(fp_lzc(FpLzcW'(i_mag), XLEN));
+  assign i_norm = i_mag << i_lz;
 
   assign i_wide = {i_norm, {(SigW + 1) {1'b0}}};
   assign i_guard = i_wide[XLEN];
   assign i_sticky = i_wide[XLEN-1:0] != '0;
 
-  assign i_inc = round_up(rm, i_sign, i_wide[XLEN+1], i_guard, i_sticky);
+  // Pack and round
+  assign i_inc = fp_round_up(rm, i_sign, i_wide[XLEN+1], i_guard, i_sticky);
   assign i_body = {ExpTop - ExpW'(i_lz), i_wide[WideW-2-:FracW]} + (FLEN - 1)'(i_inc);
 
   assign i_res = (i_mag == '0) ? '0 : {i_sign, i_body};

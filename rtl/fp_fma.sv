@@ -3,6 +3,7 @@
 module fp_fma
   import fp_pkg::RmRne, fp_pkg::RmRdn, fp_pkg::RmRup, fp_pkg::RmRmm;
   import fp_pkg::FlagNv, fp_pkg::FlagOf, fp_pkg::FlagUf, fp_pkg::FlagNx;
+  import fp_pkg::fp_round_up;
 #(
     parameter  int ExpW  = fp_pkg::ExpW,
     parameter  int FracW = fp_pkg::FracW,
@@ -34,9 +35,13 @@ module fp_fma
   localparam logic [ExpSW-1:0] TopSlot = ExpSW'(DpW - GrdW - 2 * FracW);
   localparam logic [ExpSW-1:0] MaxShift = ExpSW'(DpW);
 
-  localparam logic [FLEN-1:0] CanonicalNan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
+  localparam logic [FLEN-1:0] CanonNan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
   localparam logic [FLEN-2:0] InfMag = {{ExpW{1'b1}}, {FracW{1'b0}}};
-  localparam logic [FLEN-2:0] MaxFiniteMag = {{(ExpW - 1) {1'b1}}, 1'b0, {FracW{1'b1}}};
+  localparam logic [FLEN-2:0] MaxMag = {{(ExpW - 1) {1'b1}}, 1'b0, {FracW{1'b1}}};
+
+  if (!((SigW + 3) < (1 << (ExpW - 1)))) begin : g_width_error
+    $error("ExpW and FracW outside the supported range");
+  end
 
   logic [ExpW-1:0] ea, eb, ec;
   logic [FracW-1:0] fa, fb, fc;
@@ -75,17 +80,6 @@ module fp_fma
   logic [FLEN-2:0] rnd;
   logic ovf, tiny, inexact, to_inf;
 
-  function automatic logic round_inc(input logic [2:0] mode, input logic sign, input logic lsb,
-                                     input logic guard, input logic sticky);
-    case (mode)
-      RmRne:   round_inc = guard & (sticky | lsb);
-      RmRdn:   round_inc = sign & (guard | sticky);
-      RmRup:   round_inc = !sign & (guard | sticky);
-      RmRmm:   round_inc = guard;
-      default: round_inc = 1'b0;
-    endcase
-  endfunction
-
   assign ea = a[FLEN-2-:ExpW];
   assign eb = b[FLEN-2-:ExpW];
   assign ec = c[FLEN-2-:ExpW];
@@ -118,13 +112,19 @@ module fp_fma
 
   assign prod_sig = ProdW'(ma) * ProdW'(mb);
 
+  // Addend shift amount
   assign ep = xa + xb - Bias;
   assign s_raw = ep + AddSlot - xc;
   assign s_le0 = s_raw[ExpSW-1] || (s_raw == '0);
   assign s_big = !s_raw[ExpSW-1] && (s_raw >= MaxShift);
   assign use_c = a_zero || b_zero || (s_le0 && !c_zero);
-  assign shamt = (use_c || s_le0) ? ShW'(0) : (s_big ? ShW'(MaxShift) : s_raw[ShW-1:0]);
+  always_comb begin
+    if (use_c || s_le0) shamt = '0;
+    else if (s_big) shamt = ShW'(MaxShift);
+    else shamt = s_raw[ShW-1:0];
+  end
 
+  // Top bit exponent
   assign e_top = use_c ? xc + ExpSW'(1) : ep + TopSlot;
 
   assign aln = {mc, (AlnW - SigW)'(0)} >> shamt;
@@ -141,6 +141,7 @@ module fp_fma
   assign deep = e_top[ExpSW-1] || (e_top == '0);
   assign lim = deep ? '0 : e_top - ExpSW'(1);
 
+  // Normalize within lim
   always_comb begin
     logic [SumW-1:0] v;
     logic [ ShW-1:0] n;
@@ -163,13 +164,14 @@ module fp_fma
   assign frac = rsrc[SumW-2-:FracW];
   assign g = rsrc[SumW-2-FracW];
   assign st = deep ? (mag != '0) : (rsrc[SumW-3-FracW:0] != '0);
-  assign inc = round_inc(rm, res_sign, frac[0], g, st);
+  assign inc = fp_round_up(rm, res_sign, frac[0], g, st);
 
   assign rnd = {(is_norm ? e_norm[ExpW-1:0] : ExpW'(0)), frac} + (FLEN - 1)'(inc);
 
   assign ovf = is_norm && ((e_norm >= ExpMax) || (rnd[FLEN-2-:ExpW] == '1));
 
-  assign inc_wide = round_inc(
+  // Tininess after rounding
+  assign inc_wide = fp_round_up(
       rm, res_sign, rsrc[SumW-2-FracW], rsrc[SumW-3-FracW], rsrc[SumW-4-FracW:0] != '0
   );
   assign tiny = !is_norm && !((rsrc[SumW-2-:SigW] == '1) && inc_wide);
@@ -181,11 +183,11 @@ module fp_fma
   always_comb begin
     fflags = '0;
     if (a_nan || b_nan || c_nan || inf_zero) begin
-      result = CanonicalNan;
+      result = CanonNan;
       fflags = (any_snan || inf_zero) ? FlagNv : '0;
     end else if (a_inf || b_inf) begin
       if (c_inf && sub) begin
-        result = CanonicalNan;
+        result = CanonNan;
         fflags = FlagNv;
       end else begin
         result = {sp, InfMag};
@@ -195,11 +197,12 @@ module fp_fma
     end else if (mag == '0) begin
       result = {zero_sign, (FLEN - 1)'(0)};
     end else if (ovf) begin
-      result = {res_sign, to_inf ? InfMag : MaxFiniteMag};
+      result = {res_sign, to_inf ? InfMag : MaxMag};
       fflags = FlagOf | FlagNx;
     end else begin
       result = {res_sign, rnd};
-      fflags = (tiny && inexact ? FlagUf : '0) | (inexact ? FlagNx : '0);
+      if (tiny && inexact) fflags = fflags | FlagUf;
+      if (inexact) fflags = fflags | FlagNx;
     end
   end
 

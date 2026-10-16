@@ -32,7 +32,11 @@ module fp_misc
   localparam logic [OpW-1:0] OpFle = {Funct5Fcmp, Funct3Fle};
   localparam logic [OpW-1:0] OpFclass = {Funct5FmvXW, Funct3Fclass};
 
-  localparam logic [FLEN-1:0] CanonicalNan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
+  localparam logic [FLEN-1:0] CanonNan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
+
+  if (!((FracW >= 2) && (FLEN >= 10))) begin : g_width_error
+    $error("ExpW and FracW outside the supported range");
+  end
 
   logic a_sign, b_sign;
   logic [ExpW-1:0] a_exp, b_exp;
@@ -68,6 +72,7 @@ module fp_misc
   assign mag_gt    = a_mag > b_mag;
   assign both_zero = ~|a_mag & ~|b_mag;
 
+  // Ordered less than
   always_comb begin
     if (a_sign != b_sign) ord_lt = a_sign;
     else if (a_sign) ord_lt = mag_gt;
@@ -82,12 +87,13 @@ module fp_misc
   assign flt = ~any_nan & ord_lt & ~both_zero;
   assign fle = ~any_nan & (ord_lt | ord_eq);
 
+  // Minimum and maximum
   logic [FLEN-1:0] fmin, fmax;
 
   always_comb begin
     if (a_nan & b_nan) begin
-      fmin = CanonicalNan;
-      fmax = CanonicalNan;
+      fmin = CanonNan;
+      fmax = CanonNan;
     end else if (a_nan) begin
       fmin = b;
       fmax = b;
@@ -100,6 +106,7 @@ module fp_misc
     end
   end
 
+  // Class bits
   logic a_inf, a_zero, a_sub, a_norm;
   logic [9:0] fclass;
 

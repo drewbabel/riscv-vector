@@ -3,6 +3,7 @@
 module fp_div_sqrt
   import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup, fp_pkg::RmRmm;
   import fp_pkg::FlagNv, fp_pkg::FlagDz, fp_pkg::FlagOf, fp_pkg::FlagUf, fp_pkg::FlagNx;
+  import fp_pkg::fp_round_up, fp_pkg::fp_lzc, fp_pkg::FpLzcW;
 #(
     parameter  int ExpW  = fp_pkg::ExpW,
     parameter  int FracW = fp_pkg::FracW,
@@ -36,7 +37,7 @@ module fp_div_sqrt
 
   localparam logic [CntW-1:0] LastIter = CntW'(QuoW - 1);
   localparam logic [IExpW-1:0] ExpInf = IExpW'((1 << ExpW) - 1);
-  localparam logic [FLEN-1:0] CanonNan = {1'b0, {(ExpW + 1) {1'b1}}, {(FracW - 1) {1'b0}}};
+  localparam logic [FLEN-1:0] CanonNan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
   localparam logic [FLEN-2:0] InfMag = {{ExpW{1'b1}}, {FracW{1'b0}}};
   localparam logic [FLEN-2:0] MaxMag = {{(ExpW - 1) {1'b1}}, 1'b0, {FracW{1'b1}}};
 
@@ -49,6 +50,10 @@ module fp_div_sqrt
   } state_t;
   state_t state;
 
+  if (!((FracW < (1 << (ExpW - 1))) && (SigW <= FpLzcW))) begin : g_width_error
+    $error("ExpW and FracW outside the supported range");
+  end
+
   logic [FLEN-1:0] a_q;
   logic [FLEN-1:0] b_q;
   logic sqrt_q;
@@ -60,25 +65,6 @@ module fp_div_sqrt
   logic [RadW-1:0] src_q;
   logic [QuoW-1:0] quo_q;
   logic [CntW-1:0] cnt_q;
-
-  function automatic logic [LzW-1:0] lzc(input logic [SigW-1:0] x);
-    lzc = '0;
-    for (int i = 0; i < SigW; i++) begin
-      if (x[i]) lzc = LzW'(SigW - 1 - i);
-    end
-  endfunction
-
-  function automatic logic round_up(input logic [2:0] mode, input logic neg, input logic lsb,
-                                    input logic g, input logic s);
-    case (mode)
-      RmRne:   round_up = g && (s || lsb);
-      RmRtz:   round_up = 1'b0;
-      RmRdn:   round_up = neg && (g || s);
-      RmRup:   round_up = !neg && (g || s);
-      RmRmm:   round_up = g;
-      default: round_up = 1'b0;
-    endcase
-  endfunction
 
   logic a_zero, a_inf, a_nan, a_snan;
   logic b_zero, b_inf, b_nan, b_snan;
@@ -97,13 +83,14 @@ module fp_div_sqrt
   logic [IExpW-1:0] a_exp, b_exp;
   assign a_man = {a_q[FLEN-2:FracW] != '0, a_q[FracW-1:0]};
   assign b_man = {b_q[FLEN-2:FracW] != '0, b_q[FracW-1:0]};
-  assign a_lz  = lzc(a_man);
-  assign b_lz  = lzc(b_man);
+  assign a_lz  = LzW'(fp_lzc(FpLzcW'(a_man), SigW));
+  assign b_lz  = LzW'(fp_lzc(FpLzcW'(b_man), SigW));
   assign a_sig = a_man << a_lz;
   assign b_sig = b_man << b_lz;
   assign a_exp = IExpW'(a_q[FLEN-2:FracW]) + IExpW'(a_q[FLEN-2:FracW] == '0) - IExpW'(a_lz);
   assign b_exp = IExpW'(b_q[FLEN-2:FracW]) + IExpW'(b_q[FLEN-2:FracW] == '0) - IExpW'(b_lz);
 
+  // Special case results
   logic a_neg;
   logic sign_div;
   logic special;
@@ -132,6 +119,7 @@ module fp_div_sqrt
     end
   end
 
+  // Divide setup
   logic sig_lt;
   logic [SigW:0] div_rem;
   logic [IExpW-1:0] div_exp;
@@ -139,11 +127,13 @@ module fp_div_sqrt
   assign div_rem = sig_lt ? {a_sig, 1'b0} : {1'b0, a_sig};
   assign div_exp = a_exp - b_exp + IExpW'(Bias) - IExpW'(sig_lt);
 
+  // Square root setup
   logic [ RadW-1:0] sqrt_rad;
   logic [IExpW-1:0] sqrt_exp;
   assign sqrt_rad = a_exp[0] ? {1'b0, a_sig, 1'b0} : {a_sig, 2'b00};
   assign sqrt_exp = (a_exp + IExpW'(Bias - 1) + IExpW'(a_exp[0])) >> 1;
 
+  // One result bit
   logic [RemW-1:0] sqrt_sh;
   logic [RemW-1:0] rem_sh;
   logic [RemW-1:0] trial;
@@ -162,6 +152,7 @@ module fp_div_sqrt
     rem_nxt = q_bit ? rem_sh - trial : rem_sh;
   end
 
+  // Subnormal shift
   logic sticky;
   logic sub;
   logic [IExpW-1:0] sh_full;
@@ -170,9 +161,14 @@ module fp_div_sqrt
   assign sticky = rem_q != '0;
   assign sub = exp_q[IExpW-1] || (exp_q == '0);
   assign sh_full = IExpW'(1) - exp_q;
-  assign sh = !sub ? '0 : (sh_full > IExpW'(ShCap)) ? ShW'(ShCap) : sh_full[ShW-1:0];
+  always_comb begin
+    if (!sub) sh = '0;
+    else if (sh_full > IExpW'(ShCap)) sh = ShW'(ShCap);
+    else sh = sh_full[ShW-1:0];
+  end
   assign shifted = {quo_q, {QuoW{1'b0}}} >> sh;
 
+  // Rounding
   logic [SigW-1:0] mant;
   logic guard;
   logic st;
@@ -186,16 +182,17 @@ module fp_div_sqrt
   assign guard = shifted[ShiftW-SigW-1];
   assign st = (shifted[ShiftW-SigW-2:0] != '0) || sticky;
   assign inexact = guard || st;
-  assign mant_r = {1'b0, mant} + (SigW + 1)'(round_up(rm_q, sign_q, mant[0], guard, st));
+  assign mant_r = {1'b0, mant} + (SigW + 1)'(fp_round_up(rm_q, sign_q, mant[0], guard, st));
   assign e_pre = sub ? '0 : exp_q - IExpW'(1);
   assign e_out = e_pre + IExpW'(mant_r[SigW:SigW-1]);
   assign ovf = !sub && (e_out >= ExpInf);
   assign ovf_inf = (rm_q == RmRne) || (rm_q == RmRmm) || ((rm_q == RmRdn) && sign_q) ||
       ((rm_q == RmRup) && !sign_q);
 
+  // Tininess after rounding
   logic carry_sig;
   logic tiny;
-  assign carry_sig = (&quo_q[QuoW-1:2]) && round_up(
+  assign carry_sig = (&quo_q[QuoW-1:2]) && fp_round_up(
       rm_q, sign_q, quo_q[2], quo_q[1], quo_q[0] || sticky
   );
   assign tiny = exp_q[IExpW-1] || ((exp_q == '0) && !carry_sig);
@@ -210,7 +207,9 @@ module fp_div_sqrt
       rnd_flags  = FlagOf | FlagNx;
     end else begin
       rnd_result = rnd_packed;
-      rnd_flags  = (tiny && inexact ? FlagUf : 5'd0) | (inexact ? FlagNx : 5'd0);
+      rnd_flags  = '0;
+      if (tiny && inexact) rnd_flags = rnd_flags | FlagUf;
+      if (inexact) rnd_flags = rnd_flags | FlagNx;
     end
   end
 
