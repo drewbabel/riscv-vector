@@ -1,14 +1,15 @@
 `default_nettype none
 
-module fp_rec7_tb ();
+module fp_rec7_tb
+  import fp_pkg::FLEN;
+  import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup;
+  import fp_pkg::FlagNv, fp_pkg::FlagDz, fp_pkg::FlagOf, fp_pkg::FlagNx;
+();
 
   localparam int Bias = 127;
   localparam int MinChecks = 400000;
   localparam int RandomN = 200000;
   localparam logic [31:0] CanonNan = 32'h7fc0_0000;
-  localparam logic [4:0] FlagNv = 5'b10000;
-  localparam logic [4:0] FlagDz = 5'b01000;
-  localparam logic [4:0] FlagOfNx = 5'b00101;
 
   int checks = 0;
   int errors = 0;
@@ -17,8 +18,8 @@ module fp_rec7_tb ();
 
   logic sqrt;
   logic [2:0] rm;
-  logic [31:0] a;
-  logic [31:0] result;
+  logic [FLEN-1:0] a;
+  logic [FLEN-1:0] result;
   logic [4:0] fflags;
 
   int rec_exps[12] = '{1, 2, 3, 64, 126, 127, 128, 200, 251, 252, 253, 254};
@@ -320,7 +321,7 @@ module fp_rec7_tb ();
     logic [22:0] osig;
     int oe;
     s = x[31];
-    to_max = (mode == 3'd1) || (mode == 3'd2 && !s) || (mode == 3'd3 && s);
+    to_max = (mode == RmRtz) || (mode == RmRdn && !s) || (mode == RmRup && s);
     if (x[30:23] == 8'hff && x[22:0] != '0) begin
       ref_rec7 = {x[22] ? 5'b0 : FlagNv, CanonNan};
     end else if (x[30:23] == 8'hff) begin
@@ -331,7 +332,7 @@ module fp_rec7_tb ();
       sig  = norm_sig(x[30:0]);
       oe   = 2 * Bias - 1 - norm_exp(x[30:0]);
       osig = {rec_table(7'(sig >> 16)), 16'h0};
-      if (oe > 2 * Bias) ref_rec7 = {FlagOfNx, s, to_max ? 31'h7f7f_ffff : 31'h7f80_0000};
+      if (oe > 2 * Bias) ref_rec7 = {FlagOf | FlagNx, s, to_max ? 31'h7f7f_ffff : 31'h7f80_0000};
       else if (oe <= 0) ref_rec7 = {5'b0, s, 8'h00, 23'({1'b1, osig} >> (1 - oe))};
       else ref_rec7 = {5'b0, s, 8'(oe), osig};
     end
@@ -468,9 +469,9 @@ module fp_rec7_tb ();
         ) !== {5'b0, 32'h5f08_0000} || ref_rsqrt7(
             32'h7f76_5432
         ) !== {5'b0, 32'h1f82_0000} || ref_rec7(
-            32'h0071_8abc, 3'd0
+            32'h0071_8abc, RmRne
         ) !== {5'b0, 32'h7e90_0000} || ref_rec7(
-            32'h7f76_5432, 3'd0
+            32'h7f76_5432, RmRne
         ) !== {5'b0, 32'h0021_4000})
       $fatal(1, "TB REFERENCE BROKEN: spec examples disagree");
   endtask

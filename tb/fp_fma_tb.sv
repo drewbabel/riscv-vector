@@ -1,6 +1,8 @@
 `default_nettype none
 
-module fp_fma_tb ();
+module fp_fma_tb
+  import fp_pkg::*;
+();
 
   localparam int MinChecks  = 3_950_000;
   localparam int MaxPrinted = 20;
@@ -14,10 +16,10 @@ module fp_fma_tb ();
   logic neg_prod;
   logic neg_add;
   logic [2:0] rm;
-  logic [31:0] a;
-  logic [31:0] b;
-  logic [31:0] c;
-  logic [31:0] result;
+  logic [FLEN-1:0] a;
+  logic [FLEN-1:0] b;
+  logic [FLEN-1:0] c;
+  logic [FLEN-1:0] result;
   logic [4:0] fflags;
 
   fp_fma dut (
@@ -42,7 +44,7 @@ module fp_fma_tb ();
     endcase
   endfunction
 
-  task automatic check(input string path, input int line, input logic [31:0] exp_res,
+  task automatic check(input string path, input int line, input logic [FLEN-1:0] exp_res,
                        input logic [4:0] exp_flags);
     checks++;
     if (result !== exp_res || fflags !== exp_flags) begin
@@ -69,20 +71,21 @@ module fp_fma_tb ();
   endtask
 
   task automatic run_form(input string path, input int line, input logic np, input logic na,
-                          input logic [31:0] x, input logic [31:0] y, input logic [31:0] z,
-                          input logic [31:0] exp_res, input logic [4:0] exp_flags);
+                          input logic [FLEN-1:0] x, input logic [FLEN-1:0] y,
+                          input logic [FLEN-1:0] z, input logic [FLEN-1:0] exp_res,
+                          input logic [4:0] exp_flags);
     neg_prod = np;
     neg_add = na;
-    a = {x[31] ^ np, x[30:0]};
+    a = {x[FLEN-1] ^ np, x[FLEN-2:0]};
     b = y;
-    c = {z[31] ^ na, z[30:0]};
+    c = {z[FLEN-1] ^ na, z[FLEN-2:0]};
     #1;
     check(path, line, exp_res, exp_flags);
   endtask
 
-  task automatic run_vec(input string path, input int line, input logic [31:0] x,
-                         input logic [31:0] y, input logic [31:0] z, input logic [31:0] exp_res,
-                         input logic [4:0] exp_flags);
+  task automatic run_vec(input string path, input int line, input logic [FLEN-1:0] x,
+                         input logic [FLEN-1:0] y, input logic [FLEN-1:0] z,
+                         input logic [FLEN-1:0] exp_res, input logic [4:0] exp_flags);
     run_form(path, line, 1'b0, 1'b0, x, y, z, exp_res, exp_flags);
     run_form(path, line, 1'b0, 1'b1, x, y, z, exp_res, exp_flags);
     run_form(path, line, 1'b1, 1'b0, x, y, z, exp_res, exp_flags);
@@ -92,10 +95,10 @@ module fp_fma_tb ();
   task automatic run_file(input string path, input logic [2:0] mode);
     int fd;
     int line;
-    logic [31:0] x;
-    logic [31:0] y;
-    logic [31:0] z;
-    logic [31:0] exp_res;
+    logic [FLEN-1:0] x;
+    logic [FLEN-1:0] y;
+    logic [FLEN-1:0] z;
+    logic [FLEN-1:0] exp_res;
     logic [4:0] exp_flags;
     string skip;
     fd = $fopen(path, "r");
@@ -131,16 +134,16 @@ module fp_fma_tb ();
       $dumpvars(0, fp_fma_tb);
     end
 
-    run_file("build/testfloat/f32_mulAdd_rne.txt", 3'd0);
-    run_file("build/testfloat/f32_mulAdd_rtz.txt", 3'd1);
-    run_file("build/testfloat/f32_mulAdd_rdn.txt", 3'd2);
-    run_file("build/testfloat/f32_mulAdd_rup.txt", 3'd3);
-    run_file("build/testfloat/f32_mulAdd_rmm.txt", 3'd4);
+    run_file("build/testfloat/f32_mulAdd_rne.txt", RmRne);
+    run_file("build/testfloat/f32_mulAdd_rtz.txt", RmRtz);
+    run_file("build/testfloat/f32_mulAdd_rdn.txt", RmRdn);
+    run_file("build/testfloat/f32_mulAdd_rup.txt", RmRup);
+    run_file("build/testfloat/f32_mulAdd_rmm.txt", RmRmm);
 
-    rm = 3'd3;
-    run_vec("directed", 1, 32'h3F80_0000, 32'h3F80_0000, 32'h0000_0008, 32'h3F80_0001, 5'b00001);
-    rm = 3'd0;
-    run_vec("directed", 2, 32'h3F80_0000, 32'h3F80_0000, 32'h477F_FF00, 32'h4780_0000, 5'b00000);
+    rm = RmRup;
+    run_vec("directed", 1, 32'h3F80_0000, 32'h3F80_0000, 32'h0000_0008, 32'h3F80_0001, FlagNx);
+    rm = RmRne;
+    run_vec("directed", 2, 32'h3F80_0000, 32'h3F80_0000, 32'h477F_FF00, 32'h4780_0000, '0);
 
     do_verdict();
   end

@@ -1,6 +1,8 @@
 `default_nettype none
 
-module fp_add_tb ();
+module fp_add_tb
+  import fp_pkg::*;
+();
 
   localparam int MinChecks = 464000;
   localparam int MaxPrint  = 20;
@@ -12,9 +14,9 @@ module fp_add_tb ();
 
   logic sub;
   logic [2:0] rm;
-  logic [31:0] a;
-  logic [31:0] b;
-  logic [31:0] result;
+  logic [FLEN-1:0] a;
+  logic [FLEN-1:0] b;
+  logic [FLEN-1:0] result;
   logic [4:0] fflags;
 
   fp_add dut (
@@ -35,7 +37,7 @@ module fp_add_tb ();
     end
   endtask
 
-  task automatic check(input string path, input int line, input logic [31:0] exp_res,
+  task automatic check(input string path, input int line, input logic [FLEN-1:0] exp_res,
                        input logic [4:0] exp_flags);
     checks++;
     if (result !== exp_res || fflags !== exp_flags) begin
@@ -61,9 +63,9 @@ module fp_add_tb ();
   task automatic run_file(input string path, input logic op_sub, input logic [2:0] op_rm);
     int fd;
     int line;
-    logic [31:0] fa;
-    logic [31:0] fb;
-    logic [31:0] exp_res;
+    logic [FLEN-1:0] fa;
+    logic [FLEN-1:0] fb;
+    logic [FLEN-1:0] exp_res;
     logic [4:0] exp_flags;
     fd = $fopen(path, "r");
     if (fd == 0) $fatal(1, "TB MISSING FILE: %s (run make testfloat)", path);
@@ -89,15 +91,15 @@ module fp_add_tb ();
   task automatic run_nan_bits();
     for (int i = 0; i < 23; i++) begin
       sub = 1'b0;
-      rm  = 3'd0;
+      rm  = RmRne;
       a   = 32'h7F80_0000 | (32'd1 << i);
       b   = 32'h3F80_0000;
       #1;
-      check("nan_bits_a", i, 32'h7FC0_0000, {i != 22, 4'b0000});
+      check("nan_bits_a", i, 32'h7FC0_0000, (i != 22) ? FlagNv : '0);
       a = 32'h3F80_0000;
       b = 32'h7F80_0000 | (32'd1 << i);
       #1;
-      check("nan_bits_b", i, 32'h7FC0_0000, {i != 22, 4'b0000});
+      check("nan_bits_b", i, 32'h7FC0_0000, (i != 22) ? FlagNv : '0);
     end
   endtask
 
@@ -116,17 +118,17 @@ module fp_add_tb ();
     if (stride < 1) $fatal(1, "TB BAD STRIDE: %0d", stride);
     dump_if_asked();
 
-    run_file("build/testfloat/f32_add_rne.txt", 1'b0, 3'd0);
-    run_file("build/testfloat/f32_add_rtz.txt", 1'b0, 3'd1);
-    run_file("build/testfloat/f32_add_rdn.txt", 1'b0, 3'd2);
-    run_file("build/testfloat/f32_add_rup.txt", 1'b0, 3'd3);
-    run_file("build/testfloat/f32_add_rmm.txt", 1'b0, 3'd4);
+    run_file("build/testfloat/f32_add_rne.txt", 1'b0, RmRne);
+    run_file("build/testfloat/f32_add_rtz.txt", 1'b0, RmRtz);
+    run_file("build/testfloat/f32_add_rdn.txt", 1'b0, RmRdn);
+    run_file("build/testfloat/f32_add_rup.txt", 1'b0, RmRup);
+    run_file("build/testfloat/f32_add_rmm.txt", 1'b0, RmRmm);
 
-    run_file("build/testfloat/f32_sub_rne.txt", 1'b1, 3'd0);
-    run_file("build/testfloat/f32_sub_rtz.txt", 1'b1, 3'd1);
-    run_file("build/testfloat/f32_sub_rdn.txt", 1'b1, 3'd2);
-    run_file("build/testfloat/f32_sub_rup.txt", 1'b1, 3'd3);
-    run_file("build/testfloat/f32_sub_rmm.txt", 1'b1, 3'd4);
+    run_file("build/testfloat/f32_sub_rne.txt", 1'b1, RmRne);
+    run_file("build/testfloat/f32_sub_rtz.txt", 1'b1, RmRtz);
+    run_file("build/testfloat/f32_sub_rdn.txt", 1'b1, RmRdn);
+    run_file("build/testfloat/f32_sub_rup.txt", 1'b1, RmRup);
+    run_file("build/testfloat/f32_sub_rmm.txt", 1'b1, RmRmm);
 
     run_nan_bits();
     do_verdict();

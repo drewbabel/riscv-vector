@@ -1,24 +1,27 @@
 `default_nettype none
 
-module fp_misc_tb ();
+module fp_misc_tb
+  import fp_pkg::*;
+();
 
   localparam int MinChecks = 239000;
   localparam int NumSpecials = 17;
   localparam int NumRandom = 100000;
   localparam int ShowErrors = 20;
 
-  localparam logic [31:0] CanonNan = 32'h7FC0_0000;
-  localparam logic [4:0] FlagNv = 5'b1_0000;
+  localparam int OpW = $bits(Funct5Fsgnj) + $bits(Funct3Fsgnj);
 
-  localparam logic [7:0] OpFsgnj = {5'b00100, 3'b000};
-  localparam logic [7:0] OpFsgnjn = {5'b00100, 3'b001};
-  localparam logic [7:0] OpFsgnjx = {5'b00100, 3'b010};
-  localparam logic [7:0] OpFmin = {5'b00101, 3'b000};
-  localparam logic [7:0] OpFmax = {5'b00101, 3'b001};
-  localparam logic [7:0] OpFeq = {5'b10100, 3'b010};
-  localparam logic [7:0] OpFlt = {5'b10100, 3'b001};
-  localparam logic [7:0] OpFle = {5'b10100, 3'b000};
-  localparam logic [7:0] OpFclass = {5'b11100, 3'b001};
+  localparam logic [FLEN-1:0] CanonNan = 32'h7FC0_0000;
+
+  localparam logic [OpW-1:0] OpFsgnj = {Funct5Fsgnj, Funct3Fsgnj};
+  localparam logic [OpW-1:0] OpFsgnjn = {Funct5Fsgnj, Funct3Fsgnjn};
+  localparam logic [OpW-1:0] OpFsgnjx = {Funct5Fsgnj, Funct3Fsgnjx};
+  localparam logic [OpW-1:0] OpFmin = {Funct5Fminmax, Funct3Fmin};
+  localparam logic [OpW-1:0] OpFmax = {Funct5Fminmax, Funct3Fmax};
+  localparam logic [OpW-1:0] OpFeq = {Funct5Fcmp, Funct3Feq};
+  localparam logic [OpW-1:0] OpFlt = {Funct5Fcmp, Funct3Flt};
+  localparam logic [OpW-1:0] OpFle = {Funct5Fcmp, Funct3Fle};
+  localparam logic [OpW-1:0] OpFclass = {Funct5FmvXW, Funct3Fclass};
 
   int checks = 0;
   int errors = 0;
@@ -26,12 +29,12 @@ module fp_misc_tb ();
 
   logic [4:0] funct5;
   logic [2:0] funct3;
-  logic [31:0] a;
-  logic [31:0] b;
-  logic [31:0] result;
+  logic [FLEN-1:0] a;
+  logic [FLEN-1:0] b;
+  logic [FLEN-1:0] result;
   logic [4:0] fflags;
 
-  logic [31:0] specials[NumSpecials] = '{
+  logic [FLEN-1:0] specials[NumSpecials] = '{
       32'h0000_0000,
       32'h8000_0000,
       32'h7F80_0000,
@@ -60,60 +63,61 @@ module fp_misc_tb ();
       .fflags(fflags)
   );
 
-  function automatic logic is_nan(input logic [30:0] x);
-    is_nan = (x[30:23] == 8'hFF) && (x[22:0] != 23'd0);
+  function automatic logic is_nan(input logic [FLEN-2:0] x);
+    is_nan = (x[FLEN-2:FracW] == '1) && (x[FracW-1:0] != '0);
   endfunction
 
-  function automatic logic is_snan(input logic [30:0] x);
-    is_snan = is_nan(x) && !x[22];
+  function automatic logic is_snan(input logic [FLEN-2:0] x);
+    is_snan = is_nan(x) && !x[FracW-1];
   endfunction
 
-  function automatic logic ord_lt(input logic [31:0] x, input logic [31:0] y);
-    if (x[31] != y[31]) ord_lt = x[31];
-    else if (!x[31]) ord_lt = x[30:0] < y[30:0];
-    else ord_lt = x[30:0] > y[30:0];
+  function automatic logic ord_lt(input logic [FLEN-1:0] x, input logic [FLEN-1:0] y);
+    if (x[FLEN-1] != y[FLEN-1]) ord_lt = x[FLEN-1];
+    else if (!x[FLEN-1]) ord_lt = x[FLEN-2:0] < y[FLEN-2:0];
+    else ord_lt = x[FLEN-2:0] > y[FLEN-2:0];
   endfunction
 
-  function automatic logic [31:0] ref_fmin(input logic [31:0] x, input logic [31:0] y);
-    if (is_nan(x[30:0]) && is_nan(y[30:0])) ref_fmin = CanonNan;
-    else if (is_nan(x[30:0])) ref_fmin = y;
-    else if (is_nan(y[30:0])) ref_fmin = x;
+  function automatic logic [FLEN-1:0] ref_fmin(input logic [FLEN-1:0] x, input logic [FLEN-1:0] y);
+    if (is_nan(x[FLEN-2:0]) && is_nan(y[FLEN-2:0])) ref_fmin = CanonNan;
+    else if (is_nan(x[FLEN-2:0])) ref_fmin = y;
+    else if (is_nan(y[FLEN-2:0])) ref_fmin = x;
     else ref_fmin = ord_lt(y, x) ? y : x;
   endfunction
 
-  function automatic logic [31:0] ref_fmax(input logic [31:0] x, input logic [31:0] y);
-    if (is_nan(x[30:0]) && is_nan(y[30:0])) ref_fmax = CanonNan;
-    else if (is_nan(x[30:0])) ref_fmax = y;
-    else if (is_nan(y[30:0])) ref_fmax = x;
+  function automatic logic [FLEN-1:0] ref_fmax(input logic [FLEN-1:0] x, input logic [FLEN-1:0] y);
+    if (is_nan(x[FLEN-2:0]) && is_nan(y[FLEN-2:0])) ref_fmax = CanonNan;
+    else if (is_nan(x[FLEN-2:0])) ref_fmax = y;
+    else if (is_nan(y[FLEN-2:0])) ref_fmax = x;
     else ref_fmax = ord_lt(x, y) ? y : x;
   endfunction
 
-  function automatic logic [4:0] ref_minmax_flags(input logic [30:0] x, input logic [30:0] y);
+  function automatic logic [4:0] ref_minmax_flags(input logic [FLEN-2:0] x,
+                                                  input logic [FLEN-2:0] y);
     ref_minmax_flags = (is_snan(x) || is_snan(y)) ? FlagNv : 5'd0;
   endfunction
 
-  function automatic logic [31:0] ref_fsgnj(input logic [2:0] f3, input logic [31:0] x,
-                                            input logic y_sign);
+  function automatic logic [FLEN-1:0] ref_fsgnj(input logic [2:0] f3, input logic [FLEN-1:0] x,
+                                                input logic y_sign);
     case (f3)
-      3'b000:  ref_fsgnj = {y_sign, x[30:0]};
-      3'b001:  ref_fsgnj = {~y_sign, x[30:0]};
-      default: ref_fsgnj = {x[31] ^ y_sign, x[30:0]};
+      Funct3Fsgnj:  ref_fsgnj = {y_sign, x[FLEN-2:0]};
+      Funct3Fsgnjn: ref_fsgnj = {~y_sign, x[FLEN-2:0]};
+      default:      ref_fsgnj = {x[FLEN-1] ^ y_sign, x[FLEN-2:0]};
     endcase
   endfunction
 
-  function automatic logic [31:0] ref_fclass(input logic [31:0] x);
+  function automatic logic [FLEN-1:0] ref_fclass(input logic [FLEN-1:0] x);
     logic [9:0] m;
     m = 10'd0;
-    if (x[30:23] == 8'hFF) begin
-      if (x[22:0] == 23'd0) m[x[31] ? 0 : 7] = 1'b1;
-      else m[x[22] ? 9 : 8] = 1'b1;
-    end else if (x[30:23] == 8'h00) begin
-      if (x[22:0] == 23'd0) m[x[31] ? 3 : 4] = 1'b1;
-      else m[x[31] ? 2 : 5] = 1'b1;
+    if (x[FLEN-2:FracW] == '1) begin
+      if (x[FracW-1:0] == '0) m[x[FLEN-1] ? 0 : 7] = 1'b1;
+      else m[x[FracW-1] ? 9 : 8] = 1'b1;
+    end else if (x[FLEN-2:FracW] == '0) begin
+      if (x[FracW-1:0] == '0) m[x[FLEN-1] ? 3 : 4] = 1'b1;
+      else m[x[FLEN-1] ? 2 : 5] = 1'b1;
     end else begin
-      m[x[31] ? 1 : 6] = 1'b1;
+      m[x[FLEN-1] ? 1 : 6] = 1'b1;
     end
-    ref_fclass = {22'd0, m};
+    ref_fclass = FLEN'(m);
   endfunction
 
   function automatic string op_name(input logic [4:0] f5, input logic [2:0] f3);
@@ -133,13 +137,13 @@ module fp_misc_tb ();
     endcase
   endfunction
 
-  function automatic logic [31:0] rand_operand();
+  function automatic logic [FLEN-1:0] rand_operand();
     if (($urandom & 32'd3) == 32'd0) rand_operand = specials[int'($urandom_range(NumSpecials-1))];
-    else rand_operand = 32'($urandom);
+    else rand_operand = FLEN'($urandom);
   endfunction
 
-  task automatic check(input string src, input logic [7:0] op, input logic [31:0] x,
-                       input logic [31:0] y, input logic [31:0] exp_res,
+  task automatic check(input string src, input logic [OpW-1:0] op, input logic [FLEN-1:0] x,
+                       input logic [FLEN-1:0] y, input logic [FLEN-1:0] exp_res,
                        input logic [4:0] exp_flags);
     {funct5, funct3} = op;
     a = x;
@@ -153,10 +157,10 @@ module fp_misc_tb ();
             "FAIL %s %s (funct5=%b funct3=%b) a=%h b=%h exp %h/%b got %h/%b",
             src,
             op_name(
-                op[7:3], op[2:0]
+                funct5, funct3
             ),
-            op[7:3],
-            op[2:0],
+            funct5,
+            funct3,
             x,
             y,
             exp_res,
@@ -171,8 +175,8 @@ module fp_misc_tb ();
   task automatic run_file(input string path, input logic [4:0] f5, input logic [2:0] f3);
     int fd;
     int lines;
-    logic [31:0] fa;
-    logic [31:0] fb;
+    logic [FLEN-1:0] fa;
+    logic [FLEN-1:0] fb;
     logic [3:0] fr;
     logic [4:0] ff;
     fd = $fopen(path, "r");
@@ -182,7 +186,7 @@ module fp_misc_tb ();
         fd, "%h %h %h %h", fa, fb, fr, ff
     ) == 4) begin
       lines++;
-      check(path, {f5, f3}, fa, fb, {28'd0, fr}, ff);
+      check(path, {f5, f3}, fa, fb, FLEN'(fr), ff);
     end
     if (!$feof(fd)) $fatal(1, "TB PARSE ERROR: %s after %0d lines", path, lines);
     $fclose(fd);
@@ -194,54 +198,54 @@ module fp_misc_tb ();
     for (int i = 0; i < NumSpecials; i++)
       for (int j = 0; j < NumSpecials; j++) begin
         check("directed", OpFmin, specials[i], specials[j], ref_fmin(specials[i], specials[j]),
-              ref_minmax_flags(specials[i][30:0], specials[j][30:0]));
+              ref_minmax_flags(specials[i][FLEN-2:0], specials[j][FLEN-2:0]));
         check("directed", OpFmax, specials[i], specials[j], ref_fmax(specials[i], specials[j]),
-              ref_minmax_flags(specials[i][30:0], specials[j][30:0]));
+              ref_minmax_flags(specials[i][FLEN-2:0], specials[j][FLEN-2:0]));
         check("directed", OpFsgnj, specials[i], specials[j], ref_fsgnj(
-              3'b000, specials[i], specials[j][31]), 5'd0);
+              Funct3Fsgnj, specials[i], specials[j][FLEN-1]), 5'd0);
         check("directed", OpFsgnjn, specials[i], specials[j], ref_fsgnj(
-              3'b001, specials[i], specials[j][31]), 5'd0);
+              Funct3Fsgnjn, specials[i], specials[j][FLEN-1]), 5'd0);
         check("directed", OpFsgnjx, specials[i], specials[j], ref_fsgnj(
-              3'b010, specials[i], specials[j][31]), 5'd0);
+              Funct3Fsgnjx, specials[i], specials[j][FLEN-1]), 5'd0);
       end
   endtask
 
   task automatic directed_class();
     for (int i = 0; i < NumSpecials; i++)
-      check("directed", OpFclass, specials[i], 32'($urandom), ref_fclass(specials[i]), 5'd0);
+      check("directed", OpFclass, specials[i], FLEN'($urandom), ref_fclass(specials[i]), 5'd0);
   endtask
 
   task automatic directed_zero_cmp();
-    logic [31:0] z;
-    logic [31:0] y;
+    logic [FLEN-1:0] z;
+    logic [FLEN-1:0] y;
     for (int s = 0; s < 4; s++)
-      for (int k = 0; k < 31; k++) begin
-        z = {s[0], 31'd0};
-        y = {s[1], 31'd1 << k};
-        check("directed", OpFeq, z, y, 32'd0, 5'd0);
-        check("directed", OpFeq, y, z, 32'd0, 5'd0);
-        check("directed", OpFlt, z, y, {31'd0, ~y[31]}, 5'd0);
-        check("directed", OpFlt, y, z, {31'd0, y[31]}, 5'd0);
+      for (int k = 0; k < FLEN - 1; k++) begin
+        z = {s[0], (FLEN - 1)'(0)};
+        y = {s[1], (FLEN - 1)'(1) << k};
+        check("directed", OpFeq, z, y, '0, 5'd0);
+        check("directed", OpFeq, y, z, '0, 5'd0);
+        check("directed", OpFlt, z, y, {(FLEN - 1)'(0), ~y[FLEN-1]}, 5'd0);
+        check("directed", OpFlt, y, z, {(FLEN - 1)'(0), y[FLEN-1]}, 5'd0);
       end
   endtask
 
   task automatic random_minmax(input int n);
-    logic [31:0] x;
-    logic [31:0] y;
+    logic [FLEN-1:0] x;
+    logic [FLEN-1:0] y;
     for (int i = 0; i < n; i++) begin
       x = rand_operand();
       y = rand_operand();
-      check("random", OpFmin, x, y, ref_fmin(x, y), ref_minmax_flags(x[30:0], y[30:0]));
-      check("random", OpFmax, x, y, ref_fmax(x, y), ref_minmax_flags(x[30:0], y[30:0]));
+      check("random", OpFmin, x, y, ref_fmin(x, y), ref_minmax_flags(x[FLEN-2:0], y[FLEN-2:0]));
+      check("random", OpFmax, x, y, ref_fmax(x, y), ref_minmax_flags(x[FLEN-2:0], y[FLEN-2:0]));
     end
   endtask
 
   task automatic undefined_ops();
-    logic [7:0] ops[5] = '{
-        {5'b00100, 3'b011},
-        {5'b00101, 3'b111},
-        {5'b10100, 3'b011},
-        {5'b11100, 3'b010},
+    logic [OpW-1:0] ops[5] = '{
+        {Funct5Fsgnj, 3'b011},
+        {Funct5Fminmax, 3'b111},
+        {Funct5Fcmp, 3'b011},
+        {Funct5FmvXW, 3'b010},
         {5'b11111, 3'b000}
     };
     for (int k = 0; k < $size(ops); k++)
@@ -268,9 +272,9 @@ module fp_misc_tb ();
   initial begin
     read_args();
 
-    run_file("build/testfloat/f32_eq.txt", OpFeq[7:3], OpFeq[2:0]);
-    run_file("build/testfloat/f32_le.txt", OpFle[7:3], OpFle[2:0]);
-    run_file("build/testfloat/f32_lt.txt", OpFlt[7:3], OpFlt[2:0]);
+    run_file("build/testfloat/f32_eq.txt", Funct5Fcmp, Funct3Feq);
+    run_file("build/testfloat/f32_le.txt", Funct5Fcmp, Funct3Fle);
+    run_file("build/testfloat/f32_lt.txt", Funct5Fcmp, Funct3Flt);
 
     directed_pairs();
     directed_class();

@@ -1,6 +1,11 @@
 `default_nettype none
 
-module fp_cvt_tb ();
+module fp_cvt_tb
+  import fp_pkg::*;
+();
+
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int OpW = (FLEN > XLEN) ? FLEN : XLEN;
 
   localparam string TfDir = "build/testfloat/";
   localparam int MinChecks = 140000;
@@ -14,8 +19,8 @@ module fp_cvt_tb ();
   logic cvt_unsigned;
   logic [2:0] cvt_iw;
   logic [2:0] cvt_rm;
-  logic [31:0] cvt_a;
-  logic [31:0] cvt_result;
+  logic [OpW-1:0] cvt_a;
+  logic [OpW-1:0] cvt_result;
   logic [4:0] cvt_fflags;
 
   fp_cvt dut (
@@ -28,15 +33,16 @@ module fp_cvt_tb ();
       .fflags(cvt_fflags)
   );
 
-  localparam logic [4:0] FlagNv = 5'b10000;
   localparam logic [4:0] FlagNone = 5'b00000;
 
   localparam logic [2:0] Iw16 = 3'd1;
   localparam logic [2:0] Iw32 = 3'd2;
 
+  logic [2:0] modes[5] = '{RmRne, RmRtz, RmRdn, RmRup, RmRmm};
+
   task automatic check(input string src, input logic ti, input logic uns, input logic [2:0] w,
-                       input logic [2:0] mode, input logic [31:0] x, input logic [31:0] exp_res,
-                       input logic [4:0] exp_flags);
+                       input logic [2:0] mode, input logic [OpW-1:0] x,
+                       input logic [OpW-1:0] exp_res, input logic [4:0] exp_flags);
     cvt_to_int = ti;
     cvt_unsigned = uns;
     cvt_iw = w;
@@ -64,7 +70,7 @@ module fp_cvt_tb ();
     end
   endtask
 
-  function automatic logic [31:0] clip16(input logic [31:0] x, input logic uns);
+  function automatic logic [XLEN-1:0] clip16(input logic [FLEN-1:0] x, input logic uns);
     logic is_nan;
     logic neg;
     is_nan = (x[30:23] == 8'hff) && (x[22:0] != 23'd0);
@@ -73,8 +79,8 @@ module fp_cvt_tb ();
     else clip16 = neg ? 32'h0000_8000 : 32'h0000_7fff;
   endfunction
 
-  task automatic ref_f2i16(input logic [31:0] x, input logic uns, input logic [31:0] res32,
-                           input logic [4:0] flags32, output logic [31:0] res16,
+  task automatic ref_f2i16(input logic [FLEN-1:0] x, input logic uns, input logic [XLEN-1:0] res32,
+                           input logic [4:0] flags32, output logic [XLEN-1:0] res16,
                            output logic [4:0] flags16);
     int   sv;
     logic fits;
@@ -90,7 +96,7 @@ module fp_cvt_tb ();
     end
   endtask
 
-  function automatic logic [31:0] i2f16(input logic [15:0] v, input logic uns);
+  function automatic logic [FLEN-1:0] i2f16(input logic [15:0] v, input logic uns);
     logic sign;
     logic [16:0] mag;
     int lead;
@@ -122,12 +128,12 @@ module fp_cvt_tb ();
                           input logic [2:0] rm);
     int fd;
     int line;
-    logic [31:0] x;
-    logic [31:0] r;
+    logic [OpW-1:0] x;
+    logic [OpW-1:0] r;
     logic [4:0] f;
-    logic [31:0] res16;
+    logic [XLEN-1:0] res16;
     logic [4:0] flags16;
-    logic [31:0] x16;
+    logic [XLEN-1:0] x16;
     string src;
     fd = $fopen(path, "r");
     if (fd == 0) $fatal(1, "TB MISSING FILE: %s (run make testfloat)", path);
@@ -155,15 +161,15 @@ module fp_cvt_tb ();
   task automatic run_op(input string op, input logic to_int, input logic is_unsigned);
     string rms[5] = '{"rne", "rtz", "rdn", "rup", "rmm"};
     for (int m = 0; m < 5; m++)
-      run_file({TfDir, op, "_", rms[m], ".txt"}, to_int, is_unsigned, 3'(m));
+      run_file({TfDir, op, "_", rms[m], ".txt"}, to_int, is_unsigned, modes[m]);
   endtask
 
   task automatic sweep_i2f16(input logic uns);
-    logic [31:0] x;
+    logic [XLEN-1:0] x;
     for (int i = 0; i < 65536; i++) begin
       x = {16'($urandom), 16'(i)};
       check($sformatf("sweep16 %s %h", uns ? "unsigned" : "signed", 16'(i)), 1'b0, uns, Iw16,
-            3'(i % 5), x, i2f16(16'(i), uns), FlagNone);
+            modes[i%5], x, i2f16(16'(i), uns), FlagNone);
     end
   endtask
 
