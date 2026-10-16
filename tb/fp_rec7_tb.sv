@@ -32,7 +32,6 @@ module fp_rec7_tb ();
       .fflags(fflags)
   );
 
-  // Table 17 vfrec7
   function automatic logic [6:0] rec_table(input logic [6:0] idx);
     case (idx)
       7'd0: rec_table = 7'd127;
@@ -167,7 +166,6 @@ module fp_rec7_tb ();
     endcase
   endfunction
 
-  // Table 16 vfrsqrt7
   function automatic logic [6:0] rsq_table(input logic [6:0] idx);
     case (idx)
       7'd0: rsq_table = 7'd52;
@@ -307,17 +305,14 @@ module fp_rec7_tb ();
     for (int i = 0; i < 23; i++) if (f[i]) lead_zeros = 22 - i;
   endfunction
 
-  // Normalized input exponent
   function automatic int norm_exp(input logic [30:0] mag);
     norm_exp = (mag[30:23] == 8'h00) ? -lead_zeros(mag[22:0]) : int'(mag[30:23]);
   endfunction
 
-  // Normalized input significand
   function automatic logic [22:0] norm_sig(input logic [30:0] mag);
     norm_sig = (mag[30:23] == 8'h00) ? mag[22:0] << (lead_zeros(mag[22:0]) + 1) : mag[22:0];
   endfunction
 
-  // Reciprocal reference
   function automatic logic [36:0] ref_rec7(input logic [31:0] x, input logic [2:0] mode);
     logic s;
     logic to_max;
@@ -342,7 +337,6 @@ module fp_rec7_tb ();
     end
   endfunction
 
-  // Reciprocal sqrt reference
   function automatic logic [36:0] ref_rsqrt7(input logic [31:0] x);
     logic [22:0] sig;
     int ne;
@@ -367,7 +361,6 @@ module fp_rec7_tb ();
     rnd32 = 32'($urandom);
   endfunction
 
-  // Subnormal with index
   function automatic logic [22:0] sub_sig(input int lz, input logic [6:0] t);
     logic [22:0] lead;
     logic [22:0] tmask;
@@ -378,7 +371,6 @@ module fp_rec7_tb ();
     sub_sig = (f & ~tmask) | 23'({t, 23'h0} >> (8 + lz));
   endfunction
 
-  // Special input catalog
   function automatic logic [31:0] special_val(input int k);
     case (k)
       0: special_val = 32'h0000_0000;
@@ -422,7 +414,6 @@ module fp_rec7_tb ();
     endcase
   endfunction
 
-  // Biased random input
   function automatic logic [31:0] rand_input();
     logic [2:0] r;
     r = 3'(rnd32());
@@ -431,7 +422,6 @@ module fp_rec7_tb ();
     else rand_input = {1'(rnd32()), 8'h00, sub_sig(int'(rnd32() % 23), 7'(rnd32()))};
   endfunction
 
-  // One check
   task automatic check(input string sec, input logic op, input logic [2:0] mode,
                        input logic [31:0] x);
     logic [36:0] want;
@@ -472,7 +462,6 @@ module fp_rec7_tb ();
     end
   endtask
 
-  // Spec worked examples
   task automatic ref_selftest();
     if (ref_rsqrt7(
             32'h0071_8abc
@@ -486,7 +475,6 @@ module fp_rec7_tb ();
       $fatal(1, "TB REFERENCE BROKEN: spec examples disagree");
   endtask
 
-  // Every vfrec7 index
   task automatic table_rec7();
     logic [15:0] fill;
     for (int i = 0; i < 128; i++)
@@ -500,7 +488,6 @@ module fp_rec7_tb ();
     section_done("table_rec7");
   endtask
 
-  // Every vfrsqrt7 index
   task automatic table_rsqrt7();
     logic [16:0] fill;
     logic [ 7:0] ex;
@@ -515,7 +502,6 @@ module fp_rec7_tb ();
     section_done("table_rsqrt7");
   endtask
 
-  // Special case rows
   task automatic specials();
     for (int k = 0; k < 38; k++)
       for (int r = 0; r < 16; r++)
@@ -524,7 +510,6 @@ module fp_rec7_tb ();
     section_done("specials");
   endtask
 
-  // Every leading zero
   task automatic subnormals();
     for (int lz = 0; lz < 23; lz++)
       for (int t = 0; t < 128; t++)
@@ -555,17 +540,13 @@ module fp_rec7_tb ();
     dump_setup();
     ref_selftest();
 
-    // Lookup tables
     table_rec7();
     table_rsqrt7();
 
-    // Special rows
     specials();
 
-    // Subnormal inputs
     subnormals();
 
-    // Randomized sweep
     random_sweep(1'b0);
     random_sweep(1'b1);
 

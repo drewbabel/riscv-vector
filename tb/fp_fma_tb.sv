@@ -42,7 +42,6 @@ module fp_fma_tb ();
     endcase
   endfunction
 
-  // Compare after settle
   task automatic check(input string path, input int line, input logic [31:0] exp_res,
                        input logic [4:0] exp_flags);
     checks++;
@@ -69,7 +68,6 @@ module fp_fma_tb ();
     end
   endtask
 
-  // Flip signs per form
   task automatic run_form(input string path, input int line, input logic np, input logic na,
                           input logic [31:0] x, input logic [31:0] y, input logic [31:0] z,
                           input logic [31:0] exp_res, input logic [4:0] exp_flags);
@@ -82,7 +80,6 @@ module fp_fma_tb ();
     check(path, line, exp_res, exp_flags);
   endtask
 
-  // Four forms per line
   task automatic run_vec(input string path, input int line, input logic [31:0] x,
                          input logic [31:0] y, input logic [31:0] z, input logic [31:0] exp_res,
                          input logic [4:0] exp_flags);
@@ -110,7 +107,6 @@ module fp_fma_tb ();
     ) == 5) begin
       line++;
       run_vec(path, line, x, y, z, exp_res, exp_flags);
-      // Skip to next sample
       for (int k = 1; k < stride; k++) if ($fgets(skip, fd) != 0) line++;
     end
     if (!$feof(fd)) $fatal(1, "%s: parse stopped after line %0d", path, line);
@@ -135,17 +131,14 @@ module fp_fma_tb ();
       $dumpvars(0, fp_fma_tb);
     end
 
-    // Every rounding mode
     run_file("build/testfloat/f32_mulAdd_rne.txt", 3'd0);
     run_file("build/testfloat/f32_mulAdd_rtz.txt", 3'd1);
     run_file("build/testfloat/f32_mulAdd_rdn.txt", 3'd2);
     run_file("build/testfloat/f32_mulAdd_rup.txt", 3'd3);
     run_file("build/testfloat/f32_mulAdd_rmm.txt", 3'd4);
 
-    // Lone low sticky bit
     rm = 3'd3;
     run_vec("directed", 1, 32'h3F80_0000, 32'h3F80_0000, 32'h0000_0008, 32'h3F80_0001, 5'b00001);
-    // Carry into bit 65
     rm = 3'd0;
     run_vec("directed", 2, 32'h3F80_0000, 32'h3F80_0000, 32'h477F_FF00, 32'h4780_0000, 5'b00000);
 

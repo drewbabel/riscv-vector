@@ -5,7 +5,6 @@ module fp_div_sqrt_tb ();
   localparam int XLEN = arch_pkg::XLEN;
   localparam int StallCycles = 7;
   localparam int ShowErrors = 20;
-  // Vectors per mode
   localparam int MinChecks = 5 * (46464 + 46464);
 
   int checks = 0;
@@ -56,7 +55,6 @@ module fp_div_sqrt_tb ();
     rst_n = 1'b1;
   endtask
 
-  // Pulse then scramble
   task automatic launch(input logic sq, input logic [2:0] mode, input logic [XLEN-1:0] x,
                         input logic [XLEN-1:0] y);
     int n;
@@ -80,7 +78,6 @@ module fp_div_sqrt_tb ();
     b = XLEN'($urandom);
   endtask
 
-  // Bounded done wait
   task automatic wait_done(output logic [XLEN-1:0] res, output logic [4:0] flags, output int lat);
     lat = 0;
     while (done !== 1'b1 && lat < timeout) begin
@@ -143,7 +140,6 @@ module fp_div_sqrt_tb ();
     end
   endtask
 
-  // One TestFloat file
   task automatic run_file(input logic sq, input string rname, input logic [2:0] mode);
     string fname;
     int fd;
@@ -187,7 +183,6 @@ module fp_div_sqrt_tb ();
     run_file(sq, "rmm", 3'd4);
   endtask
 
-  // Unstalled latency
   task automatic measure_latency();
     logic [XLEN-1:0] res;
     logic [4:0] flags;
@@ -201,7 +196,6 @@ module fp_div_sqrt_tb ();
     $display("sqrt latency: %0d cycles", sqrt_latency);
   endtask
 
-  // Start while busy
   task automatic busy_start();
     logic [XLEN-1:0] res;
     logic [4:0] flags;
@@ -220,7 +214,6 @@ module fp_div_sqrt_tb ();
           flags, lat);
   endtask
 
-  // Reset mid operation
   task automatic reset_mid();
     logic [XLEN-1:0] res;
     logic [4:0] flags;
@@ -238,7 +231,6 @@ module fp_div_sqrt_tb ();
           lat);
   endtask
 
-  // Stall adds latency
   task automatic stall_one(input logic sq, input logic [XLEN-1:0] x, input logic [XLEN-1:0] y,
                            input logic [XLEN-1:0] exp_res, input int base_lat);
     logic [XLEN-1:0] res;
@@ -280,7 +272,6 @@ module fp_div_sqrt_tb ();
     stall_one(1'b1, 32'h4000_0000, '0, 32'h3FB5_04F3, sqrt_latency);
   endtask
 
-  // Done pulses once
   task automatic done_pulse();
     logic [XLEN-1:0] res;
     logic [4:0] flags;

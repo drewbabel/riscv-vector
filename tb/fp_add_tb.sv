@@ -26,7 +26,6 @@ module fp_add_tb ();
       .fflags(fflags)
   );
 
-  // Waveform only on request
   task automatic dump_if_asked();
     string dump_arg;
     if ($value$plusargs("DUMP%s", dump_arg)) begin
@@ -73,7 +72,6 @@ module fp_add_tb ();
         fd, "%h %h %h %h\n", fa, fb, exp_res, exp_flags
     ) == 4) begin
       line++;
-      // Sample every stride line
       if ((line - 1) % stride == 0) begin
         sub = op_sub;
         rm  = op_rm;
@@ -88,7 +86,6 @@ module fp_add_tb ();
     $display("%s: %0d lines", path, line);
   endtask
 
-  // Every NaN payload bit
   task automatic run_nan_bits();
     for (int i = 0; i < 23; i++) begin
       sub = 1'b0;
@@ -119,14 +116,12 @@ module fp_add_tb ();
     if (stride < 1) $fatal(1, "TB BAD STRIDE: %0d", stride);
     dump_if_asked();
 
-    // Add every rounding mode
     run_file("build/testfloat/f32_add_rne.txt", 1'b0, 3'd0);
     run_file("build/testfloat/f32_add_rtz.txt", 1'b0, 3'd1);
     run_file("build/testfloat/f32_add_rdn.txt", 1'b0, 3'd2);
     run_file("build/testfloat/f32_add_rup.txt", 1'b0, 3'd3);
     run_file("build/testfloat/f32_add_rmm.txt", 1'b0, 3'd4);
 
-    // Subtract every rounding mode
     run_file("build/testfloat/f32_sub_rne.txt", 1'b1, 3'd0);
     run_file("build/testfloat/f32_sub_rtz.txt", 1'b1, 3'd1);
     run_file("build/testfloat/f32_sub_rdn.txt", 1'b1, 3'd2);

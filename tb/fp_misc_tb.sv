@@ -10,7 +10,6 @@ module fp_misc_tb ();
   localparam logic [31:0] CanonNan = 32'h7FC0_0000;
   localparam logic [4:0] FlagNv = 5'b1_0000;
 
-  // Opcode encodings
   localparam logic [7:0] OpFsgnj = {5'b00100, 3'b000};
   localparam logic [7:0] OpFsgnjn = {5'b00100, 3'b001};
   localparam logic [7:0] OpFsgnjx = {5'b00100, 3'b010};
@@ -33,23 +32,23 @@ module fp_misc_tb ();
   logic [4:0] fflags;
 
   logic [31:0] specials[NumSpecials] = '{
-      32'h0000_0000,  // Plus zero
-      32'h8000_0000,  // Minus zero
-      32'h7F80_0000,  // Plus infinity
-      32'hFF80_0000,  // Minus infinity
-      32'h7FC0_0000,  // Quiet NaN
-      32'h7FA0_0000,  // Signaling NaN
-      32'h7FC1_2345,  // Quiet NaN with payload
-      32'h0000_0001,  // Smallest positive subnormal
-      32'h8000_0001,  // Smallest negative subnormal
-      32'h007F_FFFF,  // Largest positive subnormal
-      32'h807F_FFFF,  // Largest negative subnormal
-      32'h0080_0000,  // Smallest positive normal
-      32'h8080_0000,  // Smallest negative normal
-      32'h7F7F_FFFF,  // Largest positive normal
-      32'hFF7F_FFFF,  // Largest negative normal
-      32'h3F80_0000,  // Plus one
-      32'hBF80_0000  // Minus one
+      32'h0000_0000,
+      32'h8000_0000,
+      32'h7F80_0000,
+      32'hFF80_0000,
+      32'h7FC0_0000,
+      32'h7FA0_0000,
+      32'h7FC1_2345,
+      32'h0000_0001,
+      32'h8000_0001,
+      32'h007F_FFFF,
+      32'h807F_FFFF,
+      32'h0080_0000,
+      32'h8080_0000,
+      32'h7F7F_FFFF,
+      32'hFF7F_FFFF,
+      32'h3F80_0000,
+      32'hBF80_0000
   };
 
   fp_misc dut (
@@ -61,7 +60,6 @@ module fp_misc_tb ();
       .fflags(fflags)
   );
 
-  // Operand classes
   function automatic logic is_nan(input logic [30:0] x);
     is_nan = (x[30:23] == 8'hFF) && (x[22:0] != 23'd0);
   endfunction
@@ -70,14 +68,12 @@ module fp_misc_tb ();
     is_snan = is_nan(x) && !x[22];
   endfunction
 
-  // Minus zero orders first
   function automatic logic ord_lt(input logic [31:0] x, input logic [31:0] y);
     if (x[31] != y[31]) ord_lt = x[31];
     else if (!x[31]) ord_lt = x[30:0] < y[30:0];
     else ord_lt = x[30:0] > y[30:0];
   endfunction
 
-  // Reference models
   function automatic logic [31:0] ref_fmin(input logic [31:0] x, input logic [31:0] y);
     if (is_nan(x[30:0]) && is_nan(y[30:0])) ref_fmin = CanonNan;
     else if (is_nan(x[30:0])) ref_fmin = y;
@@ -137,13 +133,11 @@ module fp_misc_tb ();
     endcase
   endfunction
 
-  // Quarter special operands
   function automatic logic [31:0] rand_operand();
     if (($urandom & 32'd3) == 32'd0) rand_operand = specials[int'($urandom_range(NumSpecials-1))];
     else rand_operand = 32'($urandom);
   endfunction
 
-  // One check
   task automatic check(input string src, input logic [7:0] op, input logic [31:0] x,
                        input logic [31:0] y, input logic [31:0] exp_res,
                        input logic [4:0] exp_flags);
@@ -174,7 +168,6 @@ module fp_misc_tb ();
     end
   endtask
 
-  // TestFloat compare file
   task automatic run_file(input string path, input logic [4:0] f5, input logic [2:0] f3);
     int fd;
     int lines;
@@ -197,7 +190,6 @@ module fp_misc_tb ();
     $display("%s: %0d lines", path, lines);
   endtask
 
-  // Every special pair
   task automatic directed_pairs();
     for (int i = 0; i < NumSpecials; i++)
       for (int j = 0; j < NumSpecials; j++) begin
@@ -214,13 +206,11 @@ module fp_misc_tb ();
       end
   endtask
 
-  // Every special value
   task automatic directed_class();
     for (int i = 0; i < NumSpecials; i++)
       check("directed", OpFclass, specials[i], 32'($urandom), ref_fclass(specials[i]), 5'd0);
   endtask
 
-  // Zero against one bit
   task automatic directed_zero_cmp();
     logic [31:0] z;
     logic [31:0] y;
@@ -235,7 +225,6 @@ module fp_misc_tb ();
       end
   endtask
 
-  // Random min and max
   task automatic random_minmax(input int n);
     logic [31:0] x;
     logic [31:0] y;
@@ -247,7 +236,6 @@ module fp_misc_tb ();
     end
   endtask
 
-  // Undefined encodings
   task automatic undefined_ops();
     logic [7:0] ops[5] = '{
         {5'b00100, 3'b011},
@@ -280,20 +268,16 @@ module fp_misc_tb ();
   initial begin
     read_args();
 
-    // TestFloat compares
     run_file("build/testfloat/f32_eq.txt", OpFeq[7:3], OpFeq[2:0]);
     run_file("build/testfloat/f32_le.txt", OpFle[7:3], OpFle[2:0]);
     run_file("build/testfloat/f32_lt.txt", OpFlt[7:3], OpFlt[2:0]);
 
-    // Special values
     directed_pairs();
     directed_class();
     directed_zero_cmp();
 
-    // Random min and max
     random_minmax(NumRandom);
 
-    // Undefined encodings
     undefined_ops();
 
     do_verdict();

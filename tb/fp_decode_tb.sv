@@ -72,7 +72,6 @@ module fp_decode_tb
     check("pass", word, "funct3", 32'(funct3), 32'(word[14:12]));
   endtask
 
-  // Legal decode
   task automatic chk_fp(input string name, input logic [31:0] word, input logic [2:0] frm_in,
                         input fp_unit_e exp_unit, input logic [5:0] exp_regs,
                         input logic [2:0] exp_rm, input logic [5:0] exp_ops);
@@ -95,7 +94,6 @@ module fp_decode_tb
     check(name, word, "sqrt", 32'(sqrt), 32'(exp_ops[0]));
   endtask
 
-  // Illegal float
   task automatic chk_illegal(input string name, input logic [31:0] word, input logic [2:0] frm_in);
     drive(word, frm_in);
     check(name, word, "is_fp", 32'(is_fp), 32'(1'b1));
@@ -103,7 +101,6 @@ module fp_decode_tb
     check(name, word, "unit", 32'(unit), 32'(FP_NONE));
   endtask
 
-  // Not float
   task automatic chk_not_fp(input string name, input logic [31:0] word);
     drive(word, 3'b000);
     check(name, word, "is_fp", 32'(is_fp), 32'(1'b0));
@@ -111,7 +108,6 @@ module fp_decode_tb
     check(name, word, "unit", 32'(unit), 32'(FP_NONE));
   endtask
 
-  // Toolchain reference words
   task automatic legal_table();
     chk_fp("fmadd.s f20, f9, f25, f3, rne", 32'h19948a43, 3'd6, FP_FMA, 6'b111100, 3'd0, 6'b000000);
     chk_fp("fmadd.s f3, f7, f14, f3, rtz", 32'h18e391c3, 3'd3, FP_FMA, 6'b111100, 3'd1, 6'b000000);
@@ -511,7 +507,6 @@ module fp_decode_tb
     chk_not_fp("lw x1, 8(x2)", 32'h00812083);
   endtask
 
-  // Reference legality
   task automatic ref_op_fp(input logic [6:0] funct7, input logic [4:0] rs2, input logic [2:0] f3,
                            input logic [2:0] frm_in, output logic exp_ill,
                            output logic [2:0] exp_rm, output fp_unit_e exp_unit);
@@ -572,7 +567,6 @@ module fp_decode_tb
     if (exp_ill) exp_unit = FP_NONE;
   endtask
 
-  // OpFp exhaustive
   task automatic sweep_op_fp();
     logic [4:0] rs2s[4];
     logic exp_ill;
@@ -600,7 +594,6 @@ module fp_decode_tb
     end
   endtask
 
-  // Fused exhaustive
   task automatic sweep_fused();
     logic [6:0] ops[4];
     logic [31:0] word;
@@ -630,7 +623,6 @@ module fp_decode_tb
     end
   endtask
 
-  // Memory funct3 sweep
   task automatic sweep_mem();
     logic [31:0] word;
     for (int s = 0; s < 2; s++) begin

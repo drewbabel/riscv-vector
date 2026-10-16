@@ -28,15 +28,12 @@ module fp_cvt_tb ();
       .fflags(cvt_fflags)
   );
 
-  // Flag bits
   localparam logic [4:0] FlagNv = 5'b10000;
   localparam logic [4:0] FlagNone = 5'b00000;
 
-  // Integer width encodings
   localparam logic [2:0] Iw16 = 3'd1;
   localparam logic [2:0] Iw32 = 3'd2;
 
-  // One check
   task automatic check(input string src, input logic ti, input logic uns, input logic [2:0] w,
                        input logic [2:0] mode, input logic [31:0] x, input logic [31:0] exp_res,
                        input logic [4:0] exp_flags);
@@ -67,7 +64,6 @@ module fp_cvt_tb ();
     end
   endtask
 
-  // Table 28 clip
   function automatic logic [31:0] clip16(input logic [31:0] x, input logic uns);
     logic is_nan;
     logic neg;
@@ -77,7 +73,6 @@ module fp_cvt_tb ();
     else clip16 = neg ? 32'h0000_8000 : 32'h0000_7fff;
   endfunction
 
-  // Halfword from word line
   task automatic ref_f2i16(input logic [31:0] x, input logic uns, input logic [31:0] res32,
                            input logic [4:0] flags32, output logic [31:0] res16,
                            output logic [4:0] flags16);
@@ -95,7 +90,6 @@ module fp_cvt_tb ();
     end
   endtask
 
-  // Exact integer to float
   function automatic logic [31:0] i2f16(input logic [15:0] v, input logic uns);
     logic sign;
     logic [16:0] mag;
@@ -115,7 +109,6 @@ module fp_cvt_tb ();
     end
   endfunction
 
-  // Stimulus
   task automatic start_dump();
     string dump_arg;
     if ($value$plusargs("DUMP%s", dump_arg)) begin
@@ -165,7 +158,6 @@ module fp_cvt_tb ();
       run_file({TfDir, op, "_", rms[m], ".txt"}, to_int, is_unsigned, 3'(m));
   endtask
 
-  // Every halfword pattern
   task automatic sweep_i2f16(input logic uns);
     logic [31:0] x;
     for (int i = 0; i < 65536; i++) begin
@@ -188,15 +180,12 @@ module fp_cvt_tb ();
   initial begin
     start_dump();
 
-    // Float to integer
     run_op("f32_to_i32", 1'b1, 1'b0);
     run_op("f32_to_ui32", 1'b1, 1'b1);
 
-    // Integer to float
     run_op("i32_to_f32", 1'b0, 1'b0);
     run_op("ui32_to_f32", 1'b0, 1'b1);
 
-    // Halfword sweeps
     sweep_i2f16(1'b0);
     sweep_i2f16(1'b1);
 
