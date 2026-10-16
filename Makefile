@@ -51,7 +51,8 @@ TF_RM_rtz     := minMag
 TF_RM_rdn     := min
 TF_RM_rup     := max
 TF_RM_rmm     := near_maxMag
-TF_ROUNDED    := f32_add f32_sub f32_mul f32_div f32_sqrt i32_to_f32 ui32_to_f32
+TF_ROUNDED    := f32_add f32_sub f32_mul f32_div i32_to_f32 ui32_to_f32
+TF_SQRT_OPTS  := -level 2 -n 46464
 TF_EXACT      := f32_to_i32 f32_to_ui32
 TF_CMP        := f32_eq f32_le f32_lt
 TF_MULADD_STRIDE := 31
@@ -186,6 +187,7 @@ testfloat: $(TF_GEN)
 	@set -o pipefail && $(foreach r,$(TF_RMS),\
 	  $(foreach o,$(TF_ROUNDED),$(TF_GEN) $(TF_FLAGS) -r$(TF_RM_$(r)) $(o) > $(TF_DIR)/$(o)_$(r).txt &&) \
 	  $(foreach o,$(TF_EXACT),$(TF_GEN) $(TF_FLAGS) -r$(TF_RM_$(r)) -exact $(o) > $(TF_DIR)/$(o)_$(r).txt &&) \
+	  $(TF_GEN) $(TF_FLAGS) -r$(TF_RM_$(r)) $(TF_SQRT_OPTS) f32_sqrt > $(TF_DIR)/f32_sqrt_$(r).txt && \
 	  $(TF_GEN) $(TF_FLAGS) -r$(TF_RM_$(r)) f32_mulAdd | awk 'NR % $(TF_MULADD_STRIDE) == 0' > $(TF_DIR)/f32_mulAdd_$(r).txt &&) \
 	  $(foreach o,$(TF_CMP),$(TF_GEN) $(TF_FLAGS) $(o) > $(TF_DIR)/$(o).txt &&) true
 	@echo "wrote $$(ls $(TF_DIR) | wc -l | tr -d ' ') files to $(TF_DIR)"
