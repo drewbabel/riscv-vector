@@ -25,12 +25,18 @@ package csr_pkg;
   localparam logic [11:0] VtypeAddr = 12'hC21;  // Vector TYPE
   localparam logic [11:0] VlenbAddr = 12'hC22;  // VLEN in Bytes
 
+  // Float CSR addresses
+  localparam logic [11:0] FflagsAddr = 12'h001;  // Accrued exception FLAGS
+  localparam logic [11:0] FrmAddr = 12'h002;  // Rounding Mode
+  localparam logic [11:0] FcsrAddr = 12'h003;  // Float CSR
+
 
   // mstatus bit positions
   localparam int MstatusMie = 3;  // Interrupt Enable
   localparam int MstatusMpie = 7;  // Previous Interrupt Enable
   localparam int MstatusVsLo = 9;  // Vector Status Low
   localparam int MstatusMppLo = 11;  // Previous Privilege Low
+  localparam int MstatusFsLo = 13;  // Float Status Low
   localparam int MstatusSd = 31;  // State Dirty
   localparam logic [1:0] PrivMachine = 2'b11;
 
@@ -40,9 +46,15 @@ package csr_pkg;
   localparam logic [1:0] VsClean = 2'b10;  // matches saved copy
   localparam logic [1:0] VsDirty = 2'b11;  // written since save
 
+  // Float Status encodings
+  localparam logic [1:0] FsOff = VsOff;
+  localparam logic [1:0] FsInitial = VsInitial;
+  localparam logic [1:0] FsClean = VsClean;
+  localparam logic [1:0] FsDirty = VsDirty;
+
   // Writable bits
   localparam logic [31:0] MstatusMask = (32'd1 << MstatusMie) | (32'd1 << MstatusMpie) |
-      (32'd3 << MstatusVsLo) | (32'd3 << MstatusMppLo);
+      (32'd3 << MstatusVsLo) | (32'd3 << MstatusMppLo) | (32'd3 << MstatusFsLo);
 
   // Machine timer bit
   localparam int Mtie = 7;
