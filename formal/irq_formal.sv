@@ -45,6 +45,8 @@ module irq_formal
   logic            is_vec_instr;
   logic [ VlW-1:0] vl_q;
   logic [XLEN-1:0] vtype_q;
+  logic            is_fp_instr;
+  logic [     2:0] frm_q;
 
   logic [XLEN-1:0] dbg_csr_wdata;
   logic [XLEN-1:0] dbg_mscratch;
@@ -59,6 +61,7 @@ module irq_formal
   logic [XLEN-1:0] dbg_minstret;
   logic [XLEN-1:0] dbg_mcycleh;
   logic [XLEN-1:0] dbg_minstreth;
+  logic [     4:0] dbg_fflags;
 
   csr #(
       .XLEN(XLEN),
@@ -95,6 +98,11 @@ module irq_formal
       .is_vec_instr(is_vec_instr),
       .vl_q(vl_q),
       .vtype_q(vtype_q),
+      .is_fp_instr(is_fp_instr),
+      .fp_state_we(1'b0),
+      .fp_flags_we(1'b0),
+      .fp_flags(5'b0),
+      .frm_q(frm_q),
       .dbg_csr_wdata(dbg_csr_wdata),
       .dbg_mscratch(dbg_mscratch),
       .dbg_mstatus(dbg_mstatus),
@@ -107,7 +115,8 @@ module irq_formal
       .dbg_mcycle(dbg_mcycle),
       .dbg_minstret(dbg_minstret),
       .dbg_mcycleh(dbg_mcycleh),
-      .dbg_minstreth(dbg_minstreth)
+      .dbg_minstreth(dbg_minstreth),
+      .dbg_fflags(dbg_fflags)
   );
 
   logic f_past_valid = 1'b0;
@@ -128,9 +137,16 @@ module irq_formal
   assign exc_vs_off = (is_vec_instr || (csr_access && vec_addr)) &&
       (dbg_mstatus[MstatusVsLo+1:MstatusVsLo] == VsOff);
 
+  logic fp_addr;
+  assign fp_addr = (csr_addr == FflagsAddr) || (csr_addr == FrmAddr) || (csr_addr == FcsrAddr);
+
+  logic exc_fs_off;
+  assign exc_fs_off = (is_fp_instr || (csr_access && fp_addr)) &&
+      (dbg_mstatus[MstatusFsLo+1:MstatusFsLo] == FsOff);
+
   logic exc_any;
   assign exc_any = exc_illegal | exc_ecall | exc_ebreak | exc_instr_misaligned |
-      exc_load_misaligned | exc_store_misaligned | exc_ro_write | exc_vs_off;
+      exc_load_misaligned | exc_store_misaligned | exc_ro_write | exc_vs_off | exc_fs_off;
 
   logic timer_ready;
   logic ext_ready;
