@@ -43,6 +43,8 @@ SIM = os.path.join(BUILD, "cosim_sim")
 SCALAR_MARCH = "rv32im"
 VECTOR_MARCH = "rv32im_zve32x_zvl128b"  # Zvl128b or VLEN reads 32
 VECTOR = False
+FP_MARCH = "rv32imf_zicsr"
+FP = False
 
 VL_ADDR, VTYPE_ADDR, VSTART_ADDR = 0xC20, 0xC21, 0x008
 VTYPE_RESET = 0x8000_0000  # vill set out of reset
@@ -56,6 +58,8 @@ SPAN = None
 
 
 def march():
+    if FP:
+        return FP_MARCH
     return VECTOR_MARCH if VECTOR else SCALAR_MARCH
 
 
@@ -140,6 +144,13 @@ COMMIT_RE = re.compile(
 TRACE_RE = re.compile(r"TRACE (\d+) ([0-9a-f]+) ([0-9a-f]+)")
 VCOMMIT_RE = re.compile(r"VCOMMIT (\d+) (\d+) ([0-9a-f]+)")
 VMEM_RE = re.compile(r"VMEM ([0-9a-f]+) ([0-9a-f]{4}) ([0-9a-f]+)")
+FCOMMIT_RE = re.compile(r"FCOMMIT (\d+) ([0-9a-f]+)")
+FCSR_RE = re.compile(r"FCSR ([0-9a-f]+)")
+SPIKE_F_RE = re.compile(r"(?:^|\s)f(\d+)\s+0x([0-9a-f]+)")
+SPIKE_FCSR_RE = re.compile(r"\bc(1|2|3)_(?:fflags|frm|fcsr)\s+0x([0-9a-f]+)")
+DUT_FWR = []
+SPK_FWR = []
+FCSR = {"dut": None, "spike": 0}
 VCD = os.path.join(BUILD, "cosim.vcd")
 TRACE = []  # Retirement times
 DUT_VWR = []  # Vector writes
@@ -173,7 +184,17 @@ def run_dut(dut_hex, vcd=False, n=8000, gen=False):
     DUT_VWR.clear()
     DUT_VMEM.clear()
     DUT_TRAP.clear()
+    DUT_FWR.clear()
+    FCSR["dut"] = None
     for line in out.splitlines():
+        fw = FCOMMIT_RE.match(line)
+        if fw:
+            DUT_FWR.append((int(fw.group(1)), int(fw.group(2), 16) & MASK32))
+            continue
+        fc = FCSR_RE.match(line)
+        if fc:
+            FCSR["dut"] = int(fc.group(1), 16)
+            continue
         dt = DTRAP_RE.match(line)
         if dt:
             DUT_TRAP.append(
@@ -321,6 +342,8 @@ def run_spike(spike_elf, n, isa=None, park=False):
     SPK_VMEM.clear()
     SPK_VWR_AT.clear()
     SPK_VMEM_AT.clear()
+    SPK_FWR.clear()
+    fcsr = 0
     vtag = 0
     shadow = {VL_ADDR: 0, VTYPE_ADDR: VTYPE_RESET, VSTART_ADDR: 0}
     for line in out.splitlines():
@@ -339,6 +362,16 @@ def run_spike(spike_elf, n, isa=None, park=False):
             val = int(rm.group(2), 16) & MASK32
             if opcode in ABS_PC_OPS and rd != 0:
                 val = (val - BASE) & MASK32  # to dut space
+        for freg, fhex in SPIKE_F_RE.findall(tail):
+            SPK_FWR.append((int(freg), int(fhex, 16) & MASK32))
+        for caddr, chex in SPIKE_FCSR_RE.findall(tail):
+            cval = int(chex, 16)
+            if caddr == "1":
+                fcsr = (fcsr & 0xE0) | (cval & 0x1F)
+            elif caddr == "2":
+                fcsr = (fcsr & 0x1F) | ((cval & 0x7) << 5)
+            else:
+                fcsr = cval & 0xFF
         vwr = SPIKE_V_RE.findall(tail)
         if vwr:
             for vreg, vhex in vwr:
@@ -385,6 +418,7 @@ def run_spike(spike_elf, n, isa=None, park=False):
         trace.append((pc, rd if rd != 0 else 0, val, store, vec))
         if len(trace) >= n:
             break
+    FCSR["spike"] = fcsr
     return trace
 
 
@@ -502,6 +536,24 @@ def compare_vec():
             f"vector write count DUT {len(DUT_VWR)} Spike {len(SPK_VWR)}",
         )
     return True, n
+
+
+def compare_fp():
+    for r in range(32):
+        d = [v for g, v in DUT_FWR if g == r]
+        s = [v for g, v in SPK_FWR if g == r]
+        for i in range(min(len(d), len(s))):
+            if d[i] != s[i]:
+                return (
+                    False,
+                    f"f{r} write {i}\n  DUT   {d[i]:08x}\n  Spike {s[i]:08x}",
+                )
+        if len(d) != len(s):
+            return False, f"f{r} write count DUT {len(d)} Spike {len(s)}"
+    if FCSR["dut"] != FCSR["spike"]:
+        dut_fcsr = "none" if FCSR["dut"] is None else f"{FCSR['dut']:02x}"
+        return False, f"final fcsr DUT {dut_fcsr} Spike {FCSR['spike']:02x}"
+    return True, len(DUT_FWR)
 
 
 # Vector store bytes
@@ -1388,7 +1440,7 @@ def gen_main(mode, args):
 
 
 def main():
-    global VECTOR
+    global VECTOR, FP
     if len(sys.argv) >= 2 and sys.argv[1] in (
         "--gen",
         "--gen-spike",
@@ -1401,6 +1453,9 @@ def main():
     if "--vec" in sys.argv[1:]:
         VECTOR = True
         sys.argv.remove("--vec")
+    if "--fp" in sys.argv[1:]:
+        FP = True
+        sys.argv.remove("--fp")
 
     if len(sys.argv) >= 2 and sys.argv[1] == "--rand":  # random regression
         count = int(sys.argv[2]) if len(sys.argv) >= 3 else 200
@@ -1434,7 +1489,8 @@ def main():
         sys.argv.remove("--trace")
     if len(sys.argv) != 2:
         sys.exit(
-            "usage: python3 tests/cosim.py [--vec] [--trace] <prog> | --rand [count] [seed0]"
+            "usage: python3 tests/cosim.py [--vec] [--fp] [--trace] <prog>"
+            " | --rand [count] [seed0]"
         )
     prog = sys.argv[1]  # single program, assembly or C
     compile_monitor()
@@ -1471,6 +1527,14 @@ def main():
             sys.exit(1)
         extra = (
             f", {vdetail} vector register writes, {mdetail} vector store bytes"
+        )
+    if FP:
+        fok, fdetail = compare_fp()
+        if not fok:
+            print(f"DIVERGENCE {fdetail}")
+            sys.exit(1)
+        extra += (
+            f", {fdetail} float register writes, final fcsr {FCSR['dut']:02x}"
         )
     print(f"LOCKSTEP PASS: {detail} instructions match Spike{extra} ({prog})")
 

@@ -55,6 +55,8 @@ module csr_tb;
   logic               fp_state_we;
   logic               fp_flags_we;
   logic [        4:0] fp_flags;
+  logic               fp_wb_flags_we;
+  logic [        4:0] fp_wb_flags;
   logic [        2:0] frm_q;
 
   logic [   Xlen-1:0] exp_mscratch;
@@ -111,6 +113,8 @@ module csr_tb;
       .fp_state_we         (fp_state_we),
       .fp_flags_we         (fp_flags_we),
       .fp_flags            (fp_flags),
+      .fp_wb_flags_we      (fp_wb_flags_we),
+      .fp_wb_flags         (fp_wb_flags),
       .frm_q               (frm_q)
   );
 
@@ -150,6 +154,8 @@ module csr_tb;
     fp_state_we                                                       = 0;
     fp_flags_we                                                       = 0;
     fp_flags                                                          = 0;
+    fp_wb_flags_we                                                    = 0;
+    fp_wb_flags                                                       = 0;
     exp_fflags                                                        = 0;
     exp_frm                                                           = 0;
     rst_n                                                             = 0;
@@ -850,6 +856,68 @@ module csr_tb;
     src_spec = 5'd1;
   endtask
 
+  task automatic test_fp_late_flags();
+    set_status(FsDirty, VsClean);
+    fp_apply(Funct3Csrrw, FflagsAddr, 32'h0);
+    exp_fflags = 5'h0;
+
+    #1;
+    core_en        = 0;
+    fp_wb_flags_we = 1;
+    fp_wb_flags    = 5'h02;
+    @(posedge clk);
+    #1;
+    core_en        = 1;
+    fp_wb_flags_we = 0;
+    fp_wb_flags    = 0;
+    csr_peek(FflagsAddr);
+    check("late_flags_without_commit", csr_rdata, 32'h02);
+
+    #1;
+    exc_illegal    = 1;
+    fp_wb_flags_we = 1;
+    fp_wb_flags    = 5'h08;
+    @(posedge clk);
+    #1;
+    exc_illegal    = 0;
+    fp_wb_flags_we = 0;
+    fp_wb_flags    = 0;
+    csr_peek(FflagsAddr);
+    check("late_flags_beside_trap", csr_rdata, 32'h0A);
+
+    #1;
+    fp_wb_flags = 5'h10;
+    @(posedge clk);
+    #1;
+    fp_wb_flags = 0;
+    csr_peek(FflagsAddr);
+    check("late_flags_need_we", csr_rdata, 32'h0A);
+
+    #1;
+    fp_flags_we    = 1;
+    fp_flags       = 5'h01;
+    fp_wb_flags_we = 1;
+    fp_wb_flags    = 5'h04;
+    @(posedge clk);
+    #1;
+    fp_flags_we    = 0;
+    fp_flags       = 0;
+    fp_wb_flags_we = 0;
+    fp_wb_flags    = 0;
+    csr_peek(FflagsAddr);
+    check("late_and_retire_flags_merge", csr_rdata, 32'h0F);
+
+    csr_drive(Funct3Csrrw, FflagsAddr, 32'h10);
+    fp_wb_flags_we = 1;
+    fp_wb_flags    = 5'h01;
+    csr_commit();
+    fp_wb_flags_we = 0;
+    fp_wb_flags    = 0;
+    csr_peek(FflagsAddr);
+    check("late_flags_fflags_write_wins", csr_rdata, 32'h10);
+    exp_fflags = 5'h10;
+  endtask
+
   task automatic test_fp_reset_clears();
     set_status(FsDirty, VsClean);
     fp_apply(Funct3Csrrw, FcsrAddr, 32'hFF);
@@ -885,6 +953,7 @@ module csr_tb;
     test_fp_accrue();
     test_frm_q();
     test_fp_random();
+    test_fp_late_flags();
     test_fp_reset_clears();
     verdict();
   end

@@ -102,6 +102,8 @@ module irq_formal
       .fp_state_we(1'b0),
       .fp_flags_we(1'b0),
       .fp_flags(5'b0),
+      .fp_wb_flags_we(1'b0),
+      .fp_wb_flags(5'b0),
       .frm_q(frm_q),
       .dbg_csr_wdata(dbg_csr_wdata),
       .dbg_mscratch(dbg_mscratch),

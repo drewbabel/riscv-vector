@@ -115,6 +115,19 @@ module cosim ();
       $display("FENCE BUSY %0t", $time);
   end
 
+  logic        r_fwe;
+  logic [ 4:0] r_frd;
+  logic [31:0] r_fdata;
+  logic        r_fidle;
+  assign r_fwe   = dut.riscv_pipelined_inst.datapath_inst.fp_wb_valid;
+  assign r_frd   = dut.riscv_pipelined_inst.datapath_inst.fp_wb_rd;
+  assign r_fdata = dut.riscv_pipelined_inst.datapath_inst.fp_wb_data;
+  assign r_fidle = dut.riscv_pipelined_inst.datapath_inst.fp_idle;
+
+  task automatic emit_fcommit();
+    if (r_fwe) $display("FCOMMIT %0d %08x", r_frd, r_fdata);
+  endtask
+
   task automatic do_reset();
     rst_n = 0;
     repeat (2) @(posedge clk);
@@ -177,6 +190,7 @@ module cosim ();
       @(posedge clk);
       #1;
       if (r_vretire) emit_vcommit();
+      emit_fcommit();
       if ((log_traps != 0) && r_valid && r_trap)
         $display("DTRAP %0t %08x %08x", $time, r_pc, r_insn);
       // Spike skips traps
@@ -199,6 +213,15 @@ module cosim ();
       if (r_vretire) emit_vcommit();
     end
     if (!r_vidle) $display("HUNG vector unit not idle");
+
+    for (int i = 0; i < 2000 && !r_fidle; i++) begin
+      @(posedge clk);
+      #1;
+      emit_fcommit();
+    end
+    if (!r_fidle) $display("HUNG float unit not idle");
+    $display("FCSR %02x", {dut.riscv_pipelined_inst.datapath_inst.csr_inst.frm,
+                           dut.riscv_pipelined_inst.datapath_inst.csr_inst.fflags});
 
     $display("MONITOR: %0d commits", checks);
     $finish;
