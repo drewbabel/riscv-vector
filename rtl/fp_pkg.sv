@@ -10,6 +10,9 @@ package fp_pkg;
 
   localparam int FpAddLatency = 2;
   localparam int FpMulLatency = 3;
+  localparam int FpFmaLatency = 3;
+  localparam int FpProdLatency = (FpFmaLatency > FpMulLatency) ? FpFmaLatency : FpMulLatency;
+  localparam int FpMaxLatency = (FpProdLatency > FpAddLatency) ? FpProdLatency : FpAddLatency;
 
   localparam logic [2:0] RmRne = 3'b000;
   localparam logic [2:0] RmRtz = 3'b001;
