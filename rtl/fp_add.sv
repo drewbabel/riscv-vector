@@ -5,10 +5,14 @@ module fp_add
   import fp_pkg::FlagNv, fp_pkg::FlagOf, fp_pkg::FlagUf, fp_pkg::FlagNx;
   import fp_pkg::fp_round_up, fp_pkg::fp_lzc, fp_pkg::FpLzcW;
 #(
-    parameter  int ExpW  = fp_pkg::ExpW,
-    parameter  int FracW = fp_pkg::FracW,
-    localparam int FLEN  = 1 + ExpW + FracW
+    parameter int ExpW = fp_pkg::ExpW,
+    parameter int FracW = fp_pkg::FracW,
+    localparam int FLEN = 1 + ExpW + FracW,
+    localparam int Latency = fp_pkg::FpAddLatency
 ) (
+    input  wire             clk,
+    input  wire             rst_n,
+    input  wire             core_en,
     input  wire             sub,
     input  wire  [     2:0] rm,
     input  wire  [FLEN-1:0] a,
@@ -63,6 +67,21 @@ module fp_add
   logic [ AlignW-1:0] y_al;
   logic [   SumW-1:0] sum;
   logic [ AlignW-1:0] limit;
+  logic [   SumW-1:0] sum_q1;
+  logic [   ExpW-1:0] ex_q1;
+  logic               sx_q1;
+  logic               eff_sub_q1;
+  logic [ AlignW-1:0] limit_q1;
+  logic [        2:0] rm_q1;
+  logic               a_nan_q1;
+  logic               b_nan_q1;
+  logic               a_inf_q1;
+  logic               b_inf_q1;
+  logic               inf_clash_q1;
+  logic               nv_q1;
+  logic               sa_q1;
+  logic               sb_q1;
+
   logic [ AlignW-1:0] lz_in;
   logic [    LzW-1:0] lz;
 
@@ -79,6 +98,8 @@ module fp_add
   logic               ovf;
   logic               to_max;
   logic               uf;
+  logic [   FLEN-1:0] result_next;
+  logic [        4:0] fflags_next;
 
   assign sa = a[FLEN-1];
   assign sb = b[FLEN-1] ^ sub;
@@ -112,13 +133,47 @@ module fp_add
   assign sum = eff_sub ?
       {1'b0, mx, {GrsW{1'b0}}} - {1'b0, y_al} : {1'b0, mx, {GrsW{1'b0}}} + {1'b0, y_al};
 
-  // Normalize leading one
   assign limit = LimitTop >> (ex - ExpW'(1));
-  assign lz_in = sum[AlignW-1:0] | limit;
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      sum_q1       <= '0;
+      ex_q1        <= '0;
+      sx_q1        <= 1'b0;
+      eff_sub_q1   <= 1'b0;
+      limit_q1     <= '0;
+      rm_q1        <= '0;
+      a_nan_q1     <= 1'b0;
+      b_nan_q1     <= 1'b0;
+      a_inf_q1     <= 1'b0;
+      b_inf_q1     <= 1'b0;
+      inf_clash_q1 <= 1'b0;
+      nv_q1        <= 1'b0;
+      sa_q1        <= 1'b0;
+      sb_q1        <= 1'b0;
+    end else if (core_en) begin
+      sum_q1       <= sum;
+      ex_q1        <= ex;
+      sx_q1        <= sx;
+      eff_sub_q1   <= eff_sub;
+      limit_q1     <= limit;
+      rm_q1        <= rm;
+      a_nan_q1     <= a_nan;
+      b_nan_q1     <= b_nan;
+      a_inf_q1     <= a_inf;
+      b_inf_q1     <= b_inf;
+      inf_clash_q1 <= inf_clash;
+      nv_q1        <= nv;
+      sa_q1        <= sa;
+      sb_q1        <= sb;
+    end
+  end
+
+  // Normalize leading one
+  assign lz_in = sum_q1[AlignW-1:0] | limit_q1;
   assign lz = LzW'(fp_lzc(FpLzcW'(lz_in), AlignW));
 
-  assign n = sum[AlignW] ? {sum[AlignW:2], sum[1] | sum[0]} : sum[AlignW-1:0] << lz;
-  assign e = sum[AlignW] ? {1'b0, ex} + ExpSumW'(1) : {1'b0, ex} - ExpSumW'(lz);
+  assign n = sum_q1[AlignW] ? {sum_q1[AlignW:2], sum_q1[1] | sum_q1[0]} : sum_q1[AlignW-1:0] << lz;
+  assign e = sum_q1[AlignW] ? {1'b0, ex_q1} + ExpSumW'(1) : {1'b0, ex_q1} - ExpSumW'(lz);
   assign e_field = n[AlignW-1] ? e : '0;
 
   assign lsb = n[GrsW];
@@ -126,31 +181,41 @@ module fp_add
   assign st = |n[GrsW-2:0];
   assign inexact = g | st;
 
-  assign inc = fp_round_up(rm, sx, lsb, g, st);
+  assign inc = fp_round_up(rm_q1, sx_q1, lsb, g, st);
 
   assign {r_top, r_mag} = {e_field, n[AlignW-2:GrsW]} + FLEN'(inc);
   assign ovf = {r_top, r_mag[FLEN-2:FracW]} >= ExpOvf;
-  assign to_max = (rm == RmRtz) || ((rm == RmRdn) && !sx) || ((rm == RmRup) && sx);
+  assign to_max = (rm_q1 == RmRtz) || ((rm_q1 == RmRdn) && !sx_q1) || ((rm_q1 == RmRup) && sx_q1);
   assign uf = inexact && ({r_top, r_mag[FLEN-2:FracW]} == '0);
 
   always_comb begin
-    if (a_nan || b_nan || inf_clash) begin
-      result = CanonNan;
-      fflags = nv ? FlagNv : '0;
-    end else if (a_inf || b_inf) begin
-      result = {a_inf ? sa : sb, InfMag};
-      fflags = '0;
-    end else if (sum == '0) begin
-      result = {eff_sub ? (rm == RmRdn) : sx, {(FLEN - 1) {1'b0}}};
-      fflags = '0;
+    if (a_nan_q1 || b_nan_q1 || inf_clash_q1) begin
+      result_next = CanonNan;
+      fflags_next = nv_q1 ? FlagNv : '0;
+    end else if (a_inf_q1 || b_inf_q1) begin
+      result_next = {a_inf_q1 ? sa_q1 : sb_q1, InfMag};
+      fflags_next = '0;
+    end else if (sum_q1 == '0) begin
+      result_next = {eff_sub_q1 ? (rm_q1 == RmRdn) : sx_q1, {(FLEN - 1) {1'b0}}};
+      fflags_next = '0;
     end else if (ovf) begin
-      result = {sx, to_max ? MaxMag : InfMag};
-      fflags = FlagOf | FlagNx;
+      result_next = {sx_q1, to_max ? MaxMag : InfMag};
+      fflags_next = FlagOf | FlagNx;
     end else begin
-      result = {sx, r_mag};
-      fflags = '0;
-      if (uf) fflags = fflags | FlagUf;
-      if (inexact) fflags = fflags | FlagNx;
+      result_next = {sx_q1, r_mag};
+      fflags_next = '0;
+      if (uf) fflags_next = fflags_next | FlagUf;
+      if (inexact) fflags_next = fflags_next | FlagNx;
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      result <= '0;
+      fflags <= '0;
+    end else if (core_en) begin
+      result <= result_next;
+      fflags <= fflags_next;
     end
   end
 

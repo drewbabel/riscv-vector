@@ -8,6 +8,8 @@ package fp_pkg;
   parameter int SigW = FracW + 1;
   parameter int Bias = (1 << (ExpW - 1)) - 1;
 
+  localparam int FpAddLatency = 2;
+
   localparam logic [2:0] RmRne = 3'b000;
   localparam logic [2:0] RmRtz = 3'b001;
   localparam logic [2:0] RmRdn = 3'b010;
