@@ -19,6 +19,9 @@ hierarchy -top mem_order_formal
 blackbox *vec_alu* *vec_regfile* *muldiv* *gshare* *btb*
 cutpoint -blackbox
 prep -top mem_order_formal
+techmap
+opt -fast
+setundef -anyseq
 
 [files]
 build/mem_order_formal.v
