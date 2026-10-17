@@ -5,10 +5,14 @@ module fp_mul
   import fp_pkg::FlagNv, fp_pkg::FlagOf, fp_pkg::FlagUf, fp_pkg::FlagNx;
   import fp_pkg::fp_round_up, fp_pkg::fp_lzc, fp_pkg::FpLzcW;
 #(
-    parameter  int ExpW  = fp_pkg::ExpW,
-    parameter  int FracW = fp_pkg::FracW,
-    localparam int FLEN  = 1 + ExpW + FracW
+    parameter int ExpW = fp_pkg::ExpW,
+    parameter int FracW = fp_pkg::FracW,
+    localparam int FLEN = 1 + ExpW + FracW,
+    localparam int Latency = fp_pkg::FpMulLatency
 ) (
+    input  wire             clk,
+    input  wire             rst_n,
+    input  wire             core_en,
     input  wire  [     2:0] rm,
     input  wire  [FLEN-1:0] a,
     input  wire  [FLEN-1:0] b,
@@ -64,19 +68,58 @@ module fp_mul
   logic [ProdW-1:0] prod;
   assign prod = {{SigW{1'b0}}, sig_a} * {{SigW{1'b0}}, sig_b};
 
+  // Signed biased exponents
+  logic [ExpSW-1:0] exp_top;
+  assign exp_top = ExpSW'(eff_exp_a) + ExpSW'(eff_exp_b) - ExpSW'(Bias - 1);
+
+  logic [ProdW-1:0] prod_q1;
+  logic [ExpSW-1:0] exp_top_q1;
+  logic sign_q1;
+  logic [2:0] rm_q1;
+  logic nan_a_q1, nan_b_q1, invalid_q1, inf_a_q1, inf_b_q1, zero_a_q1, zero_b_q1;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) prod_q1 <= '0;
+    else if (core_en) prod_q1 <= prod;
+  end
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      exp_top_q1 <= '0;
+      sign_q1    <= 1'b0;
+      rm_q1      <= '0;
+      nan_a_q1   <= 1'b0;
+      nan_b_q1   <= 1'b0;
+      invalid_q1 <= 1'b0;
+      inf_a_q1   <= 1'b0;
+      inf_b_q1   <= 1'b0;
+      zero_a_q1  <= 1'b0;
+      zero_b_q1  <= 1'b0;
+    end else if (core_en) begin
+      exp_top_q1 <= exp_top;
+      sign_q1    <= sign;
+      rm_q1      <= rm;
+      nan_a_q1   <= nan_a;
+      nan_b_q1   <= nan_b;
+      invalid_q1 <= invalid;
+      inf_a_q1   <= inf_a;
+      inf_b_q1   <= inf_b;
+      zero_a_q1  <= zero_a;
+      zero_b_q1  <= zero_b;
+    end
+  end
+
   // Normalize leading one
   logic [LzW-1:0] lz;
-  assign lz = LzW'(fp_lzc(FpLzcW'(prod), ProdW));
+  assign lz = LzW'(fp_lzc(FpLzcW'(prod_q1), ProdW));
 
-  // Signed biased exponents
-  logic [ExpSW-1:0] exp_top, exp_lz, rshift_full;
-  assign exp_top     = ExpSW'(eff_exp_a) + ExpSW'(eff_exp_b) - ExpSW'(Bias - 1);
-  assign exp_lz      = exp_top - ExpSW'(lz);
-  assign rshift_full = ExpSW'(1) - exp_top;
+  logic [ExpSW-1:0] exp_lz, rshift_full;
+  assign exp_lz      = exp_top_q1 - ExpSW'(lz);
+  assign rshift_full = ExpSW'(1) - exp_top_q1;
 
   logic normal, partial_left;
   assign normal       = !exp_lz[ExpSW-1] && (exp_lz != '0);
-  assign partial_left = !exp_top[ExpSW-1] && (exp_top != '0);
+  assign partial_left = !exp_top_q1[ExpSW-1] && (exp_top_q1 != '0);
 
   logic [LzW-1:0] lshift;
   logic [RshiftW-1:0] rshift;
@@ -85,7 +128,7 @@ module fp_mul
     lshift = '0;
     rshift = '0;
     if (normal) lshift = lz;
-    else if (partial_left) lshift = exp_top[LzW-1:0] - LzW'(1);
+    else if (partial_left) lshift = exp_top_q1[LzW-1:0] - LzW'(1);
     else if (rshift_full > ExpSW'(MaxRshift)) rshift = RshiftW'(MaxRshift);
     else rshift = rshift_full[RshiftW-1:0];
   end
@@ -93,7 +136,7 @@ module fp_mul
 
   logic [ ProdW-1:0] norm;
   logic [AlignW-1:0] aligned;
-  assign norm    = prod << lshift;
+  assign norm    = prod_q1 << lshift;
   assign aligned = {norm, {MaxRshift{1'b0}}} >> rshift;
 
   logic [SigW-1:0] mant;
@@ -103,46 +146,101 @@ module fp_mul
   assign round  = aligned[ProdW];
   assign sticky = |aligned[ProdW-1:0];
 
+  logic [SigW-1:0] mant_q2;
+  logic guard_q2, round_q2, sticky_q2;
+  logic [ExpW:0] exp_norm_q2;
+  logic sign_q2;
+  logic [2:0] rm_q2;
+  logic nan_a_q2, nan_b_q2, invalid_q2, inf_a_q2, inf_b_q2, zero_a_q2, zero_b_q2;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      mant_q2     <= '0;
+      guard_q2    <= 1'b0;
+      round_q2    <= 1'b0;
+      sticky_q2   <= 1'b0;
+      exp_norm_q2 <= '0;
+      sign_q2     <= 1'b0;
+      rm_q2       <= '0;
+      nan_a_q2    <= 1'b0;
+      nan_b_q2    <= 1'b0;
+      invalid_q2  <= 1'b0;
+      inf_a_q2    <= 1'b0;
+      inf_b_q2    <= 1'b0;
+      zero_a_q2   <= 1'b0;
+      zero_b_q2   <= 1'b0;
+    end else if (core_en) begin
+      mant_q2     <= mant;
+      guard_q2    <= guard;
+      round_q2    <= round;
+      sticky_q2   <= sticky;
+      exp_norm_q2 <= exp_norm;
+      sign_q2     <= sign_q1;
+      rm_q2       <= rm_q1;
+      nan_a_q2    <= nan_a_q1;
+      nan_b_q2    <= nan_b_q1;
+      invalid_q2  <= invalid_q1;
+      inf_a_q2    <= inf_a_q1;
+      inf_b_q2    <= inf_b_q1;
+      zero_a_q2   <= zero_a_q1;
+      zero_b_q2   <= zero_b_q1;
+    end
+  end
+
   logic inc, inc_unbounded;
-  assign inc = fp_round_up(rm, sign, mant[0], guard, round || sticky);
+  assign inc = fp_round_up(rm_q2, sign_q2, mant_q2[0], guard_q2, round_q2 || sticky_q2);
   // Tininess after rounding
-  assign inc_unbounded = fp_round_up(rm, sign, guard, round, sticky);
+  assign inc_unbounded = fp_round_up(rm_q2, sign_q2, guard_q2, round_q2, sticky_q2);
 
   logic [FLEN-1:0] rounded, finite;
-  assign rounded = {exp_norm - (ExpW + 1)'(1), {FracW{1'b0}}} + {{ExpW{1'b0}}, mant} + FLEN'(inc);
-  assign finite  = {sign, rounded[FLEN-2:0]};
+  assign rounded = {exp_norm_q2 - (ExpW + 1)'(1), {FracW{1'b0}}} + {{ExpW{1'b0}}, mant_q2} +
+      FLEN'(inc);
+  assign finite = {sign_q2, rounded[FLEN-2:0]};
 
   logic inexact, overflow, tiny, overflow_to_inf;
-  assign inexact  = guard || round || sticky;
+  assign inexact  = guard_q2 || round_q2 || sticky_q2;
   assign overflow = rounded[FLEN-1:FracW] >= ExpOverflow;
-  assign tiny     = !mant[SigW-1] && !((&mant[SigW-2:0]) && guard && inc_unbounded);
+  assign tiny     = !mant_q2[SigW-1] && !((&mant_q2[SigW-2:0]) && guard_q2 && inc_unbounded);
 
   always_comb begin
-    case (rm)
+    case (rm_q2)
       RmRtz:   overflow_to_inf = 1'b0;
-      RmRdn:   overflow_to_inf = sign;
-      RmRup:   overflow_to_inf = !sign;
+      RmRdn:   overflow_to_inf = sign_q2;
+      RmRup:   overflow_to_inf = !sign_q2;
       default: overflow_to_inf = 1'b1;
     endcase
   end
 
+  logic [FLEN-1:0] result_next;
+  logic [4:0] fflags_next;
+
   always_comb begin
-    result = finite;
-    fflags = '0;
-    if (tiny && inexact) fflags = fflags | FlagUf;
-    if (inexact) fflags = fflags | FlagNx;
-    if (nan_a || nan_b || invalid) begin
-      result = CanonNan;
-      fflags = invalid ? FlagNv : '0;
-    end else if (inf_a || inf_b) begin
-      result = {sign, InfMag};
-      fflags = '0;
-    end else if (zero_a || zero_b) begin
-      result = {sign, {(FLEN - 1) {1'b0}}};
-      fflags = '0;
+    result_next = finite;
+    fflags_next = '0;
+    if (tiny && inexact) fflags_next = fflags_next | FlagUf;
+    if (inexact) fflags_next = fflags_next | FlagNx;
+    if (nan_a_q2 || nan_b_q2 || invalid_q2) begin
+      result_next = CanonNan;
+      fflags_next = invalid_q2 ? FlagNv : '0;
+    end else if (inf_a_q2 || inf_b_q2) begin
+      result_next = {sign_q2, InfMag};
+      fflags_next = '0;
+    end else if (zero_a_q2 || zero_b_q2) begin
+      result_next = {sign_q2, {(FLEN - 1) {1'b0}}};
+      fflags_next = '0;
     end else if (overflow) begin
-      result = overflow_to_inf ? {sign, InfMag} : {sign, MaxMag};
-      fflags = FlagOf | FlagNx;
+      result_next = overflow_to_inf ? {sign_q2, InfMag} : {sign_q2, MaxMag};
+      fflags_next = FlagOf | FlagNx;
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      result <= '0;
+      fflags <= '0;
+    end else if (core_en) begin
+      result <= result_next;
+      fflags <= fflags_next;
     end
   end
 

@@ -9,6 +9,7 @@ package fp_pkg;
   parameter int Bias = (1 << (ExpW - 1)) - 1;
 
   localparam int FpAddLatency = 2;
+  localparam int FpMulLatency = 3;
 
   localparam logic [2:0] RmRne = 3'b000;
   localparam logic [2:0] RmRtz = 3'b001;
