@@ -1,7 +1,8 @@
 `default_nettype none
 
 module hazard_unit #(
-    parameter int XLEN = arch_pkg::XLEN
+    parameter  int XLEN  = arch_pkg::XLEN,
+    localparam int NRegs = arch_pkg::NumRegs
 ) (
     input wire clk,
     input wire core_en,
@@ -25,6 +26,16 @@ module hazard_unit #(
     input wire [1:0] result_src_mem,
     input wire [1:0] result_src_wb,
 
+    input wire fp_op_id,
+    input wire frs1_read_id,
+    input wire frs2_read_id,
+    input wire frs3_read_id,
+    input wire frd_write_id,
+    input wire [4:0] rs3_id,
+    input wire [NRegs-1:0] fp_busy,
+    input wire frd_write_ex,
+    input wire frm_write_ex,
+
     output logic stall,
     output logic [1:0] forward_a,
     output logic [1:0] forward_b
@@ -32,7 +43,21 @@ module hazard_unit #(
 
   localparam logic [1:0] ResMem = 2'd1;  // lw
 
-  assign stall = (result_src_ex == ResMem) && (rd_ex != 0) && (rd_ex == rs1_id || rd_ex == rs2_id);
+  logic load_stall;
+  logic fp_stall;
+  logic [NRegs-1:0] fp_need;
+  logic [NRegs-1:0] fp_pending;
+
+  assign load_stall = (result_src_ex == ResMem) && (rd_ex != 0) &&
+      (rd_ex == rs1_id || rd_ex == rs2_id);
+
+  assign fp_need = (frs1_read_id ? (NRegs'(1) << rs1_id) : '0) |
+      (frs2_read_id ? (NRegs'(1) << rs2_id) : '0) | (frs3_read_id ? (NRegs'(1) << rs3_id) : '0) |
+      (frd_write_id ? (NRegs'(1) << rd_id) : '0);
+  assign fp_pending = fp_busy | (frd_write_ex ? (NRegs'(1) << rd_ex) : '0);
+  assign fp_stall = fp_op_id && ((|(fp_need & fp_pending)) || frm_write_ex);
+
+  assign stall = load_stall || fp_stall;
 
 
   always_comb begin

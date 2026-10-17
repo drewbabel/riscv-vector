@@ -8,6 +8,10 @@ module datapath
   import bp_pkg::*;
   import csr_pkg::VxsatAddr;
   import csr_pkg::VcsrAddr;
+  import csr_pkg::FflagsAddr;
+  import csr_pkg::FrmAddr;
+  import csr_pkg::FcsrAddr;
+  import fp_pkg::*;
 #(
     parameter  int XLEN      = arch_pkg::XLEN,
     parameter  int VLEN      = arch_pkg::VLEN,
@@ -254,8 +258,68 @@ module datapath
   logic predict_taken_id, predict_taken_ex;
   logic [XLEN-1:0] predict_target_id, predict_target_ex;
   logic [GhistLen-1:0] bp_index_id, bp_index_ex;
-  logic            mispredict;
-  logic [XLEN-1:0] correct_pc;
+  logic                             mispredict;
+  logic     [             XLEN-1:0] correct_pc;
+
+  logic                             fp_is_d;
+  logic                             fp_illegal_d;
+  fp_unit_e                         fp_unit_d;
+  logic                             frs1_read_d;
+  logic                             frs2_read_d;
+  logic                             frs3_read_d;
+  logic                             frd_write_d;
+  logic                             fxrd_write_d;
+  logic                             fxrs1_read_d;
+  logic     [                  2:0] fp_rm_d;
+  logic                             fp_sub_d;
+  logic                             fp_neg_prod_d;
+  logic                             fp_neg_add_d;
+  logic                             fp_to_int_d;
+  logic                             fp_unsigned_d;
+  logic                             fp_sqrt_d;
+  logic     [                  4:0] fp_funct5_d;
+  logic     [                  2:0] fp_funct3_d;
+  logic                             fp_op_d;
+  logic     [             FLEN-1:0] fp_rdata1;
+  logic     [             FLEN-1:0] fp_rdata2;
+  logic     [             FLEN-1:0] fp_rdata3;
+
+  logic                             fp_op_ex;
+  fp_unit_e                         fp_unit_ex;
+  logic                             frd_write_ex;
+  logic                             fxrd_write_ex;
+  logic                             fp_sub_ex;
+  logic                             fp_neg_prod_ex;
+  logic                             fp_neg_add_ex;
+  logic                             fp_to_int_ex;
+  logic                             fp_unsigned_ex;
+  logic                             fp_sqrt_ex;
+  logic     [                  4:0] fp_funct5_ex;
+  logic     [                  2:0] fp_funct3_ex;
+  logic     [             FLEN-1:0] fp_a_ex;
+  logic     [             FLEN-1:0] fp_b_ex;
+  logic     [             FLEN-1:0] fp_c_ex;
+  logic     [                  2:0] fp_rm_ex;
+  logic     [                  2:0] frm_q;
+
+  logic                             fp_fop_ex;
+  logic                             fp_xop_ex;
+  logic                             fp_start;
+  logic                             fp_xstart;
+  logic                             fp_xack;
+  logic                             fp_ready;
+  logic                             fp_idle;
+  logic     [arch_pkg::NumRegs-1:0] fp_busy;
+  logic                             fp_wb_valid;
+  logic     [                  4:0] fp_wb_rd;
+  logic     [             FLEN-1:0] fp_wb_data;
+  logic     [                  4:0] fp_wb_flags;
+  logic                             fp_xvalid;
+  logic     [             XLEN-1:0] fp_xresult;
+  logic     [                  4:0] fp_xflags;
+  logic                             fp_hold;
+  logic                             fp_csr_ex;
+  logic                             frm_write_ex;
 
   pc #(
       .XLEN(XLEN),
@@ -385,7 +449,50 @@ module datapath
       (instr_id[6:0] == OpcodeJalr) || (instr_id[6:0] == OpcodeLui) ||
       (instr_id[6:0] == OpcodeAuipc) || (instr_id[6:0] == OpcodeMiscMem) ||
       (instr_id[6:0] == OpcodeSystem) || (instr_id[6:0] == OpcodeOpV) ||
-      (instr_id[6:0] == OpcodeLoadFp) || (instr_id[6:0] == OpcodeStoreFp));
+      (instr_id[6:0] == OpcodeLoadFp) || (instr_id[6:0] == OpcodeStoreFp) ||
+      (instr_id[6:0] == OpcodeOpFp) || (instr_id[6:0] == OpcodeFmadd) ||
+      (instr_id[6:0] == OpcodeFmsub) || (instr_id[6:0] == OpcodeFnmsub) ||
+      (instr_id[6:0] == OpcodeFnmadd)) || fp_illegal_d;
+
+  fp_decode u_fp_decode (
+      .instr      (instr_id),
+      .frm        (frm_q),
+      .is_fp      (fp_is_d),
+      .illegal    (fp_illegal_d),
+      .unit       (fp_unit_d),
+      .frs1_read  (frs1_read_d),
+      .frs2_read  (frs2_read_d),
+      .frs3_read  (frs3_read_d),
+      .frd_write  (frd_write_d),
+      .xrd_write  (fxrd_write_d),
+      .xrs1_read  (fxrs1_read_d),
+      .rm         (fp_rm_d),
+      .sub        (fp_sub_d),
+      .neg_prod   (fp_neg_prod_d),
+      .neg_add    (fp_neg_add_d),
+      .to_int     (fp_to_int_d),
+      .is_unsigned(fp_unsigned_d),
+      .sqrt       (fp_sqrt_d),
+      .funct5     (fp_funct5_d),
+      .funct3     (fp_funct3_d)
+  );
+
+  assign fp_op_d = fp_is_d && !fp_illegal_d && (fp_unit_d != FP_LOAD) && (fp_unit_d != FP_STORE);
+
+  fp_regfile fp_regfile_inst (
+      .clk    (clk),
+      .core_en(core_en),
+      .rst_n  (rst_n),
+      .we     (fp_wb_valid),
+      .waddr  (fp_wb_rd),
+      .wdata  (fp_wb_data),
+      .raddr1 (instr_id[19:15]),
+      .raddr2 (instr_id[24:20]),
+      .raddr3 (instr_id[31:27]),
+      .rdata1 (fp_rdata1),
+      .rdata2 (fp_rdata2),
+      .rdata3 (fp_rdata3)
+  );
 
   regfile #(
       .XLEN(XLEN)
@@ -417,6 +524,9 @@ module datapath
       mem_write_ex     <= 1'b0;
       is_muldiv_ex     <= 1'b0;
       predict_taken_ex <= 1'b0;
+      fp_op_ex         <= 1'b0;
+      frd_write_ex     <= 1'b0;
+      fxrd_write_ex    <= 1'b0;
     end else if (core_en) begin
       if (!idex_en) begin  // Latch operands
         rs1_data_ex <= forwarded_rs1;
@@ -452,6 +562,21 @@ module datapath
         exc_illegal_ex    <= (exc_illegal && !idex_bubble);
         is_muldiv_ex      <= (is_muldiv && !idex_bubble);
         muldiv_op_ex      <= muldiv_op;
+        fp_op_ex          <= (fp_op_d && !idex_bubble);
+        fp_unit_ex        <= fp_unit_d;
+        frd_write_ex      <= (fp_op_d && frd_write_d && !idex_bubble);
+        fxrd_write_ex     <= (fp_op_d && fxrd_write_d && !idex_bubble);
+        fp_sub_ex         <= fp_sub_d;
+        fp_neg_prod_ex    <= fp_neg_prod_d;
+        fp_neg_add_ex     <= fp_neg_add_d;
+        fp_to_int_ex      <= fp_to_int_d;
+        fp_unsigned_ex    <= fp_unsigned_d;
+        fp_sqrt_ex        <= fp_sqrt_d;
+        fp_funct5_ex      <= fp_funct5_d;
+        fp_funct3_ex      <= fp_funct3_d;
+        fp_a_ex           <= fp_rdata1;
+        fp_b_ex           <= fp_rdata2;
+        fp_c_ex           <= fp_rdata3;
       end
     end
   end
@@ -482,7 +607,7 @@ module datapath
   end
 
   // Ready before holding
-  assign commit_ready = valid_ex && !muldiv_hold && !vmem_hold && !mem_hold;
+  assign commit_ready = valid_ex && !muldiv_hold && !vmem_hold && !mem_hold && !fp_hold;
   assign commit_valid = commit_ready && !vec_hold;
 
   hazard_unit #(
@@ -505,17 +630,26 @@ module datapath
       .result_src_ex(result_src_ex),
       .result_src_mem(result_src_mem),
       .result_src_wb(result_src_wb),
+      .fp_op_id(fp_is_d && valid_id),
+      .frs1_read_id(frs1_read_d),
+      .frs2_read_id(frs2_read_d),
+      .frs3_read_id(frs3_read_d),
+      .frd_write_id(frd_write_d),
+      .rs3_id(instr_id[31:27]),
+      .fp_busy(fp_busy),
+      .frd_write_ex(frd_write_ex && valid_ex),
+      .frm_write_ex(frm_write_ex),
       .stall(hazard_stall),
       .forward_a(forward_a),
       .forward_b(forward_b)
   );
 
   assign muldiv_hold = is_muldiv_ex && !muldiv_done;
-  assign stall = hazard_stall || muldiv_hold || vec_hold || vmem_hold;
+  assign stall = hazard_stall || muldiv_hold || vec_hold || vmem_hold || fp_hold;
 
   assign if_hold = !imem_ready;
   assign id_hold = hazard_stall;
-  assign ex_hold = muldiv_hold || vec_hold || vmem_hold;
+  assign ex_hold = muldiv_hold || vec_hold || vmem_hold || fp_hold;
   assign dmem_req = valid_mem && ((result_src_mem == 2'd1) || mem_write_mem);
   assign mem_hold = dmem_req && !dmem_ready;
 
@@ -602,6 +736,54 @@ module datapath
   );
 
   assign muldiv_start = is_muldiv_ex && !muldiv_busy && !muldiv_done;
+
+  assign fp_fop_ex = valid_ex && frd_write_ex;
+  assign fp_xop_ex = valid_ex && fxrd_write_ex;
+  assign fp_rm_ex = (instr_ex[14:12] == RmDyn) ? frm_q : instr_ex[14:12];
+  assign fp_csr_ex = valid_ex && csr_access_ex && ((instr_ex[31:20] == FflagsAddr) ||
+      (instr_ex[31:20] == FrmAddr) || (instr_ex[31:20] == FcsrAddr));
+  assign frm_write_ex = fp_csr_ex && (instr_ex[31:20] != FflagsAddr) &&
+      (!funct3_ex[1] || (instr_ex[19:15] != 5'd0));
+  assign fp_hold = (fp_fop_ex && !fp_ready) || (fp_xop_ex && !fp_xvalid) || (fp_csr_ex && !fp_idle);
+  assign fp_start = fp_fop_ex && commit_valid && !trap_taken;
+  assign fp_xstart = fp_xop_ex && !fp_xvalid;
+  assign fp_xack = fp_xvalid && !ex_hold && !mem_hold;
+
+  fp_unit #(
+      .XLEN(XLEN)
+  ) fp_unit_inst (
+      .clk        (clk),
+      .rst_n      (rst_n),
+      .core_en    (core_en),
+      .start      (fp_start),
+      .xstart     (fp_xstart),
+      .xack       (fp_xack),
+      .unit       (fp_unit_ex),
+      .sub        (fp_sub_ex),
+      .neg_prod   (fp_neg_prod_ex),
+      .neg_add    (fp_neg_add_ex),
+      .to_int     (fp_to_int_ex),
+      .is_unsigned(fp_unsigned_ex),
+      .sqrt       (fp_sqrt_ex),
+      .funct5     (fp_funct5_ex),
+      .funct3     (fp_funct3_ex),
+      .rm         (fp_rm_ex),
+      .rd         (instr_ex[11:7]),
+      .a          (fp_a_ex),
+      .b          (fp_b_ex),
+      .c          (fp_c_ex),
+      .xa         (forwarded_rs1),
+      .ready      (fp_ready),
+      .idle       (fp_idle),
+      .reg_busy   (fp_busy),
+      .wb_valid   (fp_wb_valid),
+      .wb_rd      (fp_wb_rd),
+      .wb_data    (fp_wb_data),
+      .wb_flags   (fp_wb_flags),
+      .xvalid     (fp_xvalid),
+      .xresult    (fp_xresult),
+      .xflags     (fp_xflags)
+  );
 
   // Branch prediction
   if (GSHARE_EN) begin : g_bp
@@ -835,11 +1017,19 @@ module datapath
       .vec_vxsat           (vec_vxsat),
       .vec_csr_we          (vec_csr_we),
       .vec_csr_waddr       (vec_csr_waddr),
-      .vec_csr_wdata       (vec_csr_wdata)
+      .vec_csr_wdata       (vec_csr_wdata),
+      .is_fp_instr         ((fp_op_ex && valid_ex) && commit_valid),
+      .fp_state_we         (frd_write_ex),
+      .fp_flags_we         (fxrd_write_ex && fp_xvalid),
+      .fp_flags            (fp_xflags),
+      .fp_wb_flags_we      (fp_wb_valid),
+      .fp_wb_flags         (fp_wb_flags),
+      .frm_q               (frm_q)
   );
 
   always_comb begin
     if (is_muldiv_ex) result_ex = muldiv_result;
+    else if (fxrd_write_ex) result_ex = fp_xresult;
     else if (vec_xreg_valid) result_ex = vec_xreg_result;
     else if (is_vset) result_ex = {{XLEN - VlW{1'b0}}, vl_d};
     else if (csr_access_ex) result_ex = csr_rdata;

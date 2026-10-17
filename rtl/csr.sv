@@ -85,6 +85,8 @@ module csr
     input  wire        fp_state_we,
     input  wire        fp_flags_we,
     input  wire  [4:0] fp_flags,
+    input  wire        fp_wb_flags_we,
+    input  wire  [4:0] fp_wb_flags,
     output logic [2:0] frm_q
 );
 
@@ -233,7 +235,6 @@ module csr
       vtype_bits <= 8'b0;
       vtype_ill  <= 1'b1;
       vstart     <= '0;
-      fflags     <= '0;
       frm        <= '0;
     end else if (core_en) begin
       if (!trap_taken) begin  // retired only
@@ -288,9 +289,6 @@ module csr
         if (is_vec_instr || (csr_write_en && vec_csr_addr)) begin
           mstatus[MstatusVsLo+1:MstatusVsLo] <= VsDirty;  // Assign dirty state
         end
-        if (fp_flags_we) begin
-          fflags <= fflags | fp_flags;
-        end
         if ((is_fp_instr && fp_state_we) || (fp_flags_we && fp_flags != '0) ||
             (csr_write_en && fp_csr_addr)) begin
           mstatus[MstatusFsLo+1:MstatusFsLo] <= FsDirty;
@@ -310,14 +308,23 @@ module csr
           MipAddr:       mip <= csr_wdata & ~(XLEN'(1) << Mtip) & ~(XLEN'(1) << Meip);
           MinstretAddr:  minstret <= csr_wdata;
           MinstrethAddr: minstreth <= csr_wdata;
-          FflagsAddr:    fflags <= csr_wdata[4:0];
           FrmAddr:       frm <= csr_wdata[2:0];
-          FcsrAddr: begin
-            frm    <= csr_wdata[7:5];
-            fflags <= csr_wdata[4:0];
-          end
+          FcsrAddr:      frm <= csr_wdata[7:5];
           default:       ;
         endcase
+      end
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      fflags <= '0;
+    end else if (cycle_en) begin
+      if (core_en && csr_write_en && ((csr_addr == FflagsAddr) || (csr_addr == FcsrAddr))) begin
+        fflags <= csr_wdata[4:0];
+      end else begin
+        fflags <= fflags | (fp_wb_flags_we ? fp_wb_flags : '0) |
+            ((core_en && !trap_taken && fp_flags_we) ? fp_flags : '0);
       end
     end
   end
