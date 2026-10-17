@@ -66,6 +66,9 @@ module rvfi_wrapper (
   always_comb begin
     assume (imem_stall_cnt < 3'd6);
     assume (dmem_stall_cnt < 3'd6);
+    assume (instr[6:0] != opcode_pkg::OpcodeOpV);
+    assume (instr[6:0] != opcode_pkg::OpcodeLoadFp);
+    assume (instr[6:0] != opcode_pkg::OpcodeStoreFp);
   end
 
   riscv_pipelined uut (
