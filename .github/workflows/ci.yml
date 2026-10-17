@@ -283,9 +283,19 @@ jobs:
       - name: Prove the pc_plus4 keep holds
         run: bash gate_check.sh
 
+  float-widths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - name: Check the float width guard
+        run: bash tests/fp_width.sh
+
   ci-gate:
     if: always()
-    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check]
+    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all CI jobs succeeded
