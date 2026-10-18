@@ -22,11 +22,11 @@ module vec_unit_stub
     input  wire              rst_n,
     input  wire              core_en,
 
-    input wire [    31:0] instr,
-    input wire            instr_valid,
-    input wire            cancel,
-    input wire [XLEN-1:0] xdata,
-    input wire [XLEN-1:0] xstride,
+    input wire vec_dec_t            dec,
+    input wire                      instr_valid,
+    input wire                      cancel,
+    input wire           [XLEN-1:0] xdata,
+    input wire           [XLEN-1:0] xstride,
 
     input wire           vill,
     input wire [VlW-1:0] vl,
