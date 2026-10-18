@@ -5,23 +5,48 @@ module vec_sat_lane_tb
 ();
 
   localparam int ELEN = arch_pkg::ELEN;
+  localparam int MinChecks = 5_000_000;
+  localparam int MinHold = 10_000;
+  localparam int ShowErrors = 20;
+  localparam int MixN = 50_000;
 
-  int checks = 0;
-  int errors = 0;
-  int max_errors = 0;
+  int   checks = 0;
+  int   hold_checks = 0;
+  int   errors = 0;
+  int   max_errors = 0;
 
-  vec_op_e op;
-  logic [2:0] vsew;
-  logic [1:0] vxrm;
-  logic [ELEN-1:0] a;
-  logic [ELEN-1:0] b;
-  logic [2*ELEN-1:0] product;
+  logic clk = 1'b0;
+  always #5 clk = ~clk;
+
+  logic core_en = 1'b1;
+  vec_op_e op = VEC_SADDU;
+  logic [2:0] vsew = '0;
+  logic [1:0] vxrm = '0;
+  logic [ELEN-1:0] a = '0;
+  logic [ELEN-1:0] b = '0;
+  logic [2*ELEN-1:0] product = '0;
   logic [ELEN-1:0] result;
   logic sat;
+
+  logic stalling = 1'b0;
+  logic in_valid = 1'b0;
+  logic [ELEN-1:0] in_res = '0;
+  logic in_sat = 1'b0;
+  logic out_valid = 1'b0;
+  logic out_held = 1'b0;
+  logic [ELEN-1:0] out_res = '0;
+  logic out_sat = 1'b0;
+  vec_op_e out_op = VEC_SADDU;
+  logic [2:0] out_vsew = '0;
+  logic [1:0] out_vxrm = '0;
+  logic [ELEN-1:0] out_a = '0;
+  logic [ELEN-1:0] out_b = '0;
 
   vec_sat_lane #(
       .ELEN(ELEN)
   ) dut (
+      .clk(clk),
+      .core_en(core_en),
       .op(op),
       .vsew(vsew),
       .vxrm(vxrm),
@@ -173,38 +198,87 @@ module vec_sat_lane_tb
     full_product = (prod & keep) | ({$urandom, $urandom} & ~keep);
   endfunction
 
-  // One check
+  // Clock enable drops
+  task automatic stall();
+    while (stalling && 1'($urandom)) begin
+      @(posedge clk);
+      core_en <= 1'b0;
+      in_valid <= 1'b0;
+      op <= ops[$urandom_range($size(ops)-1)];
+      vsew <= 3'($urandom);
+      vxrm <= 2'($urandom);
+      a <= $urandom;
+      b <= $urandom;
+      product <= {$urandom, $urandom};
+    end
+  endtask
+
+  // One op
   task automatic check(input vec_op_e o, input logic [2:0] sew, input logic [1:0] mode,
                        input logic [ELEN-1:0] x, input logic [ELEN-1:0] y);
     logic [ELEN-1:0] exp_res;
     logic exp_sat;
-    op = o;
-    vsew = sew;
-    vxrm = mode;
-    a = x;
-    b = y;
-    product = full_product(x, y, 8 << sew);
-    #1;
+    stall();
     ref_lane(o, 8 << sew, x, y, mode, exp_res, exp_sat);
-    checks++;
-    if (result !== exp_res || sat !== exp_sat) begin
-      errors++;
-      if (errors <= 10)
-        $display(
-            "FAIL %s sew=%0d vxrm=%0d a=%h b=%h got %h/%b exp %h/%b",
-            o.name(),
-            8 << sew,
-            mode,
-            x,
-            y,
-            result,
-            sat,
-            exp_res,
-            exp_sat
-        );
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
+    @(posedge clk);
+    core_en <= 1'b1;
+    op <= o;
+    vsew <= sew;
+    vxrm <= mode;
+    a <= x;
+    b <= y;
+    product <= full_product(x, y, 8 << sew);
+    in_valid <= 1'b1;
+    in_res <= exp_res;
+    in_sat <= exp_sat;
   endtask
+
+  task automatic drain();
+    @(posedge clk);
+    core_en  <= 1'b1;
+    in_valid <= 1'b0;
+    @(posedge clk);
+    @(negedge clk);
+  endtask
+
+  always @(posedge clk) begin
+    out_held <= !core_en;
+    if (core_en) begin
+      out_valid <= in_valid;
+      out_res <= in_res;
+      out_sat <= in_sat;
+      out_op <= op;
+      out_vsew <= vsew;
+      out_vxrm <= vxrm;
+      out_a <= a;
+      out_b <= b;
+    end
+  end
+
+  always @(negedge clk) begin
+    if (out_valid) begin
+      if (out_held) hold_checks++;
+      else checks++;
+      if (result !== out_res || sat !== out_sat) begin
+        errors++;
+        if (errors <= ShowErrors)
+          $display(
+              "FAIL %s held=%0b sew=%0d vxrm=%0d a=%h b=%h got %h/%b exp %h/%b",
+              out_op.name(),
+              out_held,
+              8 << out_vsew,
+              out_vxrm,
+              out_a,
+              out_b,
+              result,
+              sat,
+              out_res,
+              out_sat
+          );
+        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+      end
+    end
+  end
 
   // Every byte pair
   task automatic sweep8();
@@ -259,9 +333,24 @@ module vec_sat_lane_tb
         for (int i = 0; i < n; i++) check(ops[k], sew, 2'(m), $urandom, $urandom);
   endtask
 
-  task automatic verdict();
-    $display("vec_sat_lane: %0d checks, %0d errors", checks, errors);
-    if (errors != 0) $fatal(1, "vec_sat_lane FAILED");
+  // Neighbours differ
+  task automatic random_mix(input int n);
+    vec_op_e o;
+    logic [2:0] sew;
+    stalling = 1'b1;
+    for (int i = 0; i < n; i++) begin
+      o   = ops[$urandom_range($size(ops)-1)];
+      sew = 3'($urandom_range(2));
+      check(o, sew, 2'($urandom), $urandom, $urandom);
+    end
+    stalling = 1'b0;
+  endtask
+
+  task automatic do_verdict();
+    if (checks < MinChecks || hold_checks < MinHold)
+      $fatal(1, "TB UNDER-RAN: %0d checks, %0d hold checks", checks, hold_checks);
+    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $display("PASS: %0d checks, %0d hold checks", checks, hold_checks);
     $finish;
   endtask
 
@@ -281,7 +370,10 @@ module vec_sat_lane_tb
     random_cases(3'd1, 5000);
     random_cases(3'd2, 5000);
 
-    verdict();
+    random_mix(MixN);
+    drain();
+
+    do_verdict();
   end
 
 endmodule
