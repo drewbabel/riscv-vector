@@ -83,7 +83,8 @@ module vec_unit
   // Writeback depths
   localparam int ShallowWb = 2;
   localparam int DeepWb = 3;
-  localparam int SlotW = $clog2(DeepWb + 1);
+  localparam int LaneWb = 4;
+  localparam int SlotW = $clog2(LaneWb + 1);
 
   // Decoded fields
   logic                     dec_valid;
@@ -208,6 +209,18 @@ module vec_unit
   logic                     wen_x2;
   logic                     reg_done_x2;
   logic                     last_x2;
+
+  logic                     valid_x3;
+  vec_cls_e                 cls_x3;
+  vec_op_e                  op_x3;
+  logic      [         2:0] vsew_x3;
+  logic      [         1:0] vxrm_x3;
+  logic      [    OffW-1:0] d_off_x3;
+  logic      [  AWIDTH-1:0] waddr_x3;
+  logic      [    VLEN-1:0] wstrb_x3;
+  logic                     wen_x3;
+  logic                     reg_done_x3;
+  logic                     last_x3;
 
   vec_cls_e                 cls_wb;
   logic      [    XLEN-1:0] xdata_wb;
@@ -511,7 +524,7 @@ module vec_unit
       .vxrm(vxrm_q),
       .seq_busy(seq_busy || m_busy),
       .seq_done(seq_done || m_done),
-      .pipe_busy(valid_ex || valid_x2 || valid_wb),
+      .pipe_busy(valid_ex || valid_x2 || valid_x3 || valid_wb),
       .x_done(x_done),
       .seq_start(seq_start),
       .seq_op(seq_op),
@@ -537,6 +550,7 @@ module vec_unit
 
   // Divide lanes
   logic                 div_op_x2;
+  logic                 div_op_x3;
   logic                 div_go;
   logic                 div_run_q;
   logic                 div_stall;
@@ -545,22 +559,23 @@ module vec_unit
   logic [MUL_LANES-1:0] div_done;
 
   // Book the write
+  logic                 seq_lane;
   logic                 seq_deep;
   logic                 slot_free;
   logic                 seq_hold;
 
-  assign
-      seq_deep = (seq_cls == VEC_CLS_RED) || (seq_cls == VEC_CLS_MUL) || (seq_cls == VEC_CLS_SAT);
+  assign seq_lane = (seq_cls == VEC_CLS_MUL) || (seq_cls == VEC_CLS_SAT);
+  assign seq_deep = (seq_cls == VEC_CLS_RED) || seq_lane;
   assign seq_hold = seq_busy && (!slot_free || div_hold);
 
   vec_write_slots #(
-      .DEPTH(DeepWb)
+      .DEPTH(LaneWb)
   ) u_slots (
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en),
       .start(seq_busy && !seq_hold),
-      .depth(seq_deep ? SlotW'(DeepWb) : SlotW'(ShallowWb)),
+      .depth(seq_lane ? SlotW'(LaneWb) : (seq_deep ? SlotW'(DeepWb) : SlotW'(ShallowWb))),
       .free(slot_free)
   );
 
@@ -808,6 +823,8 @@ module vec_unit
   logic    [     ELEN-1:0] lane_res  [MUL_LANES];
   logic    [MUL_LANES-1:0] lane_sat;
   logic    [MUL_LANES-1:0] active_x2;
+  logic    [MUL_LANES-1:0] active_x3;
+  logic                    lane_x2;
 
   assign narrow_ex = (eew_ex == VEC_EEW_NARROW);
   assign vd_mul_ex = (op_ex == VEC_MADD) || (op_ex == VEC_NMSUB);
@@ -815,6 +832,7 @@ module vec_unit
   assign imm_ex = ((op_ex == VEC_SSRL) || (op_ex == VEC_SSRA) || narrow_ex) ?
       ELEN'(simm_ex) : {{(ELEN - 5) {simm_ex[4]}}, simm_ex};
   assign mul_op_x2 = vec_pkg::vec_op_e'((op_x2 == VEC_SMUL) ? VEC_MULH : op_x2);
+  assign lane_x2 = (cls_x2 == VEC_CLS_MUL) || (cls_x2 == VEC_CLS_SAT);
 
   for (genvar l = 0; l < MUL_LANES; l++) begin : g_lane
     logic [  ELEN-1:0] a_w     [Widths];
@@ -827,6 +845,9 @@ module vec_unit
     logic [  ELEN-1:0] a_x2;
     logic [  ELEN-1:0] b_x2;
     logic [  ELEN-1:0] c_x2;
+    logic [  ELEN-1:0] a_x3;
+    logic [  ELEN-1:0] b_x3;
+    logic [  ELEN-1:0] div_x3;
     logic [  ELEN-1:0] mul_res;
     logic [  ELEN-1:0] sat_res;
     logic [  ELEN-1:0] div_res;
@@ -855,15 +876,20 @@ module vec_unit
 
     always_ff @(posedge clk) begin
       if (core_en) begin
-        a_x2 <= a_ex;
-        b_x2 <= b_ex;
-        c_x2 <= c_ex;
+        a_x2   <= a_ex;
+        b_x2   <= b_ex;
+        c_x2   <= c_ex;
+        a_x3   <= a_x2;
+        b_x3   <= b_x2;
+        div_x3 <= div_res;
       end
     end
 
     vec_mul_lane #(
         .ELEN(ELEN)
     ) u_mul (
+        .clk(clk),
+        .core_en(core_en),
         .op(mul_op_x2),
         .vsew(vsew_x2),
         .a(a_x2),
@@ -876,11 +902,11 @@ module vec_unit
     vec_sat_lane #(
         .ELEN(ELEN)
     ) u_sat (
-        .op(op_x2),
-        .vsew(vsew_x2),
-        .vxrm(vxrm_x2),
-        .a(a_x2),
-        .b(b_x2),
+        .op(op_x3),
+        .vsew(vsew_x3),
+        .vxrm(vxrm_x3),
+        .a(a_x3),
+        .b(b_x3),
         .product(product),
         .result(sat_res),
         .sat(sat)
@@ -903,13 +929,13 @@ module vec_unit
     );
 
     always_comb begin
-      if (cls_x2 == VEC_CLS_SAT) res_sel = sat_res;
-      else if (div_op_x2) res_sel = div_res;
+      if (cls_x3 == VEC_CLS_SAT) res_sel = sat_res;
+      else if (div_op_x3) res_sel = div_x3;
       else res_sel = mul_res;
     end
 
     assign lane_res[l] = res_sel;
-    assign lane_sat[l] = sat && active_x2[l];
+    assign lane_sat[l] = sat && active_x3[l];
   end
 
   // Pack lane results
@@ -926,13 +952,14 @@ module vec_unit
     end
   end
 
-  assign lane_result = lane_pack[vsew_x2[WSelW-1:0]];
+  assign lane_result = lane_pack[vsew_x3[WSelW-1:0]];
 
   // Divide stall
   assign div_op_x2 = is_div(op_x2);
+  assign div_op_x3 = is_div(op_x3);
   assign div_go = valid_x2 && div_op_x2 && !div_run_q;
   assign div_stall = valid_x2 && div_op_x2 && (!div_run_q || ((div_pend_q & ~div_done) != '0));
-  assign div_hold = (valid_ex && is_div(op_ex)) || div_stall;
+  assign div_hold = (valid_ex && is_div(op_ex)) || div_stall || div_run_q;
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -972,7 +999,30 @@ module vec_unit
     end
   end
 
-  // EX/WB and X2/WB
+  // X2/X3
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      valid_x3    <= 1'b0;
+      wen_x3      <= 1'b0;
+      reg_done_x3 <= 1'b0;
+      last_x3     <= 1'b0;
+    end else if (core_en) begin
+      valid_x3    <= valid_x2 && lane_x2 && !div_stall;
+      wen_x3      <= wen_x2 && lane_x2 && !div_stall;
+      reg_done_x3 <= reg_done_x2 && lane_x2 && !div_stall;
+      last_x3     <= last_x2 && lane_x2 && !div_stall;
+      cls_x3      <= cls_x2;
+      op_x3       <= op_x2;
+      vsew_x3     <= vsew_x2;
+      vxrm_x3     <= vxrm_x2;
+      active_x3   <= active_x2;
+      d_off_x3    <= d_off_x2;
+      waddr_x3    <= waddr_x2;
+      wstrb_x3    <= wstrb_x2;
+    end
+  end
+
+  // Writeback stage
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       valid_wb    <= 1'b0;
@@ -981,8 +1031,17 @@ module vec_unit
       last_wb     <= 1'b0;
       sat_wb      <= 1'b0;
     end else if (core_en) begin
-      sat_wb <= valid_x2 && (cls_x2 == VEC_CLS_SAT) && (lane_sat != '0);
-      if (valid_x2 && !div_stall) begin  // Slot row keeps one
+      sat_wb <= valid_x3 && (cls_x3 == VEC_CLS_SAT) && (lane_sat != '0);
+      if (valid_x3) begin  // Slot row keeps one
+        valid_wb    <= 1'b1;
+        wen_wb      <= wen_x3;
+        reg_done_wb <= reg_done_x3;
+        last_wb     <= last_x3;
+        cls_wb      <= cls_x3;
+        d_off_wb    <= d_off_x3;
+        waddr_wb    <= waddr_x3;
+        wstrb_wb    <= wstrb_x3;
+      end else if (valid_x2 && !lane_x2) begin
         valid_wb    <= 1'b1;
         wen_wb      <= wen_x2;
         reg_done_wb <= reg_done_x2;
