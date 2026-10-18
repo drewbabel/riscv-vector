@@ -17,6 +17,7 @@ module vec_unit_tb
   localparam int Bytes = 256;
   localparam int LineB = VLEN / 8;
   localparam int Timeout = 100000;
+  localparam int MinChecks = 140000;
 
   int               checks = 0;
   int               errors = 0;
@@ -66,6 +67,66 @@ module vec_unit_tb
 
   always #5 clk = ~clk;
 
+  logic dec_valid;
+  vec_op_e dec_op;
+  vec_src_e dec_src;
+  vec_eew_e dec_eew;
+  logic dec_vm;
+  logic [4:0] dec_vs1;
+  logic [4:0] dec_vs2;
+  logic [4:0] dec_vd;
+  logic [4:0] dec_simm;
+  logic dec_reads_vd;
+  logic dec_reads_xreg;
+  logic dec_writes_xreg;
+  logic dec_writes_mask;
+  logic [1:0] dec_mem_width;
+  logic dec_mem_whole;
+  logic dec_mem_mask;
+  logic dec_mem_strided;
+  vec_dec_t dec;
+
+  vec_decode u_decode (
+      .instr(instr),
+      .valid(dec_valid),
+      .op(dec_op),
+      .src(dec_src),
+      .eew(dec_eew),
+      .vm(dec_vm),
+      .vs1(dec_vs1),
+      .vs2(dec_vs2),
+      .vd(dec_vd),
+      .simm(dec_simm),
+      .reads_vd(dec_reads_vd),
+      .reads_xreg(dec_reads_xreg),
+      .writes_xreg(dec_writes_xreg),
+      .writes_mask(dec_writes_mask),
+      .mem_width(dec_mem_width),
+      .mem_whole(dec_mem_whole),
+      .mem_mask(dec_mem_mask),
+      .mem_strided(dec_mem_strided)
+  );
+
+  always_comb begin
+    dec.valid = dec_valid;
+    dec.op = dec_op;
+    dec.src = dec_src;
+    dec.eew = dec_eew;
+    dec.vm = dec_vm;
+    dec.vs1 = dec_vs1;
+    dec.vs2 = dec_vs2;
+    dec.vd = dec_vd;
+    dec.simm = dec_simm;
+    dec.reads_vd = dec_reads_vd;
+    dec.reads_xreg = dec_reads_xreg;
+    dec.writes_xreg = dec_writes_xreg;
+    dec.writes_mask = dec_writes_mask;
+    dec.mem_width = dec_mem_width;
+    dec.mem_whole = dec_mem_whole;
+    dec.mem_mask = dec_mem_mask;
+    dec.mem_strided = dec_mem_strided;
+  end
+
   vec_unit #(
       .XLEN  (XLEN),
       .AWIDTH(AWIDTH),
@@ -75,7 +136,7 @@ module vec_unit_tb
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en),
-      .instr(instr),
+      .dec(dec),
       .instr_valid(instr_valid),
       .cancel(cancel),
       .xdata(xdata),
@@ -1676,7 +1737,6 @@ module vec_unit_tb
     end
   endtask
 
-  // Run one lane op
   task automatic run_lane(input vec_op_e o, input int form, input logic [4:0] s1,
                           input logic [4:0] s2, input logic [4:0] d, input logic vmb,
                           input logic [XLEN-1:0] xd, input logic [4:0] im, input logic [2:0] sew,
@@ -1702,7 +1762,7 @@ module vec_unit_tb
     end
   endtask
 
-  // Fill with the minimum
+  // Most negative elements
   function automatic logic [VLEN-1:0] min_vec(input int w);
     min_vec = '0;
     for (int e = 0; e < VLEN / w; e++) min_vec[e*w+w-1] = 1'b1;
@@ -1928,16 +1988,16 @@ module vec_unit_tb
     begin
       seed_all();
       for (int i = 0; i < n; i++) begin
-        o = ops[int'($urandom%25)];
-        form = $urandom % 3;
+        o = ops[int'($urandom_range(24))];
+        form = int'($urandom_range(2));
         no_imm = (o == VEC_SSUBU) || (o == VEC_SSUB) || (o == VEC_SMUL) ||
             (vec_class(o) == VEC_CLS_MUL) || avg_form(o);
         if ((form == 2) && no_imm) form = 1;
         smax = ((o == VEC_NCLIPU) || (o == VEC_NCLIP)) ? 2 : 3;
-        sew  = 3'($urandom % smax);
-        lmul = 3'($urandom % 2);
+        sew  = 3'($urandom_range(smax - 1));
+        lmul = 3'($urandom_range(1));
         run_lane(o, form, 5'd4, 5'd16, 5'd24, 1'($urandom), $urandom, 5'($urandom), sew, lmul,
-                 8'($urandom % ((VLEN / (8 << sew)) * (int'(lmul) + 1) + 1)), 2'($urandom));
+                 8'($urandom_range((VLEN / (8 << sew)) * (int'(lmul) + 1))), 2'($urandom));
       end
     end
   endtask
@@ -1950,28 +2010,38 @@ module vec_unit_tb
       vl    = 8'd4;
       vsew  = 3'd2;
       instr = enc(6'b101110, 1'b1, 5'd8, 5'd4, 3'b000, 5'd12);
-      #1 note("narrow clip at e32", 32'(is_vector), 32'd0);
+      @(negedge clk);
+      note("narrow clip at e32", 32'(is_vector), 32'd0);
       vsew = 3'd1;
-      #1 note("narrow clip at e16", 32'(is_vector), 32'd1);
+      @(negedge clk);
+      note("narrow clip at e16", 32'(is_vector), 32'd1);
       instr = enc(6'b101101, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
-      #1 note("multiply add", 32'(is_vector), 32'd1);
+      @(negedge clk);
+      note("multiply add", 32'(is_vector), 32'd1);
       instr = enc(6'b111000, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
-      #1 note("widening multiply", 32'(is_vector), 32'd0);
+      @(negedge clk);
+      note("widening multiply", 32'(is_vector), 32'd0);
       instr = enc(6'b001000, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
-      #1 note("averaging add", 32'(is_vector), 32'd1);
+      @(negedge clk);
+      note("averaging add", 32'(is_vector), 32'd1);
       instr = enc(6'b100001, 1'b1, 5'd8, 5'd4, 3'b110, 5'd12);
-      #1 note("divide", 32'(is_vector), 32'd1);
+      @(negedge clk);
+      note("divide", 32'(is_vector), 32'd1);
       instr = enc(6'b100101, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
-      #1 note("multiply", 32'(is_vector), 32'd1);
+      @(negedge clk);
+      note("multiply", 32'(is_vector), 32'd1);
       instr = enc(6'b100111, 1'b1, 5'd8, 5'd4, 3'b000, 5'd12);
-      #1 note("fractional multiply", 32'(is_vector), 32'd1);
+      @(negedge clk);
+      note("fractional multiply", 32'(is_vector), 32'd1);
       instr = 32'd0;
     end
   endtask
 
   task automatic verdict();
-    $display("vec_unit: %0d checks, %0d errors", checks, errors);
-    if (errors != 0) $fatal(1, "vec_unit FAILED");
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
+    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $display("PASS: %0d checks", checks);
     $finish;
   endtask
 
@@ -2047,7 +2117,6 @@ module vec_unit_tb
     // Scalar moves
     check_scalar_moves();
 
-    // Multiply and fixed point
     check_lane_rules();
     check_multiplies();
     check_fixed_ops();
