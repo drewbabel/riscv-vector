@@ -279,6 +279,26 @@ package vec_pkg;
     endcase
   endfunction
 
+  typedef struct packed {
+    logic valid;
+    vec_op_e op;
+    vec_src_e src;
+    vec_eew_e eew;
+    logic vm;
+    logic [4:0] vs1;
+    logic [4:0] vs2;
+    logic [4:0] vd;
+    logic [4:0] simm;
+    logic reads_vd;
+    logic reads_xreg;
+    logic writes_xreg;
+    logic writes_mask;
+    logic [1:0] mem_width;
+    logic mem_whole;
+    logic mem_mask;
+    logic mem_strided;
+  } vec_dec_t;
+
 endpackage
 
 `default_nettype wire

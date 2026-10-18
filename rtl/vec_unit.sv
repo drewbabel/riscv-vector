@@ -26,11 +26,11 @@ module vec_unit
     input  wire              core_en,
 
     // Execute stage
-    input wire [    31:0] instr,
-    input wire            instr_valid,
-    input wire            cancel,
-    input wire [XLEN-1:0] xdata,
-    input wire [XLEN-1:0] xstride,
+    input wire vec_dec_t            dec,
+    input wire                      instr_valid,
+    input wire                      cancel,
+    input wire           [XLEN-1:0] xdata,
+    input wire           [XLEN-1:0] xstride,
 
     // Live configuration
     input wire           vill,
@@ -469,26 +469,23 @@ module vec_unit
   assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 
-  vec_decode u_decode (
-      .instr(instr),
-      .valid(dec_valid),
-      .op(dec_op),
-      .src(dec_src),
-      .eew(dec_eew),
-      .vm(dec_vm),
-      .vs1(dec_vs1),
-      .vs2(dec_vs2),
-      .vd(dec_vd),
-      .simm(dec_simm),
-      .reads_vd(dec_reads_vd),
-      .reads_xreg(dec_reads_xreg),
-      .writes_xreg(dec_writes_xreg),
-      .writes_mask(dec_writes_mask),
-      .mem_width(dec_width),
-      .mem_whole(dec_whole),
-      .mem_mask(dec_mask_ls),
-      .mem_strided(dec_strided)
-  );
+  assign dec_valid = dec.valid;
+  assign dec_op = dec.op;
+  assign dec_src = dec.src;
+  assign dec_eew = dec.eew;
+  assign dec_vm = dec.vm;
+  assign dec_vs1 = AWIDTH'(dec.vs1);
+  assign dec_vs2 = AWIDTH'(dec.vs2);
+  assign dec_vd = AWIDTH'(dec.vd);
+  assign dec_simm = dec.simm;
+  assign dec_reads_vd = dec.reads_vd;
+  assign dec_reads_xreg = dec.reads_xreg;
+  assign dec_writes_xreg = dec.writes_xreg;
+  assign dec_writes_mask = dec.writes_mask;
+  assign dec_width = dec.mem_width;
+  assign dec_whole = dec.mem_whole;
+  assign dec_mask_ls = dec.mem_mask;
+  assign dec_strided = dec.mem_strided;
 
   vec_issue #(
       .XLEN  (XLEN),
