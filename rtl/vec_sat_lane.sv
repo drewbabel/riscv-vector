@@ -5,6 +5,8 @@ module vec_sat_lane
 #(
     parameter int ELEN = arch_pkg::ELEN
 ) (
+    input  wire                       clk,
+    input  wire                       core_en,
     input  wire vec_op_e              op,
     input  wire          [       2:0] vsew,
     input  wire          [       1:0] vxrm,
@@ -21,32 +23,47 @@ module vec_sat_lane
   localparam int IW = $clog2(XW);
   localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
 
-  logic [    DW:0] w;
-  logic [  DW+1:0] w2;
-  logic [ELEN-1:0] wmask;
-  logic [  XW-1:0] m2;
-  logic [  PW-1:0] pm;
-  logic [ELEN-1:0] smax;
-  logic [ELEN-1:0] smin;
-  logic [  DW-1:0] shamt;
-  logic [  DW-1:0] shamt2;
-  logic [  DW-1:0] top2;
+  logic    [    DW:0] w;
+  logic    [  DW+1:0] w2;
+  logic    [ELEN-1:0] wmask;
+  logic    [  XW-1:0] m2;
+  logic    [  PW-1:0] pm;
+  logic    [ELEN-1:0] smax;
+  logic    [ELEN-1:0] smin;
+  logic    [  DW-1:0] shamt;
+  logic    [  DW-1:0] shamt2;
+  logic    [  DW-1:0] top2;
 
-  logic [  XW-1:0] ua;
-  logic [  XW-1:0] ub;
-  logic [  XW-1:0] sa;
-  logic [  XW-1:0] sb;
-  logic [  XW-1:0] ua2;
-  logic [  XW-1:0] sa2;
-  logic [  PW-1:0] pu;
-  logic [  PW-1:0] ps;
-  logic [  PW-1:0] psh;
+  logic    [  XW-1:0] ua;
+  logic    [  XW-1:0] ub;
+  logic    [  XW-1:0] sa;
+  logic    [  XW-1:0] sb;
+  logic    [  XW-1:0] ua2;
+  logic    [  XW-1:0] sa2;
+  logic    [  PW-1:0] pu;
+  logic    [  PW-1:0] ps;
+  logic    [  PW-1:0] psh;
 
-  logic [  XW-1:0] v;
-  logic [  XW-1:0] shifted;
-  logic [  DW-1:0] d;
-  logic            r;
-  logic [ELEN-1:0] res;
+  logic    [  XW-1:0] v;
+  logic    [  XW-1:0] shifted;
+  logic    [  DW-1:0] d;
+  logic               r;
+  logic    [  XW-1:0] sum1;
+  logic               borrow1;
+
+  // Second stage registers
+  vec_op_e            op_q;
+  logic    [     2:0] vsew_q;
+  logic    [    DW:0] w_q;
+  logic    [ELEN-1:0] wmask_q;
+  logic    [ELEN-1:0] smax_q;
+  logic    [ELEN-1:0] smin_q;
+  logic    [  XW-1:0] sum_q;
+  logic               borrow_q;
+  logic    [  XW-1:0] shifted_q;
+  logic               r_q;
+  logic    [  PW-1:0] psh_q;
+  logic    [ELEN-1:0] res;
 
   // Element width
   assign w = (DW + 1)'(8) << vsew;
@@ -118,6 +135,34 @@ module vec_sat_lane
   assign shifted = ((op == VEC_SSRA) || (op == VEC_NCLIP)) ? XW'($signed(v) >>> d) : (v >> d);
   assign r = round_inc(v, d, vxrm);
 
+  // Saturating sum
+  always_comb begin
+    case (op)
+      VEC_SADDU: sum1 = ua + ub;
+      VEC_SSUBU: sum1 = ua - ub;
+      VEC_SADD:  sum1 = sa + sb;
+      VEC_SSUB:  sum1 = sa - sb;
+      default:   sum1 = '0;
+    endcase
+  end
+  assign borrow1 = ua < ub;
+
+  always_ff @(posedge clk) begin
+    if (core_en) begin
+      op_q      <= op;
+      vsew_q    <= vsew;
+      w_q       <= w;
+      wmask_q   <= wmask;
+      smax_q    <= smax;
+      smin_q    <= smin;
+      sum_q     <= sum1;
+      borrow_q  <= borrow1;
+      shifted_q <= shifted;
+      r_q       <= r;
+      psh_q     <= psh;
+    end
+  end
+
   // One element
   always_comb begin
     logic [XW-1:0] sum;
@@ -129,52 +174,51 @@ module vec_sat_lane
     wide = '0;
     whi  = '0;
     sat  = 1'b0;
-    case (op)
+    case (op_q)
       VEC_SADDU: begin
-        sum = ua + ub;
-        sat = sum[w];
-        res = sat ? wmask : ELEN'(sum);
+        sat = sum_q[w_q];
+        res = sat ? wmask_q : ELEN'(sum_q);
       end
       VEC_SSUBU: begin
-        sum = ua - ub;
-        sat = ua < ub;
-        res = sat ? '0 : ELEN'(sum);
+        sat = borrow_q;
+        res = sat ? '0 : ELEN'(sum_q);
       end
-      VEC_SADD: begin
-        sum = sa + sb;
-        sat = sum[w] != sum[w-1];
-        res = sat ? (sum[w] ? smin : smax) : ELEN'(sum);
-      end
-      VEC_SSUB: begin
-        sum = sa - sb;
-        sat = sum[w] != sum[w-1];
-        res = sat ? (sum[w] ? smin : smax) : ELEN'(sum);
+      VEC_SADD, VEC_SSUB: begin
+        sat = sum_q[w_q] != sum_q[w_q-1];
+        if (!sat) res = ELEN'(sum_q);
+        else if (sum_q[w_q]) res = smin_q;
+        else res = smax_q;
       end
       VEC_AADDU, VEC_AADD, VEC_ASUBU, VEC_ASUB, VEC_SSRL, VEC_SSRA: begin
-        res = ELEN'(shifted) + ELEN'(r);
+        res = ELEN'(shifted_q) + ELEN'(r_q);
       end
       VEC_SMUL: begin
-        wide = psh + PW'(r);
-        whi  = $signed(wide) >>> (w - (DW + 1)'(1));
+        wide = psh_q + PW'(r_q);
+        whi  = $signed(wide) >>> (w_q - (DW + 1)'(1));
         sat  = (whi != '0) && (whi != '1);
-        res  = sat ? smax : ELEN'(wide);
+        res  = sat ? smax_q : ELEN'(wide);
       end
       VEC_NCLIPU: begin
-        sum = shifted + XW'(r);
-        sat = (vsew < SewTop) && ((sum >> w) != '0);
-        res = (vsew >= SewTop) ? '0 : (sat ? wmask : ELEN'(sum));
+        sum = shifted_q + XW'(r_q);
+        sat = (vsew_q < SewTop) && ((sum >> w_q) != '0);
+        if (vsew_q >= SewTop) res = '0;
+        else if (sat) res = wmask_q;
+        else res = ELEN'(sum);
       end
       VEC_NCLIP: begin
-        sum = shifted + XW'(r);
-        hi  = $signed(sum) >>> (w - (DW + 1)'(1));
-        sat = (vsew < SewTop) && (hi != '0) && (hi != '1);
-        res = (vsew >= SewTop) ? '0 : (sat ? (sum[XW-1] ? smin : smax) : ELEN'(sum));
+        sum = shifted_q + XW'(r_q);
+        hi  = $signed(sum) >>> (w_q - (DW + 1)'(1));
+        sat = (vsew_q < SewTop) && (hi != '0) && (hi != '1);
+        if (vsew_q >= SewTop) res = '0;
+        else if (!sat) res = ELEN'(sum);
+        else if (sum[XW-1]) res = smin_q;
+        else res = smax_q;
       end
       default: res = '0;
     endcase
   end
 
-  assign result = res & wmask;
+  assign result = res & wmask_q;
 
 endmodule
 
