@@ -302,6 +302,34 @@ module fp_div_sqrt_bench
     check("start while busy", 0, 1'b0, One, Three, Third, FlagNx, res, flags, lat);
   endtask  // Automatic
 
+  task automatic done_start();
+    logic [FLEN-1:0] res;
+    logic [4:0] flags;
+    int lat;
+    do_op(1'b0, RmRne, One, Three, res, flags, lat);
+    check("start in done cycle", 0, 1'b0, One, Three, Third, FlagNx, res, flags, lat);
+    sqrt  = 1'b1;
+    rm    = RmRne;
+    a     = Two;
+    b     = '0;
+    start = 1'b1;
+    checks++;
+    if (busy !== 1'b0 || done !== 1'b1)
+      fail($sformatf("start in done cycle: busy=%b done=%b before the edge", busy, done));
+    @(posedge clk);
+    @(negedge clk);
+    start = 1'b0;
+    a = rand_bits();
+    checks++;
+    if (busy !== 1'b1 || done !== 1'b0)
+      fail($sformatf("start in done cycle: busy=%b done=%b after the edge", busy, done));
+    wait_done(res, flags, lat);
+    check("start in done cycle", 1, 1'b1, Two, '0, Root2, FlagNx, res, flags, lat);
+    checks++;
+    if (lat != sqrt_latency)
+      fail($sformatf("start in done cycle: latency %0d, expected %0d", lat, sqrt_latency));
+  endtask  // Automatic
+
   task automatic reset_mid();
     logic [FLEN-1:0] res;
     logic [4:0] flags;
@@ -379,6 +407,7 @@ module fp_div_sqrt_bench
     run_files(1'b1);
     measure_latency();
     busy_start();
+    done_start();
     reset_mid();
     core_en_stall();
     done_pulse();
