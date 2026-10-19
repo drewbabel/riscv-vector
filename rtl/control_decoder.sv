@@ -166,7 +166,7 @@ module control_decoder
       end
 
       OpcodeLoadFp: begin
-        if (funct3 == Funct3Flw) begin
+        if (funct3 == Funct3FpWord) begin
           imm_src    = ImmI;
           alu_src    = 1'b1;
           result_src = ResMem;
@@ -175,7 +175,7 @@ module control_decoder
       end
 
       OpcodeStoreFp: begin
-        if (funct3 == Funct3Flw) begin
+        if (funct3 == Funct3FpWord) begin
           imm_src   = ImmS;
           alu_src   = 1'b1;
           mem_write = 1'b1;

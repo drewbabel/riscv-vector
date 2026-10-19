@@ -65,7 +65,7 @@ module fp_decode
 
     case (opcode)
       OpcodeLoadFp: begin
-        if (funct3 == Funct3Flw) begin
+        if (funct3 == Funct3FpWord) begin
           is_fp     = 1'b1;
           legal     = 1'b1;
           unit      = FP_LOAD;
@@ -75,7 +75,7 @@ module fp_decode
       end
 
       OpcodeStoreFp: begin
-        if (funct3 == Funct3Flw) begin
+        if (funct3 == Funct3FpWord) begin
           is_fp     = 1'b1;
           legal     = 1'b1;
           unit      = FP_STORE;

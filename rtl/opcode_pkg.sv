@@ -27,7 +27,7 @@ package opcode_pkg;
   localparam logic [6:0] OpcodeFmsub = 7'b1000111;
   localparam logic [6:0] OpcodeFnmsub = 7'b1001011;
   localparam logic [6:0] OpcodeFnmadd = 7'b1001111;
-  localparam logic [2:0] Funct3Flw = 3'b010;
+  localparam logic [2:0] Funct3FpWord = 3'b010;
 
 endpackage
 
