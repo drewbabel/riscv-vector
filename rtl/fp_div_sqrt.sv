@@ -232,9 +232,10 @@ module fp_div_sqrt
       cnt_q  <= '0;
     end else if (core_en) begin
       case (state)
-        IDLE: begin
-          busy <= 1'b0;
-          done <= 1'b0;
+        IDLE, DONE: begin
+          busy  <= 1'b0;
+          done  <= 1'b0;
+          state <= IDLE;
           if (start) begin
             a_q    <= a;
             b_q    <= b;
@@ -274,10 +275,6 @@ module fp_div_sqrt
           busy   <= 1'b0;
           done   <= 1'b1;
           state  <= DONE;
-        end
-        DONE: begin
-          done  <= 1'b0;
-          state <= IDLE;
         end
         default: state <= IDLE;
       endcase
