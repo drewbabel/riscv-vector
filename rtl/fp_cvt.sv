@@ -11,7 +11,7 @@ module fp_cvt
 ) (
     input  wire            to_int,
     input  wire            is_unsigned,
-    input  wire  [    2:0] iw,
+    input  wire            half,
     input  wire  [    2:0] rm,
     input  wire  [OpW-1:0] a,
     output logic [OpW-1:0] result,
@@ -40,9 +40,6 @@ module fp_cvt
   if (!(((Bias + XLEN) <= ((1 << ExpW) - 2)) && (XLEN <= FpLzcW))) begin : g_width_error
     $error("ExpW and FracW outside the supported range");
   end
-
-  logic half;
-  assign half = (iw == 3'd1);
 
   // Float to integer
   logic             f_sign;
