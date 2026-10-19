@@ -1950,6 +1950,51 @@ module vec_unit_tb
     end
   endtask
 
+  // Undrained lane ops
+  task automatic check_lane_stream();
+    vec_op_e ops[8] = '{
+        VEC_SADD,
+        VEC_MUL,
+        VEC_NCLIP,
+        VEC_AADDU,
+        VEC_SMUL,
+        VEC_MACC,
+        VEC_SSRA,
+        VEC_NCLIPU
+    };
+    logic [2:0] sews[8] = '{3'd0, 3'd2, 3'd1, 3'd2, 3'd0, 3'd1, 3'd2, 3'd0};
+    vec_op_e o[8];
+    logic [2:0] sew[8];
+    logic sat;
+    logic any_sat;
+    begin
+      for (int r = 0; r < 4; r++) begin
+        seed_all();
+        csr_poke(VxrmAddr, XLEN'(r));
+        csr_poke(VxsatAddr, '0);
+        vlmul   = 3'd0;
+        xdata   = '0;
+        any_sat = 1'b0;
+        for (int k = 0; k < 8; k++) begin
+          o[k]   = ops[(k+r)%8];
+          sew[k] = ((o[k] == VEC_NCLIP) || (o[k] == VEC_NCLIPU)) ? (sews[k] & 3'd1) : sews[k];
+          model_lane(o[k], 0, 5'd4, 5'd8, 5'(12 + k), 1'b1, '0, 5'd0, 8 << sew[k], 1,
+                     8'(VLEN / (8 << sew[k])), 2'(r), sat);
+          any_sat = any_sat || sat;
+        end
+        for (int k = 0; k < 8; k++) begin
+          vsew = sew[k];
+          vl   = 8'(VLEN / (8 << sew[k]));
+          issue(lane_instr(o[k], 0, 5'd4, 5'd8, 5'(12 + k), 1'b1, 5'd0));
+        end
+        drain();
+        check_regs($sformatf("lane stream %0d", r));
+        note($sformatf("vxsat after lane stream %0d", r), 32'(vxsat), 32'(any_sat));
+      end
+      seed_all();
+    end
+  endtask
+
   // Random lane traffic
   task automatic soak_lanes(input int n);
     vec_op_e ops[25] = '{
@@ -2123,6 +2168,7 @@ module vec_unit_tb
     check_divides();
     check_averaging();
     check_divide_overlap();
+    check_lane_stream();
     soak_lanes(200);
 
     verdict();
