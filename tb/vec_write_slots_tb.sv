@@ -2,12 +2,58 @@
 
 module vec_write_slots_tb ();
 
-  localparam int DEPTH  = 4;
+  localparam int MinChecks = 3000;
+
+  int checks;
+  int errors;
+  int max_errors;
+
+  vec_write_slots_bench #(.DEPTH(4)) depth4_bench ();
+
+  vec_write_slots_bench #(.DEPTH(5)) depth5_bench ();
+
+  task automatic do_verdict();
+    checks = depth4_bench.checks + depth5_bench.checks;
+    errors = depth4_bench.errors + depth5_bench.errors;
+    if (depth4_bench.checks < MinChecks || depth5_bench.checks < MinChecks)
+      $fatal(
+          1,
+          "TB UNDER-RAN: %0d and %0d checks, expected at least %0d each",
+          depth4_bench.checks,
+          depth5_bench.checks,
+          MinChecks
+      );
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("vec_write_slots_tb.vcd");
+    $dumpvars(0, vec_write_slots_tb);
+    wait (depth4_bench.done && depth5_bench.done);
+    do_verdict();
+  end
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (depth4_bench.errors + depth5_bench.errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", depth4_bench.errors + depth5_bench.errors);
+    end
+  end
+
+endmodule
+
+module vec_write_slots_bench #(
+    parameter int DEPTH = 4
+) ();
+
   localparam int DepthW = $clog2(DEPTH + 1);
   localparam int Slots  = 1 << DepthW;
 
   int                checks = 0;
   int                errors = 0;
+  logic              done = 1'b0;
 
   logic              clk = 1'b0;
   logic              rst_n = 1'b1;
@@ -47,7 +93,7 @@ module vec_write_slots_tb ();
     checks++;
     if (got !== exp) begin
       errors++;
-      $error("%s: got %b, expected %b", name, got, exp);
+      $error("DEPTH %0d %s: got %b, expected %b", DEPTH, name, got, exp);
     end
   endtask  // Automatic
 
@@ -193,16 +239,7 @@ module vec_write_slots_tb ();
     idle(DEPTH);
   endtask  // Automatic
 
-  task automatic verdict();
-    @(posedge clk);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
-  endtask  // Automatic
-
   initial begin
-    $dumpfile("vec_write_slots_tb.vcd");
-    $dumpvars(0, vec_write_slots_tb);
     do_reset();
 
     test_example();
@@ -213,7 +250,8 @@ module vec_write_slots_tb ();
     test_every_depth();
     test_random();
 
-    verdict();
+    @(posedge clk);
+    done = 1'b1;
   end
 
   // No concurrent writes

@@ -19,6 +19,7 @@ module freertos_boot_tb ();
 
   int checks = 0;
   int errors = 0;
+  int max_errors = 0;
 
   always #5 clk = ~clk;
 
@@ -55,6 +56,7 @@ module freertos_boot_tb ();
     if (got !== exp) begin
       $error("%s: got %04x exp %04x", name, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -68,6 +70,8 @@ module freertos_boot_tb ();
     end
     check(name, led, pattern);
   endtask  // Automatic
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     rst = 1;

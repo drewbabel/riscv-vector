@@ -4,6 +4,7 @@ module board_top_tb ();
 
   int          checks = 0;
   int          errors = 0;
+  int          max_errors = 0;
 
   logic        clk = 1'b0;
   logic        rst;
@@ -75,6 +76,7 @@ module board_top_tb ();
     if (got !== exp) begin
       $error("%s got %04x exp %04x", name, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
 
@@ -83,6 +85,8 @@ module board_top_tb ();
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   // Word round trip
   initial begin

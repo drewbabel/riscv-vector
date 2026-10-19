@@ -8,6 +8,10 @@ module datapath
   import bp_pkg::*;
   import csr_pkg::VxsatAddr;
   import csr_pkg::VcsrAddr;
+  import csr_pkg::FflagsAddr;
+  import csr_pkg::FrmAddr;
+  import csr_pkg::FcsrAddr;
+  import fp_pkg::*;
 #(
     parameter  int XLEN      = arch_pkg::XLEN,
     parameter  int VLEN      = arch_pkg::VLEN,
@@ -18,65 +22,65 @@ module datapath
     localparam int ByteOffW  = $clog2(StrbW)
 ) (
 `ifdef RISCV_FORMAL
-    output logic            dbg_valid,
-    output logic [XLEN-1:0] dbg_insn,
-    output logic [XLEN-1:0] dbg_pc_rdata,
-    output logic [XLEN-1:0] dbg_pc_wdata,
-    output logic [XLEN-1:0] dbg_rs1_rdata,
-    output logic [XLEN-1:0] dbg_rs2_rdata,
-    output logic [XLEN-1:0] dbg_rd_wdata,
-    output logic            dbg_reg_write,
-    output logic [XLEN-1:0] dbg_mem_addr,
-    output logic [StrbW-1:0] dbg_mem_wmask,
-    output logic [XLEN-1:0] dbg_mem_wdata,
-    output logic [XLEN-1:0] dbg_mem_rdata,
-    output logic            dbg_trap,
-    output logic [XLEN-1:0] dbg_csr_wdata,
-    output logic [XLEN-1:0] dbg_mscratch,
-    output logic [XLEN-1:0] dbg_mstatus,
-    output logic [XLEN-1:0] dbg_mtvec,
-    output logic [XLEN-1:0] dbg_mepc,
-    output logic [XLEN-1:0] dbg_mcause,
-    output logic [XLEN-1:0] dbg_mtval,
-    output logic [XLEN-1:0] dbg_mie,
-    output logic [XLEN-1:0] dbg_mip,
-    output logic [XLEN-1:0] dbg_mcycle,
-    output logic [XLEN-1:0] dbg_minstret,
-    output logic [XLEN-1:0] dbg_mcycleh,
-    output logic [XLEN-1:0] dbg_minstreth,
-    output logic [ VlW-1:0] dbg_vl,
-    output logic [     7:0] dbg_vtype_bits,
-    output logic            dbg_vtype_ill,
-    output logic [VstartW-1:0] dbg_vstart,
-    output logic [     7:0] dbg_vec_tag,
-    output logic            dbg_vec_retire,
+    output logic                         dbg_valid,
+    output logic [             XLEN-1:0] dbg_insn,
+    output logic [             XLEN-1:0] dbg_pc_rdata,
+    output logic [             XLEN-1:0] dbg_pc_wdata,
+    output logic [             XLEN-1:0] dbg_rs1_rdata,
+    output logic [             XLEN-1:0] dbg_rs2_rdata,
+    output logic [             XLEN-1:0] dbg_rd_wdata,
+    output logic                         dbg_reg_write,
+    output logic [             XLEN-1:0] dbg_mem_addr,
+    output logic [            StrbW-1:0] dbg_mem_wmask,
+    output logic [             XLEN-1:0] dbg_mem_wdata,
+    output logic [             XLEN-1:0] dbg_mem_rdata,
+    output logic                         dbg_trap,
+    output logic [             XLEN-1:0] dbg_csr_wdata,
+    output logic [             XLEN-1:0] dbg_mscratch,
+    output logic [             XLEN-1:0] dbg_mstatus,
+    output logic [             XLEN-1:0] dbg_mtvec,
+    output logic [             XLEN-1:0] dbg_mepc,
+    output logic [             XLEN-1:0] dbg_mcause,
+    output logic [             XLEN-1:0] dbg_mtval,
+    output logic [             XLEN-1:0] dbg_mie,
+    output logic [             XLEN-1:0] dbg_mip,
+    output logic [             XLEN-1:0] dbg_mcycle,
+    output logic [             XLEN-1:0] dbg_minstret,
+    output logic [             XLEN-1:0] dbg_mcycleh,
+    output logic [             XLEN-1:0] dbg_minstreth,
+    output logic [              VlW-1:0] dbg_vl,
+    output logic [                  7:0] dbg_vtype_bits,
+    output logic                         dbg_vtype_ill,
+    output logic [          VstartW-1:0] dbg_vstart,
+    output logic [                  7:0] dbg_vec_tag,
+    output logic                         dbg_vec_retire,
     output logic [arch_pkg::NumRegs-1:0] dbg_vec_wregs,
-    output logic            dbg_vec_idle,
-    output logic            dbg_ex_commit,
-    output logic [XLEN-1:0] dbg_ex_insn,
+    output logic                         dbg_vec_idle,
+    output logic                         dbg_ex_commit,
+    output logic [             XLEN-1:0] dbg_ex_insn,
 `endif
-    input  wire             clk,
-    input  wire             core_en,
-    input  wire             rst_n,
-    input  wire  [XLEN-1:0] instr,
-    input  wire  [LineBits-1:0] read_line,
-    input  wire             timer_irq,
-    input  wire             ext_irq,
-    input  wire             imem_ready,
-    input  wire             dmem_ready,
-    output logic            dmem_req,
-    output logic [XLEN-1:0] pc,
-    output logic            mem_write,
-    output logic [XLEN-1:0] alu_result,
-    output logic [XLEN-1:0] write_data,
-    output logic [StrbW-1:0] store_wstrb,
-    output logic [XLEN-1:0] store_data,
-    output logic [XLEN-1:0] mem_addr,
-    input  wire             vmem_ready,
-    output logic            vmem_req,
-    output logic [XLEN-1:0] vmem_addr,
-    output logic [ LineBits-1:0] vmem_wdata,
-    output logic [LineBytes-1:0] vmem_wstrb
+    input  wire                          clk,
+    input  wire                          core_en,
+    input  wire                          rst_n,
+    input  wire  [             XLEN-1:0] instr,
+    input  wire  [         LineBits-1:0] read_line,
+    input  wire                          timer_irq,
+    input  wire                          ext_irq,
+    input  wire                          imem_ready,
+    input  wire                          dmem_ready,
+    output logic                         dmem_req,
+    output logic [             XLEN-1:0] pc,
+    output logic                         mem_write,
+    output logic [             XLEN-1:0] alu_result,
+    output logic [             XLEN-1:0] write_data,
+    output logic [            StrbW-1:0] store_wstrb,
+    output logic [             XLEN-1:0] store_data,
+    output logic [             XLEN-1:0] mem_addr,
+    input  wire                          vmem_ready,
+    output logic                         vmem_req,
+    output logic [             XLEN-1:0] vmem_addr,
+    output logic [         LineBits-1:0] vmem_wdata,
+    output logic [        LineBytes-1:0] vmem_wstrb
 );
 
   // Vector port is line
@@ -226,12 +230,12 @@ module datapath
   logic                                  muldiv_hold;
   logic                                  commit_ready;
   logic                                  vec_is_vector;
-  logic [                            1:0] vec_vxrm;
-  logic                                   vec_vxsat;
-  logic                                   vec_csr_we;
-  logic [                           11:0] vec_csr_waddr;
-  logic [                       XLEN-1:0] vec_csr_wdata;
-  logic                                   vec_csr_wait;
+  logic                   [         1:0] vec_vxrm;
+  logic                                  vec_vxsat;
+  logic                                  vec_csr_we;
+  logic                   [        11:0] vec_csr_waddr;
+  logic                   [    XLEN-1:0] vec_csr_wdata;
+  logic                                  vec_csr_wait;
   logic                                  vec_hold;
   logic                                  vec_issue_ok;
   logic                                  vec_idle;
@@ -254,8 +258,68 @@ module datapath
   logic predict_taken_id, predict_taken_ex;
   logic [XLEN-1:0] predict_target_id, predict_target_ex;
   logic [GhistLen-1:0] bp_index_id, bp_index_ex;
-  logic            mispredict;
-  logic [XLEN-1:0] correct_pc;
+  logic                             mispredict;
+  logic     [             XLEN-1:0] correct_pc;
+
+  logic                             fp_is_d;
+  logic                             fp_illegal_d;
+  fp_unit_e                         fp_unit_d;
+  logic                             frs1_read_d;
+  logic                             frs2_read_d;
+  logic                             frs3_read_d;
+  logic                             frd_write_d;
+  logic                             fxrd_write_d;
+  logic                             fxrs1_read_d;
+  logic     [                  2:0] fp_rm_d;
+  logic                             fp_sub_d;
+  logic                             fp_neg_prod_d;
+  logic                             fp_neg_add_d;
+  logic                             fp_to_int_d;
+  logic                             fp_unsigned_d;
+  logic                             fp_sqrt_d;
+  logic     [                  4:0] fp_funct5_d;
+  logic     [                  2:0] fp_funct3_d;
+  logic                             fp_op_d;
+  logic     [             FLEN-1:0] fp_rdata1;
+  logic     [             FLEN-1:0] fp_rdata2;
+  logic     [             FLEN-1:0] fp_rdata3;
+
+  logic                             fp_op_ex;
+  fp_unit_e                         fp_unit_ex;
+  logic                             frd_write_ex;
+  logic                             fxrd_write_ex;
+  logic                             fp_sub_ex;
+  logic                             fp_neg_prod_ex;
+  logic                             fp_neg_add_ex;
+  logic                             fp_to_int_ex;
+  logic                             fp_unsigned_ex;
+  logic                             fp_sqrt_ex;
+  logic     [                  4:0] fp_funct5_ex;
+  logic     [                  2:0] fp_funct3_ex;
+  logic     [             FLEN-1:0] fp_a_ex;
+  logic     [             FLEN-1:0] fp_b_ex;
+  logic     [             FLEN-1:0] fp_c_ex;
+  logic     [                  2:0] fp_rm_ex;
+  logic     [                  2:0] frm_q;
+
+  logic                             fp_fop_ex;
+  logic                             fp_xop_ex;
+  logic                             fp_start;
+  logic                             fp_xstart;
+  logic                             fp_xack;
+  logic                             fp_ready;
+  logic                             fp_idle;
+  logic     [arch_pkg::NumRegs-1:0] fp_busy;
+  logic                             fp_wb_valid;
+  logic     [                  4:0] fp_wb_rd;
+  logic     [             FLEN-1:0] fp_wb_data;
+  logic     [                  4:0] fp_wb_flags;
+  logic                             fp_xvalid;
+  logic     [             XLEN-1:0] fp_xresult;
+  logic     [                  4:0] fp_xflags;
+  logic                             fp_hold;
+  logic                             fp_csr_ex;
+  logic                             frm_write_ex;
 
   pc #(
       .XLEN(XLEN),
@@ -294,6 +358,68 @@ module datapath
     end
   end
 
+  logic vec_dec_id_valid;
+  vec_pkg::vec_op_e vec_dec_id_op;
+  vec_pkg::vec_src_e vec_dec_id_src;
+  vec_pkg::vec_eew_e vec_dec_id_eew;
+  logic vec_dec_id_vm;
+  logic [4:0] vec_dec_id_vs1;
+  logic [4:0] vec_dec_id_vs2;
+  logic [4:0] vec_dec_id_vd;
+  logic [4:0] vec_dec_id_simm;
+  logic vec_dec_id_reads_vd;
+  logic vec_dec_id_reads_xreg;
+  logic vec_dec_id_writes_xreg;
+  logic vec_dec_id_writes_mask;
+  logic [1:0] vec_dec_id_mem_width;
+  logic vec_dec_id_mem_whole;
+  logic vec_dec_id_mem_mask;
+  logic vec_dec_id_mem_strided;
+  vec_pkg::vec_dec_t vec_dec_id;
+
+  vec_decode vec_decode_inst (
+      .instr(instr_id),
+      .valid(vec_dec_id_valid),
+      .op(vec_dec_id_op),
+      .src(vec_dec_id_src),
+      .eew(vec_dec_id_eew),
+      .vm(vec_dec_id_vm),
+      .vs1(vec_dec_id_vs1),
+      .vs2(vec_dec_id_vs2),
+      .vd(vec_dec_id_vd),
+      .simm(vec_dec_id_simm),
+      .reads_vd(vec_dec_id_reads_vd),
+      .reads_xreg(vec_dec_id_reads_xreg),
+      .writes_xreg(vec_dec_id_writes_xreg),
+      .writes_mask(vec_dec_id_writes_mask),
+      .mem_width(vec_dec_id_mem_width),
+      .mem_whole(vec_dec_id_mem_whole),
+      .mem_mask(vec_dec_id_mem_mask),
+      .mem_strided(vec_dec_id_mem_strided)
+  );
+
+  always_comb begin
+    vec_dec_id.valid = vec_dec_id_valid;
+    vec_dec_id.op = vec_dec_id_op;
+    vec_dec_id.src = vec_dec_id_src;
+    vec_dec_id.eew = vec_dec_id_eew;
+    vec_dec_id.vm = vec_dec_id_vm;
+    vec_dec_id.vs1 = vec_dec_id_vs1;
+    vec_dec_id.vs2 = vec_dec_id_vs2;
+    vec_dec_id.vd = vec_dec_id_vd;
+    vec_dec_id.simm = vec_dec_id_simm;
+    vec_dec_id.reads_vd = vec_dec_id_reads_vd;
+    vec_dec_id.reads_xreg = vec_dec_id_reads_xreg;
+    vec_dec_id.writes_xreg = vec_dec_id_writes_xreg;
+    vec_dec_id.writes_mask = vec_dec_id_writes_mask;
+    vec_dec_id.mem_width = vec_dec_id_mem_width;
+    vec_dec_id.mem_whole = vec_dec_id_mem_whole;
+    vec_dec_id.mem_mask = vec_dec_id_mem_mask;
+    vec_dec_id.mem_strided = vec_dec_id_mem_strided;
+  end
+
+  vec_pkg::vec_dec_t vec_dec_ex;
+
   control_unit control_unit_inst (
       .op           (instr_id[6:0]),
       .funct3       (instr_id[14:12]),
@@ -323,7 +449,50 @@ module datapath
       (instr_id[6:0] == OpcodeJalr) || (instr_id[6:0] == OpcodeLui) ||
       (instr_id[6:0] == OpcodeAuipc) || (instr_id[6:0] == OpcodeMiscMem) ||
       (instr_id[6:0] == OpcodeSystem) || (instr_id[6:0] == OpcodeOpV) ||
-      (instr_id[6:0] == OpcodeLoadFp) || (instr_id[6:0] == OpcodeStoreFp));
+      (instr_id[6:0] == OpcodeLoadFp) || (instr_id[6:0] == OpcodeStoreFp) ||
+      (instr_id[6:0] == OpcodeOpFp) || (instr_id[6:0] == OpcodeFmadd) ||
+      (instr_id[6:0] == OpcodeFmsub) || (instr_id[6:0] == OpcodeFnmsub) ||
+      (instr_id[6:0] == OpcodeFnmadd)) || fp_illegal_d;
+
+  fp_decode u_fp_decode (
+      .instr      (instr_id),
+      .frm        (frm_q),
+      .is_fp      (fp_is_d),
+      .illegal    (fp_illegal_d),
+      .unit       (fp_unit_d),
+      .frs1_read  (frs1_read_d),
+      .frs2_read  (frs2_read_d),
+      .frs3_read  (frs3_read_d),
+      .frd_write  (frd_write_d),
+      .xrd_write  (fxrd_write_d),
+      .xrs1_read  (fxrs1_read_d),
+      .rm         (fp_rm_d),
+      .sub        (fp_sub_d),
+      .neg_prod   (fp_neg_prod_d),
+      .neg_add    (fp_neg_add_d),
+      .to_int     (fp_to_int_d),
+      .is_unsigned(fp_unsigned_d),
+      .sqrt       (fp_sqrt_d),
+      .funct5     (fp_funct5_d),
+      .funct3     (fp_funct3_d)
+  );
+
+  assign fp_op_d = fp_is_d && !fp_illegal_d && (fp_unit_d != FP_LOAD) && (fp_unit_d != FP_STORE);
+
+  fp_regfile fp_regfile_inst (
+      .clk    (clk),
+      .core_en(core_en),
+      .rst_n  (rst_n),
+      .we     (fp_wb_valid),
+      .waddr  (fp_wb_rd),
+      .wdata  (fp_wb_data),
+      .raddr1 (instr_id[19:15]),
+      .raddr2 (instr_id[24:20]),
+      .raddr3 (instr_id[31:27]),
+      .rdata1 (fp_rdata1),
+      .rdata2 (fp_rdata2),
+      .rdata3 (fp_rdata3)
+  );
 
   regfile #(
       .XLEN(XLEN)
@@ -355,6 +524,9 @@ module datapath
       mem_write_ex     <= 1'b0;
       is_muldiv_ex     <= 1'b0;
       predict_taken_ex <= 1'b0;
+      fp_op_ex         <= 1'b0;
+      frd_write_ex     <= 1'b0;
+      fxrd_write_ex    <= 1'b0;
     end else if (core_en) begin
       if (!idex_en) begin  // Latch operands
         rs1_data_ex <= forwarded_rs1;
@@ -382,6 +554,7 @@ module datapath
         branch_ex         <= (branch && !idex_bubble);
         jump_ex           <= (jump && !idex_bubble);
         instr_ex          <= instr_id;
+        vec_dec_ex        <= vec_dec_id;
         csr_access_ex     <= (csr_access && !idex_bubble);
         is_ecall_ex       <= (is_ecall && !idex_bubble);
         is_ebreak_ex      <= (is_ebreak && !idex_bubble);
@@ -389,6 +562,21 @@ module datapath
         exc_illegal_ex    <= (exc_illegal && !idex_bubble);
         is_muldiv_ex      <= (is_muldiv && !idex_bubble);
         muldiv_op_ex      <= muldiv_op;
+        fp_op_ex          <= (fp_op_d && !idex_bubble);
+        fp_unit_ex        <= fp_unit_d;
+        frd_write_ex      <= (fp_op_d && frd_write_d && !idex_bubble);
+        fxrd_write_ex     <= (fp_op_d && fxrd_write_d && !idex_bubble);
+        fp_sub_ex         <= fp_sub_d;
+        fp_neg_prod_ex    <= fp_neg_prod_d;
+        fp_neg_add_ex     <= fp_neg_add_d;
+        fp_to_int_ex      <= fp_to_int_d;
+        fp_unsigned_ex    <= fp_unsigned_d;
+        fp_sqrt_ex        <= fp_sqrt_d;
+        fp_funct5_ex      <= fp_funct5_d;
+        fp_funct3_ex      <= fp_funct3_d;
+        fp_a_ex           <= fp_rdata1;
+        fp_b_ex           <= fp_rdata2;
+        fp_c_ex           <= fp_rdata3;
       end
     end
   end
@@ -419,7 +607,7 @@ module datapath
   end
 
   // Ready before holding
-  assign commit_ready = valid_ex && !muldiv_hold && !vmem_hold && !mem_hold;
+  assign commit_ready = valid_ex && !muldiv_hold && !vmem_hold && !mem_hold && !fp_hold;
   assign commit_valid = commit_ready && !vec_hold;
 
   hazard_unit #(
@@ -442,17 +630,26 @@ module datapath
       .result_src_ex(result_src_ex),
       .result_src_mem(result_src_mem),
       .result_src_wb(result_src_wb),
+      .fp_op_id(fp_is_d && valid_id),
+      .frs1_read_id(frs1_read_d),
+      .frs2_read_id(frs2_read_d),
+      .frs3_read_id(frs3_read_d),
+      .frd_write_id(frd_write_d),
+      .rs3_id(instr_id[31:27]),
+      .fp_busy(fp_busy),
+      .frd_write_ex(frd_write_ex && valid_ex),
+      .frm_write_ex(frm_write_ex),
       .stall(hazard_stall),
       .forward_a(forward_a),
       .forward_b(forward_b)
   );
 
   assign muldiv_hold = is_muldiv_ex && !muldiv_done;
-  assign stall = hazard_stall || muldiv_hold || vec_hold || vmem_hold;
+  assign stall = hazard_stall || muldiv_hold || vec_hold || vmem_hold || fp_hold;
 
   assign if_hold = !imem_ready;
   assign id_hold = hazard_stall;
-  assign ex_hold = muldiv_hold || vec_hold || vmem_hold;
+  assign ex_hold = muldiv_hold || vec_hold || vmem_hold || fp_hold;
   assign dmem_req = valid_mem && ((result_src_mem == 2'd1) || mem_write_mem);
   assign mem_hold = dmem_req && !dmem_ready;
 
@@ -539,6 +736,54 @@ module datapath
   );
 
   assign muldiv_start = is_muldiv_ex && !muldiv_busy && !muldiv_done;
+
+  assign fp_fop_ex = valid_ex && frd_write_ex;
+  assign fp_xop_ex = valid_ex && fxrd_write_ex;
+  assign fp_rm_ex = (instr_ex[14:12] == RmDyn) ? frm_q : instr_ex[14:12];
+  assign fp_csr_ex = valid_ex && csr_access_ex && ((instr_ex[31:20] == FflagsAddr) ||
+      (instr_ex[31:20] == FrmAddr) || (instr_ex[31:20] == FcsrAddr));
+  assign frm_write_ex = fp_csr_ex && (instr_ex[31:20] != FflagsAddr) &&
+      (!funct3_ex[1] || (instr_ex[19:15] != 5'd0));
+  assign fp_hold = (fp_fop_ex && !fp_ready) || (fp_xop_ex && !fp_xvalid) || (fp_csr_ex && !fp_idle);
+  assign fp_start = fp_fop_ex && commit_valid && !trap_taken;
+  assign fp_xstart = fp_xop_ex && !fp_xvalid;
+  assign fp_xack = fp_xvalid && !ex_hold && !mem_hold;
+
+  fp_unit #(
+      .XLEN(XLEN)
+  ) fp_unit_inst (
+      .clk        (clk),
+      .rst_n      (rst_n),
+      .core_en    (core_en),
+      .start      (fp_start),
+      .xstart     (fp_xstart),
+      .xack       (fp_xack),
+      .unit       (fp_unit_ex),
+      .sub        (fp_sub_ex),
+      .neg_prod   (fp_neg_prod_ex),
+      .neg_add    (fp_neg_add_ex),
+      .to_int     (fp_to_int_ex),
+      .is_unsigned(fp_unsigned_ex),
+      .sqrt       (fp_sqrt_ex),
+      .funct5     (fp_funct5_ex),
+      .funct3     (fp_funct3_ex),
+      .rm         (fp_rm_ex),
+      .rd         (instr_ex[11:7]),
+      .a          (fp_a_ex),
+      .b          (fp_b_ex),
+      .c          (fp_c_ex),
+      .xa         (forwarded_rs1),
+      .ready      (fp_ready),
+      .idle       (fp_idle),
+      .reg_busy   (fp_busy),
+      .wb_valid   (fp_wb_valid),
+      .wb_rd      (fp_wb_rd),
+      .wb_data    (fp_wb_data),
+      .wb_flags   (fp_wb_flags),
+      .xvalid     (fp_xvalid),
+      .xresult    (fp_xresult),
+      .xflags     (fp_xflags)
+  );
 
   // Branch prediction
   if (GSHARE_EN) begin : g_bp
@@ -673,45 +918,45 @@ module datapath
       .dbg_vec_wregs (dbg_vec_wregs),
       .dbg_vec_idle  (dbg_vec_idle),
 `endif
-      .clk        (clk),
-      .rst_n      (rst_n),
-      .core_en    (core_en),
-      .instr      (instr_ex),
-      .instr_valid(vec_issue_ok),
-      .cancel     (trap_taken),
-      .xdata      (forwarded_rs1),
-      .xstride    (forwarded_rs2),
-      .vill       (vtype_q[XLEN-1]),
-      .vl         (vl_q),
-      .vsew       (vtype_q[5:3]),
-      .vlmul      (vtype_q[2:0]),
-      .csr_we     (vec_csr_we),
-      .csr_waddr  (vec_csr_waddr),
-      .csr_wdata  (vec_csr_wdata),
-      .csr_wait   (vec_csr_wait),
-      .vxrm       (vec_vxrm),
-      .vxsat      (vec_vxsat),
-      .mem_rdata  (read_line),
-      .mem_ready  (vmem_ready),
-      .mem_req    (vmem_req),
-      .mem_addr   (vmem_addr),
-      .mem_wdata  (vmem_wdata),
-      .mem_wstrb  (vmem_wstrb),
+      .clk           (clk),
+      .rst_n         (rst_n),
+      .core_en       (core_en),
+      .dec           (vec_dec_ex),
+      .instr_valid   (vec_issue_ok),
+      .cancel        (trap_taken),
+      .xdata         (forwarded_rs1),
+      .xstride       (forwarded_rs2),
+      .vill          (vtype_q[XLEN-1]),
+      .vl            (vl_q),
+      .vsew          (vtype_q[5:3]),
+      .vlmul         (vtype_q[2:0]),
+      .csr_we        (vec_csr_we),
+      .csr_waddr     (vec_csr_waddr),
+      .csr_wdata     (vec_csr_wdata),
+      .csr_wait      (vec_csr_wait),
+      .vxrm          (vec_vxrm),
+      .vxsat         (vec_vxsat),
+      .mem_rdata     (read_line),
+      .mem_ready     (vmem_ready),
+      .mem_req       (vmem_req),
+      .mem_addr      (vmem_addr),
+      .mem_wdata     (vmem_wdata),
+      .mem_wstrb     (vmem_wstrb),
       .mem_misaligned(vec_misaligned),
-      .mem_bad_addr(vec_bad_addr),
-      .xreg_valid (vec_xreg_valid),
-      .xreg_result(vec_xreg_result),
-      .is_vector  (vec_is_vector),
-      .vec_hold   (vec_hold),
-      .vec_idle   (vec_idle),
-      .load_pending(vec_load_pending),
-      .store_pending(vec_store_pending)
+      .mem_bad_addr  (vec_bad_addr),
+      .xreg_valid    (vec_xreg_valid),
+      .xreg_result   (vec_xreg_result),
+      .is_vector     (vec_is_vector),
+      .vec_hold      (vec_hold),
+      .vec_idle      (vec_idle),
+      .load_pending  (vec_load_pending),
+      .store_pending (vec_store_pending)
   );
   /* verilator lint_on PINCONNECTEMPTY */
 
 `ifdef RISCV_FORMAL
-  logic [7:0] csr_vtype_bits;
-  logic       csr_vtype_ill;
+  logic [        7:0] csr_vtype_bits;
+  logic               csr_vtype_ill;
   logic [VstartW-1:0] csr_vstart;
 `endif
 
@@ -772,11 +1017,19 @@ module datapath
       .vec_vxsat           (vec_vxsat),
       .vec_csr_we          (vec_csr_we),
       .vec_csr_waddr       (vec_csr_waddr),
-      .vec_csr_wdata       (vec_csr_wdata)
+      .vec_csr_wdata       (vec_csr_wdata),
+      .is_fp_instr         ((fp_op_ex && valid_ex) && commit_valid),
+      .fp_state_we         (frd_write_ex),
+      .fp_flags_we         (fxrd_write_ex && fp_xvalid),
+      .fp_flags            (fp_xflags),
+      .fp_wb_flags_we      (fp_wb_valid),
+      .fp_wb_flags         (fp_wb_flags),
+      .frm_q               (frm_q)
   );
 
   always_comb begin
     if (is_muldiv_ex) result_ex = muldiv_result;
+    else if (fxrd_write_ex) result_ex = fp_xresult;
     else if (vec_xreg_valid) result_ex = vec_xreg_result;
     else if (is_vset) result_ex = {{XLEN - VlW{1'b0}}, vl_d};
     else if (csr_access_ex) result_ex = csr_rdata;
@@ -858,7 +1111,7 @@ module datapath
           store_wstrb = StrbW'(1) << alu_result_mem[ByteOffW-1:0];
         end
         3'b001: begin  // sh
-          store_data  = {(StrbW / 2){write_data_mem[15:0]}};
+          store_data  = {(StrbW / 2) {write_data_mem[15:0]}};
           store_wstrb = StrbW'(3) << alu_result_mem[ByteOffW-1:0];
         end
         3'b010: begin  // sw
@@ -914,13 +1167,13 @@ module datapath
   logic [XLEN-1:0] rvfi_pcw_mem, rvfi_pcw_wb;
   logic [XLEN-1:0] rvfi_rs1d_mem, rvfi_rs1d_wb;
   logic [XLEN-1:0] rvfi_rs2d_mem, rvfi_rs2d_wb;
-  logic [XLEN-1:0] rvfi_memrd_wb;
+  logic [ XLEN-1:0] rvfi_memrd_wb;
   logic [StrbW-1:0] rvfi_wstrb_wb;
-  logic [XLEN-1:0] rvfi_wdata_wb;
+  logic [ XLEN-1:0] rvfi_wdata_wb;
   logic rvfi_trap_mem, rvfi_trap_wb;
-  logic [ VlW-1:0] rvfi_vl_wb;
-  logic [     7:0] rvfi_vtype_bits_wb;
-  logic            rvfi_vtype_ill_wb;
+  logic [    VlW-1:0] rvfi_vl_wb;
+  logic [        7:0] rvfi_vtype_bits_wb;
+  logic               rvfi_vtype_ill_wb;
   logic [VstartW-1:0] rvfi_vstart_wb;
 
   // Follows stage enables
@@ -998,27 +1251,27 @@ module datapath
   (* keep *) logic [StrbW-1:0] dbg_bus_wstrb;
   (* keep *) logic [XLEN-1:0] dbg_bus_wdata;
 
-  assign dbg_pc_f      = pc;
-  assign dbg_insn_f    = instr;
-  assign dbg_valid_f   = !ifid_bubble;
+  assign dbg_pc_f    = pc;
+  assign dbg_insn_f  = instr;
+  assign dbg_valid_f = !ifid_bubble;
 
-  assign dbg_pc_d      = pc_id;
-  assign dbg_insn_d    = instr_id;
-  assign dbg_valid_d   = valid_id;
+  assign dbg_pc_d    = pc_id;
+  assign dbg_insn_d  = instr_id;
+  assign dbg_valid_d = valid_id;
 
-  assign dbg_pc_e      = pc_ex;
-  assign dbg_insn_e    = instr_ex;
-  assign dbg_valid_e   = valid_ex;
+  assign dbg_pc_e    = pc_ex;
+  assign dbg_insn_e  = instr_ex;
+  assign dbg_valid_e = valid_ex;
 
-  assign dbg_valid_m   = valid_mem;
-  assign dbg_valid_w   = valid_wb;
+  assign dbg_valid_m = valid_mem;
+  assign dbg_valid_w = valid_wb;
 
 `ifdef RISCV_FORMAL
   // Reuse RVFI shadow
-  assign dbg_pc_m      = rvfi_pc_mem;
-  assign dbg_pc_w      = rvfi_pc_wb;
-  assign dbg_insn_m    = rvfi_insn_mem;
-  assign dbg_insn_w    = rvfi_insn_wb;
+  assign dbg_pc_m   = rvfi_pc_mem;
+  assign dbg_pc_w   = rvfi_pc_wb;
+  assign dbg_insn_m = rvfi_insn_mem;
+  assign dbg_insn_w = rvfi_insn_wb;
 `else
   // Carry past execute
   always_ff @(posedge clk) begin
@@ -1033,21 +1286,21 @@ module datapath
   end
 `endif
 
-  assign dbg_hold_f    = if_hold;
-  assign dbg_hold_d    = id_hold;
-  assign dbg_hold_e    = ex_hold;
-  assign dbg_hold_m    = mem_hold;
+  assign dbg_hold_f   = if_hold;
+  assign dbg_hold_d   = id_hold;
+  assign dbg_hold_e   = ex_hold;
+  assign dbg_hold_m   = mem_hold;
 
-  assign dbg_en_d      = ifid_en;
-  assign dbg_en_e      = idex_en;
-  assign dbg_en_m      = exmem_en;
-  assign dbg_en_w      = memwb_en;
+  assign dbg_en_d     = ifid_en;
+  assign dbg_en_e     = idex_en;
+  assign dbg_en_m     = exmem_en;
+  assign dbg_en_w     = memwb_en;
 
-  assign dbg_bubble_d  = ifid_bubble;
-  assign dbg_bubble_e  = idex_bubble;
-  assign dbg_bubble_m  = exmem_bubble;
+  assign dbg_bubble_d = ifid_bubble;
+  assign dbg_bubble_e = idex_bubble;
+  assign dbg_bubble_m = exmem_bubble;
 
-  assign dbg_flush     = flush;
+  assign dbg_flush    = flush;
 
   // Mirrors pc_next priority
   always_comb begin
@@ -1067,7 +1320,7 @@ module datapath
   assign dbg_rf_waddr  = rd_wb;
   assign dbg_rf_wdata  = result;
 
-  assign dbg_bus_req  = dmem_req;
+  assign dbg_bus_req   = dmem_req;
   assign dbg_bus_addr  = alu_result_mem;
   assign dbg_bus_wstrb = store_wstrb;
   assign dbg_bus_wdata = store_data;

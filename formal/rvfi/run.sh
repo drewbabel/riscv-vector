@@ -13,11 +13,14 @@ fi
 
 DST="$RVF/cores/$CORE"
 mkdir -p "$DST"
-cp "$HERE/rvfi_wrapper.sv" "$DST/wrapper.sv"
+cat "$ROOT/rtl/opcode_pkg.sv" "$HERE/rvfi_wrapper.sv" > "$DST/wrapper.sv"
 cp "$HERE/checks.cfg" "$DST/checks.cfg"
 
-# every module in rtl
-sv2v -D RISCV_FORMAL -D RISCV_FORMAL_ABSTRACT_XRES "$ROOT"/rtl/*.sv > "$DST/$CORE.v"
+sv2v -D RISCV_FORMAL -D RISCV_FORMAL_ABSTRACT_XRES \
+  $(ls "$ROOT"/rtl/*.sv | grep -v -e '/vec_unit\.sv$' -e '/fp_unit\.sv$') \
+  "$HERE/vec_unit_stub.sv" "$HERE/fp_unit_stub.sv" \
+  | sed -e 's/^\([[:space:]]*\)vec_unit #(/\1vec_unit_stub #(/' \
+        -e 's/^\([[:space:]]*\)fp_unit #(/\1fp_unit_stub #(/' > "$DST/$CORE.v"
 
 cd "$DST"
 python3 "$RVF/checks/genchecks.py" >&2

@@ -15,6 +15,7 @@ module pl_branch_tb ();
 
   int              checks = 0;
   int              errors = 0;
+  int              max_errors = 0;
 
   always #5 clk = ~clk;
 
@@ -35,6 +36,7 @@ module pl_branch_tb ();
     if (got !== exp) begin
       $error("%s = %0d (0x%08h), expected %0d (0x%08h)", name, got, got, exp, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -49,6 +51,8 @@ module pl_branch_tb ();
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask  // Automatic
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("pl_branch_tb.vcd");

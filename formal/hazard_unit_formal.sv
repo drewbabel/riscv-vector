@@ -30,6 +30,20 @@ module hazard_unit_formal ();
   logic [1:0] forward_a;
   logic [1:0] forward_b;
 
+  localparam int FpRegs = arch_pkg::NumRegs;
+
+  logic              fp_op_id;
+  logic              frs1_read_id;
+  logic              frs2_read_id;
+  logic              frs3_read_id;
+  logic              frd_write_id;
+  logic [       4:0] rs3_id;
+  logic [FpRegs-1:0] fp_busy;
+  logic              frd_write_ex;
+  logic              frm_write_ex;
+  logic              load_use;
+  logic              fp_dep;
+
   hazard_unit #(
       .XLEN(XLEN)
   ) dut (
@@ -50,6 +64,15 @@ module hazard_unit_formal ();
       .result_src_ex (result_src_ex),
       .result_src_mem(result_src_mem),
       .result_src_wb (result_src_wb),
+      .fp_op_id      (fp_op_id),
+      .frs1_read_id  (frs1_read_id),
+      .frs2_read_id  (frs2_read_id),
+      .frs3_read_id  (frs3_read_id),
+      .frd_write_id  (frd_write_id),
+      .rs3_id        (rs3_id),
+      .fp_busy       (fp_busy),
+      .frd_write_ex  (frd_write_ex),
+      .frm_write_ex  (frm_write_ex),
       .stall         (stall),
       .forward_a     (forward_a),
       .forward_b     (forward_b)
@@ -72,14 +95,26 @@ module hazard_unit_formal ();
     if (rd_mem == 0) assert ((forward_a !== FwdMem) && (forward_b !== FwdMem));
 
     // Stall-only for load-use hazard
-    if (stall) assert (result_src_ex == ResMem);
+    if (stall && !fp_op_id) assert (result_src_ex == ResMem);
 
     // Correct stall firing
-    if (result_src_ex == ResMem && rd_ex != 0 && (rd_ex == rs1_id || rd_ex == rs2_id)) begin
+    if (load_use || fp_dep) begin
       assert (stall);
     end else begin
       assert (!stall);
     end
+  end
+
+  assign load_use = (result_src_ex == ResMem) && (rd_ex != 0) &&
+      ((rd_ex == rs1_id) || (rd_ex == rs2_id));
+
+  always_comb begin
+    fp_dep = frm_write_ex;
+    if (frs1_read_id && (fp_busy[rs1_id] || (frd_write_ex && (rd_ex == rs1_id)))) fp_dep = 1'b1;
+    if (frs2_read_id && (fp_busy[rs2_id] || (frd_write_ex && (rd_ex == rs2_id)))) fp_dep = 1'b1;
+    if (frs3_read_id && (fp_busy[rs3_id] || (frd_write_ex && (rd_ex == rs3_id)))) fp_dep = 1'b1;
+    if (frd_write_id && (fp_busy[rd_id] || (frd_write_ex && (rd_ex == rd_id)))) fp_dep = 1'b1;
+    fp_dep = fp_dep && fp_op_id;
   end
 
 endmodule

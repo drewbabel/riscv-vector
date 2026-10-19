@@ -6,13 +6,14 @@ module vec_unit
   import csr_pkg::VxsatAddr;
   import csr_pkg::VcsrAddr;
 #(
-    parameter  int XLEN     = arch_pkg::XLEN,
-    parameter  int AWIDTH   = arch_pkg::RegAddrW,
-    parameter  int VLEN     = arch_pkg::VLEN,
-    parameter  int ELEN     = arch_pkg::ELEN,
-    localparam int MaxElems = VLEN / 8,
-    localparam int VlW      = $clog2(VLEN + 1),
-    localparam int NRegs    = 1 << AWIDTH
+    parameter  int XLEN      = arch_pkg::XLEN,
+    parameter  int AWIDTH    = arch_pkg::RegAddrW,
+    parameter  int VLEN      = arch_pkg::VLEN,
+    parameter  int ELEN      = arch_pkg::ELEN,
+    parameter  int MUL_LANES = arch_pkg::MulLanes,
+    localparam int MaxElems  = VLEN / 8,
+    localparam int VlW       = $clog2(VLEN + 1),
+    localparam int NRegs     = 1 << AWIDTH
 ) (
 `ifdef RISCV_FORMAL
     output logic [      7:0] dbg_vec_tag,
@@ -25,11 +26,11 @@ module vec_unit
     input  wire              core_en,
 
     // Execute stage
-    input wire [    31:0] instr,
-    input wire            instr_valid,
-    input wire            cancel,
-    input wire [XLEN-1:0] xdata,
-    input wire [XLEN-1:0] xstride,
+    input wire vec_dec_t            dec,
+    input wire                      instr_valid,
+    input wire                      cancel,
+    input wire           [XLEN-1:0] xdata,
+    input wire           [XLEN-1:0] xstride,
 
     // Live configuration
     input wire           vill,
@@ -72,6 +73,8 @@ module vec_unit
   localparam int OffW = $clog2(VLEN);
   localparam int CountW = $clog2(MaxElems + 1);
   localparam int GrpW = AWIDTH + 1;
+  localparam int Widths = $clog2(ELEN / 8) + 1;
+  localparam int WSelW = $clog2(Widths);
   localparam int SelW = VlW + 1;
   localparam int SumW = VlW + 4;
   localparam int RegBytes = VLEN / 8;
@@ -80,7 +83,8 @@ module vec_unit
   // Writeback depths
   localparam int ShallowWb = 2;
   localparam int DeepWb = 3;
-  localparam int SlotW = $clog2(DeepWb + 1);
+  localparam int LaneWb = 5;
+  localparam int SlotW = $clog2(LaneWb + 1);
 
   // Decoded fields
   logic                     dec_valid;
@@ -172,12 +176,14 @@ module vec_unit
   vec_src_e                 src_ex;
   vec_eew_e                 eew_ex;
   logic      [         2:0] vsew_ex;
+  logic      [         1:0] vxrm_ex;
   logic                     vm_ex;
   logic      [         4:0] simm_ex;
   logic      [    XLEN-1:0] xdata_ex;
   logic      [     VlW-1:0] vl_ex;
   logic      [    VLEN-1:0] rdata1_ex;
   logic      [    VLEN-1:0] rdata2_ex;
+  logic      [    VLEN-1:0] rdata3_ex;
   logic      [    VLEN-1:0] rdata0_ex;
   logic      [MaxElems-1:0] mask_bits_ex;
   logic      [MaxElems-1:0] elem_active_ex;
@@ -194,6 +200,9 @@ module vec_unit
 
   logic                     valid_x2;
   vec_cls_e                 cls_x2;
+  vec_op_e                  op_x2;
+  logic      [         2:0] vsew_x2;
+  logic      [         1:0] vxrm_x2;
   logic      [    OffW-1:0] d_off_x2;
   logic      [  AWIDTH-1:0] waddr_x2;
   logic      [    VLEN-1:0] wstrb_x2;
@@ -201,12 +210,35 @@ module vec_unit
   logic                     reg_done_x2;
   logic                     last_x2;
 
+  logic                     valid_x3;
+  vec_cls_e                 cls_x3;
+  vec_op_e                  op_x3;
+  logic      [         2:0] vsew_x3;
+  logic      [         1:0] vxrm_x3;
+  logic      [    OffW-1:0] d_off_x3;
+  logic      [  AWIDTH-1:0] waddr_x3;
+  logic      [    VLEN-1:0] wstrb_x3;
+  logic                     wen_x3;
+  logic                     reg_done_x3;
+  logic                     last_x3;
+  logic                     valid_x4;
+  vec_cls_e                 cls_x4;
+  vec_op_e                  op_x4;
+  logic      [         2:0] vsew_x4;
+  logic      [    OffW-1:0] d_off_x4;
+  logic      [  AWIDTH-1:0] waddr_x4;
+  logic      [    VLEN-1:0] wstrb_x4;
+  logic                     wen_x4;
+  logic                     reg_done_x4;
+  logic                     last_x4;
+
   vec_cls_e                 cls_wb;
   logic      [    XLEN-1:0] xdata_wb;
   logic      [    VLEN-1:0] alu_result_wb;
   logic      [    VLEN-1:0] mixed_result_wb;
   logic      [    VLEN-1:0] red_result_wb;
   logic      [    VLEN-1:0] mask_result_wb;
+  logic      [    VLEN-1:0] lane_result_wb;
   logic      [    OffW-1:0] d_off_wb;
   logic      [  AWIDTH-1:0] waddr_wb;
   logic      [    VLEN-1:0] wstrb_wb;
@@ -222,6 +254,11 @@ module vec_unit
   vec_geom_t                dec_geom_s;
   vec_geom_t                seq_geom_s;
   vec_geom_t                geom_ex;
+
+  // Divide forms
+  function automatic logic is_div(input vec_op_e op);
+    is_div = (op == VEC_DIVU) || (op == VEC_DIV) || (op == VEC_REMU) || (op == VEC_REM);
+  endfunction
 
   assign dec_cls = vec_class(dec_op);
   assign seq_cls = vec_class(seq_op);
@@ -402,8 +439,9 @@ module vec_unit
   logic       vxsat_q;
   logic       sat_set;
 
-  // Saturating lane pending
-  assign sat_set = 1'b0;
+  logic       sat_wb;
+
+  assign sat_set = sat_wb;
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -432,32 +470,32 @@ module vec_unit
   logic op_ready;
   logic accept_now;
 
-  // Multiply lane pending
-  assign op_ready = (dec_cls != VEC_CLS_NONE) && (dec_cls != VEC_CLS_MUL) && group_legal &&
+  // Widening multiplies trap
+  logic mul_built;
+  assign mul_built = (dec_cls != VEC_CLS_MUL) || !dec_geom_s.widen;
+
+  assign op_ready = (dec_cls != VEC_CLS_NONE) && mul_built && group_legal &&
       (dec_mem || (width_legal && scalar_legal));
   assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 
-  vec_decode u_decode (
-      .instr(instr),
-      .valid(dec_valid),
-      .op(dec_op),
-      .src(dec_src),
-      .eew(dec_eew),
-      .vm(dec_vm),
-      .vs1(dec_vs1),
-      .vs2(dec_vs2),
-      .vd(dec_vd),
-      .simm(dec_simm),
-      .reads_vd(dec_reads_vd),
-      .reads_xreg(dec_reads_xreg),
-      .writes_xreg(dec_writes_xreg),
-      .writes_mask(dec_writes_mask),
-      .mem_width(dec_width),
-      .mem_whole(dec_whole),
-      .mem_mask(dec_mask_ls),
-      .mem_strided(dec_strided)
-  );
+  assign dec_valid = dec.valid;
+  assign dec_op = dec.op;
+  assign dec_src = dec.src;
+  assign dec_eew = dec.eew;
+  assign dec_vm = dec.vm;
+  assign dec_vs1 = AWIDTH'(dec.vs1);
+  assign dec_vs2 = AWIDTH'(dec.vs2);
+  assign dec_vd = AWIDTH'(dec.vd);
+  assign dec_simm = dec.simm;
+  assign dec_reads_vd = dec.reads_vd;
+  assign dec_reads_xreg = dec.reads_xreg;
+  assign dec_writes_xreg = dec.writes_xreg;
+  assign dec_writes_mask = dec.writes_mask;
+  assign dec_width = dec.mem_width;
+  assign dec_whole = dec.mem_whole;
+  assign dec_mask_ls = dec.mem_mask;
+  assign dec_strided = dec.mem_strided;
 
   vec_issue #(
       .XLEN  (XLEN),
@@ -493,7 +531,7 @@ module vec_unit
       .vxrm(vxrm_q),
       .seq_busy(seq_busy || m_busy),
       .seq_done(seq_done || m_done),
-      .pipe_busy(valid_ex || valid_x2 || valid_wb),
+      .pipe_busy(valid_ex || valid_x2 || valid_x3 || valid_x4 || valid_wb),
       .x_done(x_done),
       .seq_start(seq_start),
       .seq_op(seq_op),
@@ -517,29 +555,50 @@ module vec_unit
       .store_pending(store_pending)
   );
 
-  // Book the write
-  logic seq_deep;
-  logic slot_free;
-  logic seq_hold;
+  // Divide lanes
+  logic                 div_op_x2;
+  logic                 div_op_x4;
+  logic                 div_go;
+  logic                 div_run_q;
+  logic                 div_tail_q;
+  logic                 div_stall;
+  logic                 div_hold;
+  logic [MUL_LANES-1:0] div_pend_q;
+  logic [MUL_LANES-1:0] div_done;
 
-  assign seq_deep = (seq_cls == VEC_CLS_RED);
-  assign seq_hold = seq_busy && !slot_free;
+  // Book the write
+  logic                 seq_lane;
+  logic                 seq_deep;
+  logic                 slot_free;
+  logic                 seq_hold;
+  logic [    SlotW-1:0] seq_depth;
+
+  assign seq_lane = (seq_cls == VEC_CLS_MUL) || (seq_cls == VEC_CLS_SAT);
+  assign seq_deep = (seq_cls == VEC_CLS_RED) || seq_lane;
+  assign seq_hold = seq_busy && (!slot_free || div_hold);
+
+  always_comb begin
+    if (seq_lane) seq_depth = SlotW'(LaneWb);
+    else if (seq_deep) seq_depth = SlotW'(DeepWb);
+    else seq_depth = SlotW'(ShallowWb);
+  end
 
   vec_write_slots #(
-      .DEPTH(DeepWb)
+      .DEPTH(LaneWb)
   ) u_slots (
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en),
-      .start(seq_busy && slot_free),
-      .depth(seq_deep ? SlotW'(DeepWb) : SlotW'(ShallowWb)),
+      .start(seq_busy && !seq_hold),
+      .depth(seq_depth),
       .free(slot_free)
   );
 
   vec_sequencer #(
-      .AWIDTH(AWIDTH),
-      .VLEN  (VLEN),
-      .ELEN  (ELEN)
+      .AWIDTH   (AWIDTH),
+      .VLEN     (VLEN),
+      .ELEN     (ELEN),
+      .MUL_LANES(MUL_LANES)
   ) u_sequencer (
       .clk(clk),
       .rst_n(rst_n),
@@ -674,12 +733,14 @@ module vec_unit
       src_ex         <= seq_src;
       eew_ex         <= seq_eew;
       vsew_ex        <= seq_vsew;
+      vxrm_ex        <= seq_vxrm;
       vm_ex          <= seq_vm;
       simm_ex        <= seq_simm;
       xdata_ex       <= seq_xdata;
       vl_ex          <= seq_vl;
       rdata1_ex      <= rdata1;
       rdata2_ex      <= rdata2;
+      rdata3_ex      <= rdata3;
       rdata0_ex      <= rdata0;
       mask_bits_ex   <= mask_bits;
       elem_active_ex <= elem_active;
@@ -768,9 +829,176 @@ module vec_unit
       .xresult(mask_xresult)
   );
 
+  // Multiply operand select
+  logic                    narrow_ex;
+  logic                    vd_mul_ex;
+  logic    [     VLEN-1:0] vd_data;
+  logic    [     ELEN-1:0] imm_ex;
+  vec_op_e                 mul_op_x2;
+  logic    [     ELEN-1:0] lane_res  [MUL_LANES];
+  logic    [MUL_LANES-1:0] lane_sat;
+  logic    [MUL_LANES-1:0] active_x2;
+  logic    [MUL_LANES-1:0] active_x3;
+  logic    [MUL_LANES-1:0] active_x4;
+  logic                    lane_x2;
+
+  assign narrow_ex = (eew_ex == VEC_EEW_NARROW);
+  assign vd_mul_ex = (op_ex == VEC_MADD) || (op_ex == VEC_NMSUB);
+  assign vd_data = rdata3_ex >> d_off_ex;
+  assign imm_ex = ((op_ex == VEC_SSRL) || (op_ex == VEC_SSRA) || narrow_ex) ?
+      ELEN'(simm_ex) : {{(ELEN - 5) {simm_ex[4]}}, simm_ex};
+  assign mul_op_x2 = vec_pkg::vec_op_e'((op_x2 == VEC_SMUL) ? VEC_MULH : op_x2);
+  assign lane_x2 = (cls_x2 == VEC_CLS_MUL) || (cls_x2 == VEC_CLS_SAT);
+
+  for (genvar l = 0; l < MUL_LANES; l++) begin : g_lane
+    logic [  ELEN-1:0] a_w     [Widths];
+    logic [  ELEN-1:0] b_w     [Widths];
+    logic [  ELEN-1:0] s_w     [Widths];
+    logic [  ELEN-1:0] d_w     [Widths];
+    logic [  ELEN-1:0] a_ex;
+    logic [  ELEN-1:0] b_ex;
+    logic [  ELEN-1:0] c_ex;
+    logic [  ELEN-1:0] a_x2;
+    logic [  ELEN-1:0] b_x2;
+    logic [  ELEN-1:0] c_x2;
+    logic [  ELEN-1:0] a_x3;
+    logic [  ELEN-1:0] b_x3;
+    logic [  ELEN-1:0] div_x3;
+    logic [  ELEN-1:0] div_x4;
+    logic [  ELEN-1:0] mul_x4;
+    logic [  ELEN-1:0] mul_res;
+    logic [  ELEN-1:0] sat_res;
+    logic [  ELEN-1:0] div_res;
+    logic [  ELEN-1:0] res_sel;
+    logic [2*ELEN-1:0] product;
+    logic              sat;
+
+    for (genvar w = 0; w < Widths; w++) begin : g_w
+      localparam int EW = 8 << w;
+      localparam int AW = ((2 * EW <= ELEN) && ((l + 1) * 2 * EW <= VLEN)) ? 2 * EW : EW;
+      assign a_w[w] = narrow_ex ? ELEN'(vs2_data[l*AW+:AW]) : ELEN'(vs2_data[l*EW+:EW]);
+      assign b_w[w] = ELEN'(vs1_data[l*EW+:EW]);
+      assign s_w[w] = ELEN'(vs2_data[l*EW+:EW]);
+      assign d_w[w] = ELEN'(vd_data[l*EW+:EW]);
+    end
+
+    assign a_ex = vd_mul_ex ? d_w[vsew_ex[WSelW-1:0]] : a_w[vsew_ex[WSelW-1:0]];
+    assign c_ex = vd_mul_ex ? s_w[vsew_ex[WSelW-1:0]] : d_w[vsew_ex[WSelW-1:0]];
+    always_comb begin
+      case (src_ex)
+        VEC_SRC_VX: b_ex = ELEN'(xdata_ex);
+        VEC_SRC_VI: b_ex = imm_ex;
+        default:    b_ex = b_w[vsew_ex[WSelW-1:0]];
+      endcase
+    end
+
+    always_ff @(posedge clk) begin
+      if (core_en) begin
+        a_x2   <= a_ex;
+        b_x2   <= b_ex;
+        c_x2   <= c_ex;
+        a_x3   <= a_x2;
+        b_x3   <= b_x2;
+        div_x3 <= div_res;
+        div_x4 <= div_x3;
+        mul_x4 <= mul_res;
+      end
+    end
+
+    vec_mul_lane #(
+        .ELEN(ELEN)
+    ) u_mul (
+        .clk(clk),
+        .core_en(core_en),
+        .op(mul_op_x2),
+        .vsew(vsew_x2),
+        .a(a_x2),
+        .b(b_x2),
+        .c(c_x2),
+        .result(mul_res),
+        .product(product)
+    );
+
+    vec_sat_lane #(
+        .ELEN(ELEN)
+    ) u_sat (
+        .clk(clk),
+        .core_en(core_en),
+        .op(op_x3),
+        .vsew(vsew_x3),
+        .vxrm(vxrm_x3),
+        .a(a_x3),
+        .b(b_x3),
+        .product(product),
+        .result(sat_res),
+        .sat(sat)
+    );
+
+    vec_div_lane #(
+        .ELEN(ELEN)
+    ) u_div (
+        .clk(clk),
+        .rst_n(rst_n),
+        .core_en(core_en),
+        .start(div_go && active_x2[l]),
+        .op(op_x2),
+        .vsew(vsew_x2),
+        .a(a_x2),
+        .b(b_x2),
+        .result(div_res),
+        .busy(),
+        .done(div_done[l])
+    );
+
+    always_comb begin
+      if (cls_x4 == VEC_CLS_SAT) res_sel = sat_res;
+      else if (div_op_x4) res_sel = div_x4;
+      else res_sel = mul_x4;
+    end
+
+    assign lane_res[l] = res_sel;
+    assign lane_sat[l] = sat && active_x4[l];
+  end
+
+  // Pack lane results
+  logic [VLEN-1:0] lane_pack[Widths];
+  logic [VLEN-1:0] lane_result;
+
+  for (genvar w = 0; w < Widths; w++) begin : g_pack
+    localparam int EW = 8 << w;
+    for (genvar l = 0; l < MUL_LANES; l++) begin : g_l
+      assign lane_pack[w][l*EW+:EW] = lane_res[l][EW-1:0];
+    end
+    if (MUL_LANES * EW < VLEN) begin : g_top
+      assign lane_pack[w][VLEN-1:MUL_LANES*EW] = '0;
+    end
+  end
+
+  assign lane_result = lane_pack[vsew_x4[WSelW-1:0]];
+
+  // Divide stall
+  assign div_op_x2 = is_div(op_x2);
+  assign div_op_x4 = is_div(op_x4);
+  assign div_go = valid_x2 && div_op_x2 && !div_run_q;
+  assign div_stall = valid_x2 && div_op_x2 && (!div_run_q || ((div_pend_q & ~div_done) != '0));
+  assign div_hold = (valid_ex && is_div(op_ex)) || div_stall || div_run_q || div_tail_q;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      div_run_q  <= 1'b0;
+      div_tail_q <= 1'b0;
+      div_pend_q <= '0;
+    end else if (core_en) begin
+      div_run_q  <= div_stall;
+      div_tail_q <= div_run_q;
+      if (div_go) div_pend_q <= active_x2;
+      else div_pend_q <= div_pend_q & ~div_done;
+    end
+  end
+
   // Deep units
   logic deep_ex;
-  assign deep_ex = (cls_ex == VEC_CLS_RED);
+  assign deep_ex = (cls_ex == VEC_CLS_RED) || (cls_ex == VEC_CLS_MUL) || (cls_ex == VEC_CLS_SAT);
 
   // EX/X2
   always_ff @(posedge clk) begin
@@ -779,27 +1007,87 @@ module vec_unit
       wen_x2      <= 1'b0;
       reg_done_x2 <= 1'b0;
       last_x2     <= 1'b0;
-    end else if (core_en) begin
+    end else if (core_en && !div_stall) begin
       valid_x2    <= valid_ex && deep_ex;
       wen_x2      <= wen_ex && deep_ex;
       reg_done_x2 <= reg_done_ex && deep_ex;
       last_x2     <= last_ex && deep_ex;
       cls_x2      <= cls_ex;
+      op_x2       <= op_ex;
+      vsew_x2     <= vsew_ex;
+      vxrm_x2     <= vxrm_ex;
+      active_x2   <= elem_active_ex[MUL_LANES-1:0];
       d_off_x2    <= d_off_ex;
       waddr_x2    <= waddr_ex;
       wstrb_x2    <= wstrb_ex;
     end
   end
 
-  // EX/WB and X2/WB
+  // X2/X3
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      valid_x3    <= 1'b0;
+      wen_x3      <= 1'b0;
+      reg_done_x3 <= 1'b0;
+      last_x3     <= 1'b0;
+    end else if (core_en) begin
+      valid_x3    <= valid_x2 && lane_x2 && !div_stall;
+      wen_x3      <= wen_x2 && lane_x2 && !div_stall;
+      reg_done_x3 <= reg_done_x2 && lane_x2 && !div_stall;
+      last_x3     <= last_x2 && lane_x2 && !div_stall;
+      cls_x3      <= cls_x2;
+      op_x3       <= op_x2;
+      vsew_x3     <= vsew_x2;
+      vxrm_x3     <= vxrm_x2;
+      active_x3   <= active_x2;
+      d_off_x3    <= d_off_x2;
+      waddr_x3    <= waddr_x2;
+      wstrb_x3    <= wstrb_x2;
+    end
+  end
+
+  // X3/X4
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      valid_x4    <= 1'b0;
+      wen_x4      <= 1'b0;
+      reg_done_x4 <= 1'b0;
+      last_x4     <= 1'b0;
+    end else if (core_en) begin
+      valid_x4    <= valid_x3;
+      wen_x4      <= wen_x3;
+      reg_done_x4 <= reg_done_x3;
+      last_x4     <= last_x3;
+      cls_x4      <= cls_x3;
+      op_x4       <= op_x3;
+      vsew_x4     <= vsew_x3;
+      active_x4   <= active_x3;
+      d_off_x4    <= d_off_x3;
+      waddr_x4    <= waddr_x3;
+      wstrb_x4    <= wstrb_x3;
+    end
+  end
+
+  // Writeback stage
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       valid_wb    <= 1'b0;
       wen_wb      <= 1'b0;
       reg_done_wb <= 1'b0;
       last_wb     <= 1'b0;
+      sat_wb      <= 1'b0;
     end else if (core_en) begin
-      if (valid_x2) begin  // Slot row keeps one
+      sat_wb <= valid_x4 && (cls_x4 == VEC_CLS_SAT) && (lane_sat != '0);
+      if (valid_x4) begin  // Slot row keeps one
+        valid_wb    <= 1'b1;
+        wen_wb      <= wen_x4;
+        reg_done_wb <= reg_done_x4;
+        last_wb     <= last_x4;
+        cls_wb      <= cls_x4;
+        d_off_wb    <= d_off_x4;
+        waddr_wb    <= waddr_x4;
+        wstrb_wb    <= wstrb_x4;
+      end else if (valid_x2 && !lane_x2) begin
         valid_wb    <= 1'b1;
         wen_wb      <= wen_x2;
         reg_done_wb <= reg_done_x2;
@@ -823,6 +1111,7 @@ module vec_unit
       mixed_result_wb <= mixed_result;
       red_result_wb   <= red_result;
       mask_result_wb  <= mask_result;
+      lane_result_wb  <= lane_result;
     end
   end
 
@@ -831,6 +1120,7 @@ module vec_unit
     case (cls_wb)
       VEC_CLS_MIXED:                                         raw_result = mixed_result_wb;
       VEC_CLS_RED:                                           raw_result = red_result_wb;
+      VEC_CLS_MUL, VEC_CLS_SAT:                              raw_result = lane_result_wb;
       VEC_CLS_SX:                                            raw_result = VLEN'(xdata_wb);
       VEC_CLS_CMP, VEC_CLS_MLOG, VEC_CLS_MSET, VEC_CLS_IOTA: raw_result = mask_result_wb;
       default:                                               raw_result = alu_result_wb;

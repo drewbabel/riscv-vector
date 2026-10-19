@@ -21,6 +21,7 @@ module btb_tb;
 
   int checks = 0;
   int errors = 0;
+  int max_errors = 0;
 
   // Reference model
   logic ref_valid[BtbDepth];
@@ -51,6 +52,7 @@ module btb_tb;
     if (got !== exp) begin
       $error("%s: got %08x exp %08x", name, got, exp);
       errors++;
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
@@ -91,6 +93,8 @@ module btb_tb;
       check("is_cond", Xlen'(is_cond), Xlen'(ref_cond[pc[2+:BtbIdxLen]]));
     end
   endtask  // Automatic
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("btb_tb.vcd");

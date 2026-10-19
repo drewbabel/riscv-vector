@@ -5,52 +5,43 @@ module vec_mul_lane
 #(
     parameter int ELEN = arch_pkg::ELEN
 ) (
+    input  wire                       clk,
+    input  wire                       core_en,
     input  wire vec_op_e              op,
     input  wire          [       2:0] vsew,
     input  wire          [  ELEN-1:0] a,
     input  wire          [  ELEN-1:0] b,
-    input  wire          [  ELEN-1:0] c,       //Addend for multiply-add operations (#34)
+    input  wire          [  ELEN-1:0] c,
     output logic         [  ELEN-1:0] result,
     output logic         [2*ELEN-1:0] product
 );
 
-  typedef enum logic [2:0] {
-    SEW_8  = 3'b000,
-    SEW_16 = 3'b001,
-    SEW_32 = 3'b010
-  } vsew_e;
+  localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
 
+  function automatic int unsigned sew_width(input logic [2:0] sew);
+    sew_width = (sew <= SewTop) ? 8 << sew : 0;
+  endfunction
 
+  function automatic logic mul_op(input vec_op_e o);
+    case (o)
+      VEC_MUL, VEC_MULH, VEC_MULHU, VEC_MULHSU, VEC_MACC, VEC_NMSAC, VEC_MADD, VEC_NMSUB:
+      mul_op = 1'b1;
+      default: mul_op = 1'b0;
+    endcase
+  endfunction
+
+  // Product stage
   logic signed [ELEN:0] mult_a, mult_b;
   logic signed [2*ELEN+1:0] full_product;
-
   logic a_signed, b_signed;
-
   int unsigned width;
-
-  logic [ELEN-1:0] result_mask;
-  logic [2*ELEN-1:0] product_mask;
   logic [ELEN:0] operand_mask;
-
   logic mul_valid;
 
-
-  always_comb begin
-    case (vsew)
-      SEW_8:   width = 8;
-      SEW_16:  width = 16;
-      SEW_32:  width = 32;
-      default: width = 0;
-    endcase
-  end
-
-
+  assign width = sew_width(vsew);
+  assign mul_valid = mul_op(op);
   assign a_signed = (op == VEC_MUL) || (op == VEC_MULH) || (op == VEC_MULHSU);
   assign b_signed = (op == VEC_MUL) || (op == VEC_MULH);
-
-
-  assign mul_valid = (op == VEC_MUL) || (op == VEC_MULH) || (op == VEC_MULHU) || (op == VEC_MULHSU);
-
 
   always_comb begin
     mult_a = '0;
@@ -73,9 +64,31 @@ module vec_mul_lane
     end
   end
 
-
   assign full_product = mult_a * mult_b;
 
+  // Product register
+  logic signed [2*ELEN+1:0] product_q;
+  vec_op_e op_q;
+  logic [2:0] vsew_q;
+  logic [ELEN-1:0] c_q;
+
+  always_ff @(posedge clk) begin
+    if (core_en) begin
+      product_q <= full_product;
+      op_q      <= op;
+      vsew_q    <= vsew;
+      c_q       <= c;
+    end
+  end
+
+  // Result stage
+  int unsigned width_q;
+  logic mul_valid_q;
+  logic [ELEN-1:0] result_mask;
+  logic [2*ELEN-1:0] product_mask;
+
+  assign width_q = sew_width(vsew_q);
+  assign mul_valid_q = mul_op(op_q);
 
   always_comb begin
     result = '0;
@@ -83,19 +96,27 @@ module vec_mul_lane
     result_mask = '0;
     product_mask = '0;
 
-    if ((width != 0) && mul_valid) begin
-      result_mask = {ELEN{1'b1}} >> (ELEN - width);
-      product_mask = {2 * ELEN{1'b1}} >> (2 * ELEN - (2 * width));
+    if ((width_q != 0) && mul_valid_q) begin
+      result_mask = {ELEN{1'b1}} >> (ELEN - width_q);
+      product_mask = {2 * ELEN{1'b1}} >> (2 * ELEN - (2 * width_q));
 
-      product = full_product[2*ELEN-1:0] & product_mask;
+      product = product_q[2*ELEN-1:0] & product_mask;
 
-      case (op)
+      case (op_q)
         VEC_MUL: begin
-          result = full_product[ELEN-1:0] & result_mask;
+          result = product_q[ELEN-1:0] & result_mask;
         end
 
         VEC_MULH, VEC_MULHU, VEC_MULHSU: begin
-          result = ELEN'(full_product >> width) & result_mask;
+          result = ELEN'(product_q >> width_q) & result_mask;
+        end
+
+        VEC_MACC, VEC_MADD: begin
+          result = (product_q[ELEN-1:0] + c_q) & result_mask;
+        end
+
+        VEC_NMSAC, VEC_NMSUB: begin
+          result = (c_q - product_q[ELEN-1:0]) & result_mask;
         end
 
         default: begin
@@ -105,7 +126,6 @@ module vec_mul_lane
       endcase
     end
   end
-
 
 endmodule
 

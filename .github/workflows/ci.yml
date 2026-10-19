@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   testbench-list:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       groups: ${{ steps.list.outputs.groups }}
     steps:
@@ -27,7 +27,7 @@ jobs:
 
   testbenches:
     needs: testbench-list
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -47,7 +47,7 @@ jobs:
           done
 
   formal-list:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       groups: ${{ steps.list.outputs.groups }}
     steps:
@@ -76,7 +76,7 @@ jobs:
 
   formal:
     needs: formal-list
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -102,7 +102,7 @@ jobs:
           done
 
   core-formal-list:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       groups: ${{ steps.list.outputs.groups }}
     steps:
@@ -127,7 +127,7 @@ jobs:
 
   core-formal:
     needs: core-formal-list
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -153,7 +153,7 @@ jobs:
         run: bash formal/rvfi/run.sh ${{ matrix.group }}
 
   coremark:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -166,7 +166,7 @@ jobs:
         run: make vsim MOD=coremark_boot
 
   embench:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -179,7 +179,7 @@ jobs:
         run: make vsim MOD=embench_boot PLUSARGS=+HEX=sw/embench/crc32.hex
 
   freertos:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -196,7 +196,7 @@ jobs:
         run: make vsim MOD=freertos_boot
 
   cosim:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -239,15 +239,37 @@ jobs:
         run: python3 tests/cosim.py --vec vecmask
       - name: Vector ALU co-sim
         run: python3 tests/cosim.py --vec vecalu
+      - name: Vector multiply co-sim
+        run: python3 tests/cosim.py --vec vecmul
+      - name: Vector fixed-point co-sim
+        run: python3 tests/cosim.py --vec vecsat
+      - name: Vector divide co-sim
+        run: python3 tests/cosim.py --vec vecdiv
       - name: Vector scalar-return co-sim
         run: python3 tests/cosim.py --vec vecxres
+      - name: Scalar float co-sim
+        run: python3 tests/cosim.py --fp cosim_f
       - name: Randomized vector memory co-sim (100 programs)
         run: python3 tests/cosim.py --vec --rand 100
       - name: Randomized co-sim regression (500 programs)
         run: python3 tests/cosim.py --rand 500
+      - name: Generated RVV test sweep
+        run: |
+          git clone -q https://github.com/chipsalliance/riscv-vector-tests.git build/rvv-gen
+          git -C build/rvv-gen checkout -q f76bff121dce91b6b23e1d37be77a5e44af914c3
+          git -C build/rvv-gen submodule -q update --init env/riscv-test-env
+          mkdir -p build/rvv-gen/fixture
+          cp tests/rvv_env/fixture/*.S build/rvv-gen/fixture/
+          python3 tests/rvv_sweep.py prep build/rvv-gen/fixture
+          python3 tests/rvv_sweep.py run
+          python3 tests/rvv_sweep.py probe-prep build/rvv-gen/fixture
+          python3 tests/rvv_sweep.py probe
+          python3 tests/rvv_sweep.py status --out build/rvv/status.csv
+          awk -F, 'NR > 1 && $3 != "PASS" { bad = 1; print } END { exit bad }' build/rvv/results.csv
+          awk -F, 'NR > 1 && $3 != "DONE" { bad = 1; print } END { exit bad }' build/rvv/probe.csv
 
   gate-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -263,10 +285,20 @@ jobs:
       - name: Prove the pc_plus4 keep holds
         run: bash gate_check.sh
 
+  float-widths:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - name: Check the float width guard
+        run: bash tests/fp_width.sh
+
   ci-gate:
     if: always()
-    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check]
-    runs-on: ubuntu-latest
+    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths]
+    runs-on: ubuntu-24.04
     steps:
       - name: Verify all CI jobs succeeded
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}

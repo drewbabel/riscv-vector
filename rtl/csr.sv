@@ -25,6 +25,7 @@ module csr
     output logic [        7:0] dbg_vtype_bits,
     output logic               dbg_vtype_ill,
     output logic [VstartW-1:0] dbg_vstart,
+    output logic [        4:0] dbg_fflags,
 `endif
     input  wire                clk,
     input  wire                core_en,
@@ -77,7 +78,16 @@ module csr
     input  wire             vec_vxsat,
     output logic            vec_csr_we,
     output logic [    11:0] vec_csr_waddr,
-    output logic [XLEN-1:0] vec_csr_wdata
+    output logic [XLEN-1:0] vec_csr_wdata,
+
+    // Floating-point control
+    input  wire        is_fp_instr,
+    input  wire        fp_state_we,
+    input  wire        fp_flags_we,
+    input  wire  [4:0] fp_flags,
+    input  wire        fp_wb_flags_we,
+    input  wire  [4:0] fp_wb_flags,
+    output logic [2:0] frm_q
 );
 
   logic [   XLEN-1:0] mstatus;
@@ -98,10 +108,15 @@ module csr
   logic               vtype_ill;
   logic [VstartW-1:0] vstart;
 
+  logic [        4:0] fflags;
+  logic [        2:0] frm;
+
   logic [   XLEN-1:0] mstatus_read;
   logic               vec_csr_addr;
+  logic               fp_csr_addr;
   logic               exc_ro_write;
   logic               exc_vs_off;
+  logic               exc_fs_off;
   logic               illegal_any;
 
   logic [   XLEN-1:0] csr_wsrc;
@@ -133,11 +148,13 @@ module csr
 
   assign vl_q = vl;
   assign vtype_q = vtype_ill ? {1'b1, {XLEN - 1{1'b0}}} : {{XLEN - 8{1'b0}}, vtype_bits};
-  assign
-      mstatus_read = mstatus | (XLEN'(mstatus[MstatusVsLo+1:MstatusVsLo] == VsDirty) << MstatusSd);
+  assign frm_q = frm;
+  assign mstatus_read = mstatus | (XLEN'((mstatus[MstatusVsLo+1:MstatusVsLo] == VsDirty) ||
+      (mstatus[MstatusFsLo+1:MstatusFsLo] == FsDirty)) << MstatusSd);
   assign vec_csr_addr = (csr_addr == VstartAddr) || (csr_addr == VlAddr) ||
       (csr_addr == VtypeAddr) || (csr_addr == VlenbAddr) || (csr_addr == VxsatAddr) ||
       (csr_addr == VxrmAddr) || (csr_addr == VcsrAddr);
+  assign fp_csr_addr = (csr_addr == FflagsAddr) || (csr_addr == FrmAddr) || (csr_addr == FcsrAddr);
   assign vec_csr_we = csr_write_en &&
       ((csr_addr == VxsatAddr) || (csr_addr == VxrmAddr) || (csr_addr == VcsrAddr));
   assign vec_csr_waddr = csr_addr;
@@ -145,7 +162,9 @@ module csr
   assign exc_ro_write = csr_access && (csr_addr[11:10] == 2'b11) && csr_write;
   assign exc_vs_off = (is_vec_instr || (csr_access && vec_csr_addr)) &&
       (mstatus[MstatusVsLo+1:MstatusVsLo] == VsOff);
-  assign illegal_any = exc_illegal || exc_ro_write || exc_vs_off;
+  assign exc_fs_off = (is_fp_instr || (csr_access && fp_csr_addr)) &&
+      (mstatus[MstatusFsLo+1:MstatusFsLo] == FsOff);
+  assign illegal_any = exc_illegal || exc_ro_write || exc_vs_off || exc_fs_off;
 
   logic [XLEN-1:0] mip_read;
   always_comb begin
@@ -176,6 +195,9 @@ module csr
       VxsatAddr: csr_rdata = {{XLEN - 1{1'b0}}, vec_vxsat};
       VxrmAddr: csr_rdata = {{XLEN - 2{1'b0}}, vec_vxrm};
       VcsrAddr: csr_rdata = {{XLEN - 3{1'b0}}, vec_vxrm, vec_vxsat};
+      FflagsAddr: csr_rdata = {{XLEN - 5{1'b0}}, fflags};
+      FrmAddr: csr_rdata = {{XLEN - 3{1'b0}}, frm};
+      FcsrAddr: csr_rdata = {{XLEN - 8{1'b0}}, frm, fflags};
       default: csr_rdata = '0;
     endcase
   end
@@ -213,6 +235,7 @@ module csr
       vtype_bits <= 8'b0;
       vtype_ill  <= 1'b1;
       vstart     <= '0;
+      frm        <= '0;
     end else if (core_en) begin
       if (!trap_taken) begin  // retired only
         minstret  <= minstret + 1;
@@ -266,6 +289,10 @@ module csr
         if (is_vec_instr || (csr_write_en && vec_csr_addr)) begin
           mstatus[MstatusVsLo+1:MstatusVsLo] <= VsDirty;  // Assign dirty state
         end
+        if ((is_fp_instr && fp_state_we) || (fp_flags_we && fp_flags != '0) ||
+            (csr_write_en && fp_csr_addr)) begin
+          mstatus[MstatusFsLo+1:MstatusFsLo] <= FsDirty;
+        end
       end
 
       if (csr_write_en) begin
@@ -281,8 +308,23 @@ module csr
           MipAddr:       mip <= csr_wdata & ~(XLEN'(1) << Mtip) & ~(XLEN'(1) << Meip);
           MinstretAddr:  minstret <= csr_wdata;
           MinstrethAddr: minstreth <= csr_wdata;
+          FrmAddr:       frm <= csr_wdata[2:0];
+          FcsrAddr:      frm <= csr_wdata[7:5];
           default:       ;
         endcase
+      end
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      fflags <= '0;
+    end else if (cycle_en) begin
+      if (core_en && csr_write_en && ((csr_addr == FflagsAddr) || (csr_addr == FcsrAddr))) begin
+        fflags <= csr_wdata[4:0];
+      end else begin
+        fflags <= fflags | (fp_wb_flags_we ? fp_wb_flags : '0) |
+            ((core_en && !trap_taken && fp_flags_we) ? fp_flags : '0);
       end
     end
   end
@@ -304,6 +346,7 @@ module csr
   assign dbg_vtype_bits = vtype_bits;
   assign dbg_vtype_ill  = vtype_ill;
   assign dbg_vstart     = vstart;
+  assign dbg_fflags     = fflags;
 `endif
 endmodule
 
