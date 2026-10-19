@@ -89,7 +89,7 @@ module fp_cvt_bench
   ) dut (
       .to_int(cvt_to_int),
       .is_unsigned(cvt_unsigned),
-      .iw(cvt_half ? 3'd1 : 3'd2),
+      .half(cvt_half),
       .rm(cvt_rm),
       .a(cvt_a),
       .result(cvt_result),
