@@ -481,7 +481,8 @@ def run_spike(spike_elf, n, isa=None, park=False):
             if VECTOR
             else None
         )
-        if opcode == 0x27:  # vector store elements
+        fsw = opcode == 0x27 and (insn >> 12) & 0x7 == 2  # scalar float store
+        if opcode == 0x27 and not fsw:  # vector store elements
             size = VEC_WIDTH[(insn >> 12) & 0x7]
             for eaddr, ehex in re.findall(
                 r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail
@@ -496,7 +497,7 @@ def run_spike(spike_elf, n, isa=None, park=False):
                     SPK_VMEM_AT.append(len(trace))
         store = None
         sm = re.search(r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail)
-        if sm and opcode == 0x23:
+        if sm and (opcode == 0x23 or fsw):
             saddr, sval = int(sm.group(1), 16), int(sm.group(2), 16)
             width = STORE_WIDTH[(insn >> 12) & 0x7]  # sb=1 sh=2 sw=4
             off = saddr & 0x3
