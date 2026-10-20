@@ -280,11 +280,17 @@ module datapath
   logic     [                  4:0] fp_funct5_d;
   logic     [                  2:0] fp_funct3_d;
   logic                             fp_op_d;
+  logic                             fp_load_d;
+  logic                             fp_store_d;
   logic     [             FLEN-1:0] fp_rdata1;
   logic     [             FLEN-1:0] fp_rdata2;
   logic     [             FLEN-1:0] fp_rdata3;
 
   logic                             fp_op_ex;
+  logic                             fp_load_ex;
+  logic                             fp_store_ex;
+  logic                             fp_load_mem;
+  logic                             fp_load_wb;
   fp_unit_e                         fp_unit_ex;
   logic                             frd_write_ex;
   logic                             fxrd_write_ex;
@@ -478,6 +484,8 @@ module datapath
   );
 
   assign fp_op_d = fp_is_d && !fp_illegal_d && (fp_unit_d != FP_LOAD) && (fp_unit_d != FP_STORE);
+  assign fp_load_d = fp_is_d && !fp_illegal_d && (fp_unit_d == FP_LOAD);
+  assign fp_store_d = fp_is_d && !fp_illegal_d && (fp_unit_d == FP_STORE);
 
   fp_regfile fp_regfile_inst (
       .clk    (clk),
@@ -486,6 +494,9 @@ module datapath
       .we     (fp_wb_valid),
       .waddr  (fp_wb_rd),
       .wdata  (fp_wb_data),
+      .we2    (fp_load_wb),
+      .waddr2 (rd_wb),
+      .wdata2 (load_data_wb),
       .raddr1 (instr_id[19:15]),
       .raddr2 (instr_id[24:20]),
       .raddr3 (instr_id[31:27]),
@@ -525,6 +536,8 @@ module datapath
       is_muldiv_ex     <= 1'b0;
       predict_taken_ex <= 1'b0;
       fp_op_ex         <= 1'b0;
+      fp_load_ex       <= 1'b0;
+      fp_store_ex      <= 1'b0;
       frd_write_ex     <= 1'b0;
       fxrd_write_ex    <= 1'b0;
     end else if (core_en) begin
@@ -563,6 +576,8 @@ module datapath
         is_muldiv_ex      <= (is_muldiv && !idex_bubble);
         muldiv_op_ex      <= muldiv_op;
         fp_op_ex          <= (fp_op_d && !idex_bubble);
+        fp_load_ex        <= (fp_load_d && !idex_bubble);
+        fp_store_ex       <= (fp_store_d && !idex_bubble);
         fp_unit_ex        <= fp_unit_d;
         frd_write_ex      <= (fp_op_d && frd_write_d && !idex_bubble);
         fxrd_write_ex     <= (fp_op_d && fxrd_write_d && !idex_bubble);
@@ -624,6 +639,7 @@ module datapath
       .rd_ex(rd_ex),
       .rd_mem(rd_mem),
       .rd_wb(rd_wb),
+      .reg_write_ex(reg_write_ex),
       .reg_write_mem(reg_write_mem),
       .reg_write_wb(reg_write_wb),
       .mem_write_ex(mem_write_ex),
@@ -637,7 +653,8 @@ module datapath
       .frd_write_id(frd_write_d),
       .rs3_id(instr_id[31:27]),
       .fp_busy(fp_busy),
-      .frd_write_ex(frd_write_ex && valid_ex),
+      .frd_write_ex((frd_write_ex || fp_load_ex) && valid_ex),
+      .frd_write_mem(fp_load_mem),
       .frm_write_ex(frm_write_ex),
       .stall(hazard_stall),
       .forward_a(forward_a),
@@ -889,7 +906,8 @@ module datapath
       || (instr_ex[31:20] == VcsrAddr));
 
   assign exc_vec_encoding = (((instr_ex[6:0] == OpcodeOpV) && !is_vset) ||
-      (instr_ex[6:0] == OpcodeLoadFp) || (instr_ex[6:0] == OpcodeStoreFp)) && !vec_is_vector;
+      (instr_ex[6:0] == OpcodeLoadFp) || (instr_ex[6:0] == OpcodeStoreFp)) && !vec_is_vector &&
+      !fp_load_ex && !fp_store_ex;
 
   vec_config #(
       .XLEN(XLEN),
@@ -1018,8 +1036,8 @@ module datapath
       .vec_csr_we          (vec_csr_we),
       .vec_csr_waddr       (vec_csr_waddr),
       .vec_csr_wdata       (vec_csr_wdata),
-      .is_fp_instr         ((fp_op_ex && valid_ex) && commit_valid),
-      .fp_state_we         (frd_write_ex),
+      .is_fp_instr         ((fp_op_ex || fp_load_ex || fp_store_ex) && valid_ex && commit_valid),
+      .fp_state_we         (frd_write_ex || fp_load_ex),
       .fp_flags_we         (fxrd_write_ex && fp_xvalid),
       .fp_flags            (fp_xflags),
       .fp_wb_flags_we      (fp_wb_valid),
@@ -1064,15 +1082,18 @@ module datapath
     if (!rst_n) begin
       reg_write_mem <= 1'b0;
       mem_write_mem <= 1'b0;
+      fp_load_mem   <= 1'b0;
     end else if (core_en) begin
       if (exmem_bubble) begin  // Inject NOP
         reg_write_mem <= 1'b0;
         mem_write_mem <= 1'b0;
+        fp_load_mem   <= 1'b0;
       end else if (exmem_en) begin
         alu_result_mem <= result_ex;
         pc_plus4_mem   <= pc_plus4_ex;
-        write_data_mem <= forwarded_rs2;
+        write_data_mem <= fp_store_ex ? fp_b_ex : forwarded_rs2;
         mem_write_mem  <= mem_write_ex && !trap_taken;
+        fp_load_mem    <= fp_load_ex && valid_ex && !trap_taken;
         funct3_mem     <= funct3_ex;
         reg_write_mem  <= reg_write_ex && !trap_taken;
         result_src_mem <= result_src_ex;
@@ -1129,13 +1150,16 @@ module datapath
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       reg_write_wb <= 1'b0;
+      fp_load_wb   <= 1'b0;
     end else if (core_en && memwb_bubble) begin
       reg_write_wb <= 1'b0;
+      fp_load_wb   <= 1'b0;
     end else if (core_en && memwb_en) begin
       result_src_wb <= result_src_mem;
       alu_result_wb <= alu_result_mem;
       pc_plus4_wb   <= pc_plus4_mem;
       reg_write_wb  <= reg_write_mem;
+      fp_load_wb    <= fp_load_mem;
       load_data_wb  <= load_data;
       rd_wb         <= rd_mem;
     end
