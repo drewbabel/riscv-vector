@@ -55,6 +55,7 @@ module cosim ();
   logic   [                Xlen-1:0] dbg_minstret;
   logic   [                Xlen-1:0] dbg_mcycleh;
   logic   [                Xlen-1:0] dbg_minstreth;
+  logic   [                     4:0] dbg_fflags;
   logic   [                 VlW-1:0] dbg_vl;
   logic   [                     7:0] dbg_vtype_bits;
   logic                              dbg_vtype_ill;
@@ -186,6 +187,7 @@ module cosim ();
         .dbg_minstret  (dbg_minstret),
         .dbg_mcycleh   (dbg_mcycleh),
         .dbg_minstreth (dbg_minstreth),
+        .dbg_fflags    (dbg_fflags),
         .dbg_vl        (dbg_vl),
         .dbg_vtype_bits(dbg_vtype_bits),
         .dbg_vtype_ill (dbg_vtype_ill),
@@ -332,13 +334,20 @@ module cosim ();
   logic [ 4:0] r_frd;
   logic [31:0] r_fdata;
   logic        r_fidle;
-  assign r_fwe   = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_valid;
-  assign r_frd   = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_rd;
-  assign r_fdata = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_data;
-  assign r_fidle = g_dut.riscv_pipelined_inst.datapath_inst.fp_idle;
+  logic        r_flwe;
+  logic [ 4:0] r_flrd;
+  logic [31:0] r_fldata;
+  assign r_fwe    = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_valid;
+  assign r_frd    = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_rd;
+  assign r_fdata  = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_data;
+  assign r_fidle  = g_dut.riscv_pipelined_inst.datapath_inst.fp_idle;
+  assign r_flwe   = g_dut.riscv_pipelined_inst.datapath_inst.fp_load_wb;
+  assign r_flrd   = g_dut.riscv_pipelined_inst.datapath_inst.rd_wb;
+  assign r_fldata = g_dut.riscv_pipelined_inst.datapath_inst.load_data_wb;
 
   task automatic emit_fcommit();
     if (r_fwe) $display("FCOMMIT %0d %08x", r_frd, r_fdata);
+    if (r_flwe) $display("FCOMMIT %0d %08x", r_flrd, r_fldata);
   endtask
 
   task automatic do_reset();

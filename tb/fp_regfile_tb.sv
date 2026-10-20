@@ -17,6 +17,9 @@ module fp_regfile_tb ();
   logic we = 1'b0;
   logic [AWIDTH-1:0] waddr = '0;
   logic [FLEN-1:0] wdata = '0;
+  logic we2 = 1'b0;
+  logic [AWIDTH-1:0] waddr2 = '0;
+  logic [FLEN-1:0] wdata2 = '0;
   logic [AWIDTH-1:0] raddr1 = '0;
   logic [AWIDTH-1:0] raddr2 = '0;
   logic [AWIDTH-1:0] raddr3 = '0;
@@ -38,6 +41,9 @@ module fp_regfile_tb ();
       .we(we),
       .waddr(waddr),
       .wdata(wdata),
+      .we2(we2),
+      .waddr2(waddr2),
+      .wdata2(wdata2),
       .raddr1(raddr1),
       .raddr2(raddr2),
       .raddr3(raddr3),
@@ -63,18 +69,25 @@ module fp_regfile_tb ();
     end
   endtask  // Automatic
 
+  function automatic logic [FLEN-1:0] exp_read(input logic [AWIDTH-1:0] ra);
+    if (we2 && waddr2 == ra) return wdata2;
+    if (we && waddr == ra) return wdata;
+    return shadow[ra];
+  endfunction  // Automatic
+
   task automatic check_ports(input string name);
     #1;
-    check({name, " port1"}, rdata1, (we && waddr == raddr1) ? wdata : shadow[raddr1]);
-    check({name, " port2"}, rdata2, (we && waddr == raddr2) ? wdata : shadow[raddr2]);
-    check({name, " port3"}, rdata3, (we && waddr == raddr3) ? wdata : shadow[raddr3]);
+    check({name, " port1"}, rdata1, exp_read(raddr1));
+    check({name, " port2"}, rdata2, exp_read(raddr2));
+    check({name, " port3"}, rdata3, exp_read(raddr3));
   endtask  // Automatic
 
   always @(posedge clk) begin
     if (!rst_n) begin
       for (int i = 0; i < Depth; i++) shadow[i] <= '0;
-    end else if (core_en && we) begin
-      shadow[waddr] <= wdata;
+    end else if (core_en) begin
+      if (we) shadow[waddr] <= wdata;
+      if (we2) shadow[waddr2] <= wdata2;
     end
   end
 
@@ -134,6 +147,30 @@ module fp_regfile_tb ();
     for (int i = 0; i < 2000; i++)
     step(1'($urandom_range(0, 1)), AWIDTH'($urandom), $urandom, AWIDTH'($urandom),
          AWIDTH'($urandom), AWIDTH'($urandom), "random");
+
+    // Second write port
+    we2    = 1'b1;
+    waddr2 = 5'd12;
+    wdata2 = 32'h4120_0000;
+    step(1'b1, 5'd13, 32'h4130_0000, 5'd12, 5'd13, 5'd12, "two_writes_bypass");
+    we2 = 1'b0;
+    step(1'b0, '0, '0, 5'd12, 5'd13, 5'd14, "two_writes_held");
+
+    we2    = 1'b1;
+    waddr2 = 5'd14;
+    wdata2 = 32'hAAAA_5555;
+    step(1'b1, 5'd14, 32'h5555_AAAA, 5'd14, 5'd14, 5'd1, "port2_wins_tie");
+    we2 = 1'b0;
+    step(1'b0, '0, '0, 5'd14, 5'd1, 5'd2, "port2_tie_held");
+
+    for (int i = 0; i < 2000; i++) begin
+      we2    = 1'($urandom_range(0, 1));
+      waddr2 = AWIDTH'($urandom);
+      wdata2 = $urandom;
+      step(1'($urandom_range(0, 1)), AWIDTH'($urandom), $urandom, AWIDTH'($urandom),
+           AWIDTH'($urandom), AWIDTH'($urandom), "random_two_port");
+    end
+    we2 = 1'b0;
 
     do_reset();
     for (int r = 0; r < Depth; r++)
