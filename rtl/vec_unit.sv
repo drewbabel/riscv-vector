@@ -691,6 +691,7 @@ module vec_unit
       .mask_dest(seq_geom_s.mask_dest),
       .mask_whole(seq_geom_s.mask_whole),
       .mask_src(seq_geom_s.mask_src),
+      .serial(1'b0),
       .raddr1(raddr1),
       .raddr2(raddr2),
       .raddr3(raddr3),
