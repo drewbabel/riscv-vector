@@ -339,6 +339,7 @@ package vec_pkg;
     logic writes_mask;
     logic [1:0] mem_width;
     logic mem_whole;
+    logic [2:0] mem_nf;
     logic mem_mask;
     logic mem_strided;
   } vec_dec_t;

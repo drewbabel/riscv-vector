@@ -373,6 +373,7 @@ module datapath
   logic vec_dec_id_writes_mask;
   logic [1:0] vec_dec_id_mem_width;
   logic vec_dec_id_mem_whole;
+  logic [2:0] vec_dec_id_mem_nf;
   logic vec_dec_id_mem_mask;
   logic vec_dec_id_mem_strided;
   vec_pkg::vec_dec_t vec_dec_id;
@@ -394,6 +395,7 @@ module datapath
       .writes_mask(vec_dec_id_writes_mask),
       .mem_width(vec_dec_id_mem_width),
       .mem_whole(vec_dec_id_mem_whole),
+      .mem_nf(vec_dec_id_mem_nf),
       .mem_mask(vec_dec_id_mem_mask),
       .mem_strided(vec_dec_id_mem_strided)
   );
@@ -414,6 +416,7 @@ module datapath
     vec_dec_id.writes_mask = vec_dec_id_writes_mask;
     vec_dec_id.mem_width = vec_dec_id_mem_width;
     vec_dec_id.mem_whole = vec_dec_id_mem_whole;
+    vec_dec_id.mem_nf = vec_dec_id_mem_nf;
     vec_dec_id.mem_mask = vec_dec_id_mem_mask;
     vec_dec_id.mem_strided = vec_dec_id_mem_strided;
   end

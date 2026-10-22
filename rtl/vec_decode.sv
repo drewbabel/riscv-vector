@@ -22,6 +22,7 @@ module vec_decode
     // Memory forms
     output logic [1:0] mem_width,
     output logic       mem_whole,
+    output logic [2:0] mem_nf,
     output logic       mem_mask,
     output logic       mem_strided
 );
@@ -35,15 +36,18 @@ module vec_decode
   // Instruction fields
   logic [5:0] funct6;
   logic [2:0] funct3;
+  logic [2:0] nf;
   logic is_opv;
   logic is_v, is_x, is_i, is_mv, is_mx;
   logic    is_load;
   logic    is_store;
   logic    width_ok;
+  logic    nf_ok;
   vec_op_e mem_op;
 
   assign funct6 = instr[31:26];
   assign funct3 = instr[14:12];
+  assign nf = instr[31:29];
   assign vm = instr[25];
   assign vs2 = instr[24:20];
   assign vs1 = instr[19:15];
@@ -60,6 +64,9 @@ module vec_decode
   assign is_load = (instr[6:0] == OpcodeLoadFp);
   assign is_store = (instr[6:0] == OpcodeStoreFp);
 
+  // Whole register counts
+  assign nf_ok = (nf == 3'd0) || (nf == 3'd1) || (nf == 3'd3) || (nf == 3'd7);
+
   always_comb begin
     op = VEC_ILLEGAL;
     eew = VEC_EEW_SAME;
@@ -68,13 +75,14 @@ module vec_decode
     writes_mask = 1'b0;
     mem_width = 2'd0;
     mem_whole = 1'b0;
+    mem_nf = 3'd0;
     mem_mask = 1'b0;
     mem_strided = 1'b0;
     width_ok = 1'b0;
     mem_op = VEC_LOAD;
 
     // Loads and stores
-    if ((is_load || is_store) && (instr[31:28] == 4'b0000)) begin
+    if ((is_load || is_store) && !instr[28]) begin
       case (funct3)
         3'b000:  width_ok = 1'b1;
         3'b101:  width_ok = 1'b1;
@@ -86,19 +94,22 @@ module vec_decode
       if (width_ok) begin
         case (instr[27:26])
           2'b00: begin
-            if (vs2 == 5'b00000) op = mem_op;
-            if ((vs2 == 5'b01000) && vm && (is_load || funct3 == 3'b000)) begin
+            if ((vs2 == 5'b00000) && (nf == 3'd0)) op = mem_op;
+            if ((vs2 == 5'b01000) && vm && nf_ok && (is_load || funct3 == 3'b000)) begin
               op = mem_op;
               mem_whole = 1'b1;
+              mem_nf = nf;
             end
-            if ((vs2 == 5'b01011) && vm && (funct3 == 3'b000)) begin
+            if ((vs2 == 5'b01011) && vm && (funct3 == 3'b000) && (nf == 3'd0)) begin
               op = mem_op;
               mem_mask = 1'b1;
             end
           end
           2'b10: begin
-            op = mem_op;
-            mem_strided = 1'b1;
+            if (nf == 3'd0) begin
+              op = mem_op;
+              mem_strided = 1'b1;
+            end
           end
           default: ;
         endcase
@@ -174,7 +185,11 @@ module vec_decode
         6'b100010: if (is_v || is_x) op = VEC_SSUBU;
         6'b100011: if (is_v || is_x) op = VEC_SSUB;
         6'b100101: op = VEC_SLL;
-        6'b100111: op = vec_pkg::vec_op_e'(is_i ? VEC_MVNRR : VEC_SMUL);
+        6'b100111: begin
+          if (!is_i) op = VEC_SMUL;
+          else if (vm && (simm == 5'd0 || simm == 5'd1 || simm == 5'd3 || simm == 5'd7))
+            op = VEC_MVNRR;
+        end
         6'b101000: op = VEC_SRL;
         6'b101001: op = VEC_SRA;
         6'b101010: op = VEC_SSRL;
