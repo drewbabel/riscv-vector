@@ -59,6 +59,7 @@ module csr_tb;
   logic [        4:0] fp_wb_flags;
   logic [        4:0] vec_fflags;
   logic [        2:0] frm_q;
+  logic               vstart_set;
 
   logic [   Xlen-1:0] exp_mscratch;
   logic [VstartW-1:0] exp_vstart;
@@ -117,7 +118,8 @@ module csr_tb;
       .fp_wb_flags_we      (fp_wb_flags_we),
       .fp_wb_flags         (fp_wb_flags),
       .vec_fflags          (vec_fflags),
-      .frm_q               (frm_q)
+      .frm_q               (frm_q),
+      .vstart_set          (vstart_set)
   );
 
   task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
@@ -323,6 +325,7 @@ module csr_tb;
       csr_op(op, VstartAddr, val);
       csr_peek(VstartAddr);
       check("vstart_rw", csr_rdata, Xlen'(exp_vstart));
+      check("vstart_set_port", Xlen'(vstart_set), Xlen'(exp_vstart != 0));
     end
   endtask
 
@@ -339,6 +342,7 @@ module csr_tb;
     check("vtype_port", vtype_q, 32'h0000_00C3);
     csr_peek(VstartAddr);
     check("vstart_zeroed", csr_rdata, 32'h0);
+    check("vstart_set_zeroed", Xlen'(vstart_set), 32'h0);
 
     vec_instr(1'b1, 8'd0, 32'h8000_0000);
     csr_peek(VtypeAddr);
