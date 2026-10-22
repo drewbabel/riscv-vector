@@ -36,6 +36,8 @@ module vec_issue_tb
   logic [2:0] vsew;
   logic [2:0] vlmul;
   logic [1:0] vxrm;
+  vec_fop_e fop;
+  logic [2:0] frm;
 
   logic seq_busy;
   logic seq_done;
@@ -55,6 +57,8 @@ module vec_issue_tb
   logic [2:0] seq_vsew;
   logic [2:0] seq_vlmul;
   logic [1:0] seq_vxrm;
+  vec_fop_e seq_fop;
+  logic [2:0] seq_frm;
   logic vec_hold;
   logic vec_idle;
   logic load_pending;
@@ -86,6 +90,7 @@ module vec_issue_tb
       .simm(simm),
       .xdata(xdata),
       .xstride(xstride),
+      .fop(fop),
       .wr_regs('0),
       .rd1('0),
       .rd1_regs('0),
@@ -96,6 +101,7 @@ module vec_issue_tb
       .vsew(vsew),
       .vlmul(vlmul),
       .vxrm(vxrm),
+      .frm(frm),
       .seq_busy(seq_busy),
       .seq_done(seq_done),
       .pipe_busy(1'b0),
@@ -116,6 +122,8 @@ module vec_issue_tb
       .seq_vsew(seq_vsew),
       .seq_vlmul(seq_vlmul),
       .seq_vxrm(seq_vxrm),
+      .seq_fop(seq_fop),
+      .seq_frm(seq_frm),
       .vec_hold(vec_hold),
       .vec_idle(vec_idle),
       .load_pending(load_pending),
@@ -164,6 +172,8 @@ module vec_issue_tb
   logic [2:0] sb_vsew[SbDepth];
   logic [2:0] sb_vlmul[SbDepth];
   logic [1:0] sb_vxrm[SbDepth];
+  vec_fop_e sb_fop[SbDepth];
+  logic [2:0] sb_frm[SbDepth];
   vec_eew_e sb_eew[SbDepth];
 
   int sb_head = 0;
@@ -195,6 +205,8 @@ module vec_issue_tb
     sb_vsew[sb_tail]     = vsew;
     sb_vlmul[sb_tail]    = vlmul;
     sb_vxrm[sb_tail]     = vxrm;
+    sb_fop[sb_tail]      = fop;
+    sb_frm[sb_tail]      = frm;
     sb_eew[sb_tail]      = eew;
     sb_tail              = (sb_tail + 1) % SbDepth;
     accepted             = accepted + 1;
@@ -220,6 +232,8 @@ module vec_issue_tb
       note("vsew", 32'(sb_vsew[sb_head]), 32'(seq_vsew));
       note("vlmul", 32'(sb_vlmul[sb_head]), 32'(seq_vlmul));
       note("vxrm", 32'(sb_vxrm[sb_head]), 32'(seq_vxrm));
+      note("fop", 32'(sb_fop[sb_head]), 32'(seq_fop));
+      note("frm", 32'(sb_frm[sb_head]), 32'(seq_frm));
       note("eew", 32'(sb_eew[sb_head]), 32'(seq_eew));
       sb_head  = (sb_head + 1) % SbDepth;
       launched = launched + 1;
@@ -304,6 +318,8 @@ module vec_issue_tb
     vsew        = 3'd2;
     vlmul       = 3'd0;
     vxrm        = 2'd0;
+    fop         = VEC_FADD;
+    frm         = 3'd0;
     repeat (3) @(negedge clk);
     rst_n = 1'b1;
     @(negedge clk);
@@ -315,6 +331,8 @@ module vec_issue_tb
     vsew  = 3'($urandom % 3);
     vlmul = 3'($urandom);
     vxrm  = 2'($urandom);
+    frm   = 3'($urandom);
+    fop   = vec_fop_e'($urandom_range(32'(VEC_FMV)));
   endtask
 
   // The one primitive
