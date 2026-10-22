@@ -271,7 +271,7 @@ module vec_unit
   logic v0_is_data;
   always_comb begin
     case (seq_op)
-      VEC_ADC, VEC_SBC, VEC_MERGE: v0_is_data = 1'b1;
+      VEC_ADC, VEC_SBC, VEC_MADC, VEC_MSBC, VEC_MERGE: v0_is_data = 1'b1;
       default: v0_is_data = 1'b0;
     endcase
   end
@@ -821,6 +821,7 @@ module vec_unit
       .vs2_data(vs2_data),
       .vs1_data(vs1_data),
       .v0_bits(rdata0_ex),
+      .mask_bits(mask_bits_ex),
       .xdata(xdata_ex),
       .simm(simm_ex),
       .elem_base(elem_base_ex),
