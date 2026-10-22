@@ -295,6 +295,10 @@ module vec_unit
   assign scalar_legal = ((dec_cls != VEC_CLS_XS) && (dec_cls != VEC_CLS_SX) &&
                          (dec_cls != VEC_CLS_MLOG)) || dec_vm;
 
+  // Carry forms masked
+  logic carry_legal;
+  assign carry_legal = ((dec_op != VEC_ADC) && (dec_op != VEC_SBC)) || !dec_vm;
+
   // Memory snapshot
   logic                   dec_mem;
   logic signed [     3:0] emul_log2;
@@ -479,7 +483,7 @@ module vec_unit
   assign mul_built = (dec_cls != VEC_CLS_MUL) || !dec_geom_s.widen;
 
   assign op_ready = (dec_cls != VEC_CLS_NONE) && mul_built && group_legal &&
-      (dec_mem || (width_legal && scalar_legal));
+      (dec_mem || (width_legal && scalar_legal && carry_legal));
   assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 
