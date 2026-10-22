@@ -84,6 +84,7 @@ module vec_seq_formal
       .mask_dest   (mask_dest),
       .mask_whole  (mask_whole),
       .mask_src    (mask_src),
+      .serial      (1'b0),
       .v0_bits     ({VLEN{1'b1}}),
       .raddr1      (raddr1),
       .raddr2      (raddr2),
