@@ -259,6 +259,8 @@ jobs:
         run: python3 tests/cosim.py --vec --fp vecfmvdiv
       - name: Vector float reduction co-sim
         run: python3 tests/cosim.py --vec --fp vecfred
+      - name: Vector float sum co-sim
+        run: python3 tests/cosim.py --vec --fp vecfsum
       - name: Draw the random co-sim seed
         run: |
           seed=$(( $(od -An -N4 -tu4 /dev/urandom) % 1000000000 ))
