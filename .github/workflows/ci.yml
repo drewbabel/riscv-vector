@@ -247,6 +247,8 @@ jobs:
         run: python3 tests/cosim.py --vec vecdiv
       - name: Vector scalar-return co-sim
         run: python3 tests/cosim.py --vec vecxres
+      - name: Vector compress co-sim
+        run: python3 tests/cosim.py --vec veccompress
       - name: Scalar float co-sim
         run: python3 tests/cosim.py --fp cosim_f
       - name: Randomized vector memory co-sim (100 programs)
