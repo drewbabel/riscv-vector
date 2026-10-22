@@ -947,6 +947,7 @@ module datapath
       .dec           (vec_dec_ex),
       .instr_valid   (vec_issue_ok),
       .cancel        (trap_taken),
+      .ex_advance    (idex_en),
       .xdata         (forwarded_rs1),
       .xstride       (forwarded_rs2),
       .fdata         (fp_a_ex),
