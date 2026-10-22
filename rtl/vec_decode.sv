@@ -510,6 +510,14 @@ module vec_decode
         6'b010011:
         if (is_fv) begin
           case (vs1)
+            5'b00100: begin
+              op  = VEC_FARITH;
+              fop = VEC_FRSQRT7;
+            end
+            5'b00101: begin
+              op  = VEC_FARITH;
+              fop = VEC_FREC7;
+            end
             5'b10000: begin
               op  = VEC_FARITH;
               fop = VEC_FCLASS;
