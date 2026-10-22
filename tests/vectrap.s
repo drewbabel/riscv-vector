@@ -67,6 +67,33 @@ T13:    .word   0x026120d7
 R13:    vsetvli t0, a0, e8, m1, tu, mu
         lw      t2, 8(s0)
 
+        # Mask destination overlap
+        vsetvli t0, a0, e8, m2, tu, mu
+        li      t1, 0x5a
+        jal     ra, T14
+        j       R14
+T14:    vmseq.vv   v9, v8, v4
+R14:    jal     ra, T15
+        j       R15
+T15:    vmslt.vv   v5, v8, v4
+R15:    jal     ra, T16
+        j       R16
+T16:    vmsgtu.vi  v9, v8, 3
+R16:    jal     ra, T17
+        j       R17
+T17:    vmsne.vx   v9, v8, t1
+R17:    jal     ra, T18
+        j       R18
+T18:    vmadc.vvm  v9, v8, v4, v0
+R18:    jal     ra, T19
+        j       R19
+T19:    vmsbc.vx   v9, v8, t1
+R19:    vmseq.vv   v8, v8, v4
+        vmadc.vv   v4, v8, v4
+        vmsltu.vx  v12, v8, t1
+        vsetvli t0, a0, e8, m1, tu, mu
+        lw      t2, 12(s0)
+
         # Vector state off
         li      t0, 0x600
         csrc    mstatus, t0
