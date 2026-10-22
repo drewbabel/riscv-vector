@@ -111,6 +111,7 @@ module vec_unit
   logic                     dec_reads_vd;
   logic                     dec_reads_xreg;
   logic                     dec_writes_xreg;
+  logic                     dec_writes_freg;
   logic                     dec_writes_mask;
   logic      [         1:0] dec_width;
   logic                     dec_whole;
@@ -527,7 +528,8 @@ module vec_unit
   // Float needs e32
   logic dec_fp;
   logic fp_legal;
-  assign dec_fp = (dec_cls == VEC_CLS_FP) || (dec_cls == VEC_CLS_FCMP);
+  assign dec_fp = (dec_cls == VEC_CLS_FP) || (dec_cls == VEC_CLS_FCMP) || dec.reads_freg ||
+      dec_writes_freg;
   assign fp_legal = !dec_fp || ((vsew == 3'd2) && (frm < 3'd5));
 
   assign op_ready = (dec_cls != VEC_CLS_NONE) && mul_built && fp_legal && group_legal &&
@@ -547,6 +549,7 @@ module vec_unit
   assign dec_reads_vd = dec.reads_vd;
   assign dec_reads_xreg = dec.reads_xreg;
   assign dec_writes_xreg = dec.writes_xreg;
+  assign dec_writes_freg = dec.writes_freg;
   assign dec_writes_mask = dec.writes_mask;
   assign dec_width = dec.mem_width;
   assign dec_whole = dec.mem_whole;
@@ -567,7 +570,7 @@ module vec_unit
       .op(dec_op),
       .src(dec_src),
       .eew(dec_eew),
-      .writes_xreg(dec_writes_xreg),
+      .writes_xreg(dec_writes_xreg || dec_writes_freg),
       .vs1(dec_vs1),
       .vs2(dec_vs2),
       .vd(dec_vd),
