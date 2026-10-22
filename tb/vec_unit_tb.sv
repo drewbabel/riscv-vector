@@ -2924,20 +2924,99 @@ module vec_unit_tb
   endfunction
 
   // Element order fold
+  // Exact sum then round
+  function automatic logic [36:0] ref_add(input logic [31:0] a, input logic [31:0] b,
+                                          input logic [2:0] rm);
+    logic signed [299:0] xa;
+    logic signed [299:0] xb;
+    logic signed [299:0] sum;
+    logic        [299:0] mag;
+    logic        [299:0] rem;
+    logic        [299:0] half;
+    logic        [299:0] q;
+    logic                a_nan;
+    logic                b_nan;
+    logic                sign;
+    logic                up;
+    int                  p;
+    int                  shift;
+    int                  e;
+    a_nan = (a[30:23] == 8'hFF) && (a[22:0] != '0);
+    b_nan = (b[30:23] == 8'hFF) && (b[22:0] != '0);
+    if (a_nan || b_nan)
+      return {((a_nan && !a[22]) || (b_nan && !b[22])) ? 5'b10000 : 5'b0, 32'h7FC0_0000};
+    if ((a[30:0] == 31'h7F80_0000) && (b[30:0] == 31'h7F80_0000))
+      return (a[31] != b[31]) ? {5'b10000, 32'h7FC0_0000} : {5'b0, a};
+    if (a[30:0] == 31'h7F80_0000) return {5'b0, a};
+    if (b[30:0] == 31'h7F80_0000) return {5'b0, b};
+    xa = (a[30:23] == 0) ? 300'(a[22:0]) : (300'({1'b1, a[22:0]}) << (a[30:23] - 1));
+    xb = (b[30:23] == 0) ? 300'(b[22:0]) : (300'({1'b1, b[22:0]}) << (b[30:23] - 1));
+    if (a[31]) xa = -xa;
+    if (b[31]) xb = -xb;
+    sum = xa + xb;
+    if (sum == 0) return {5'b0, (a[31] == b[31]) ? a[31] : (rm == 3'd2), 31'b0};
+    sign = sum < 0;
+    mag = sign ? -sum : sum;
+    p = 0;
+    for (int i = 0; i < 300; i++) if (mag[i]) p = i;
+    shift = (p > 23) ? p - 23 : 0;
+    q = mag >> shift;
+    rem = (shift > 0) ? (mag & ((300'(1) << shift) - 1)) : '0;
+    half = (shift > 0) ? (300'(1) << (shift - 1)) : '0;
+    case (rm)
+      3'd0: up = (rem > half) || ((rem == half) && (rem != 0) && q[0]);
+      3'd1: up = 1'b0;
+      3'd2: up = (rem != 0) && sign;
+      3'd3: up = (rem != 0) && !sign;
+      default: up = (rem != 0) && (rem >= half);
+    endcase
+    q = q + 300'(up);
+    e = shift;
+    if (q[24]) begin
+      q = q >> 1;
+      e = e + 1;
+    end
+    if (!q[23]) return {(rem != 0) ? 5'b00011 : 5'b0, sign, 8'h00, q[22:0]};
+    if (e + 1 >= 255) begin
+      if ((rm == 3'd1) || ((rm == 3'd2) && !sign) || ((rm == 3'd3) && sign))
+        return {5'b00101, sign, 31'h7F7F_FFFF};
+      return {5'b00101, sign, 31'h7F80_0000};
+    end
+    return {(rem != 0) ? 5'b00001 : 5'b0, sign, 8'(e + 1), q[22:0]};
+  endfunction
+
+  function automatic logic fred_is_sum(input vec_fop_e o);
+    return (o == VEC_FREDOSUM) || (o == VEC_FREDUSUM);
+  endfunction
+
   task automatic ref_fred(input vec_fop_e o, input logic [4:0] s1, input logic [4:0] s2,
                           input logic [4:0] d, input logic vmb, input int regs, input int len,
-                          output logic [4:0] want_flags);
+                          input logic [2:0] rm, output logic [4:0] want_flags);
     logic [31:0] acc;
     logic [31:0] v;
+    logic [36:0] r;
+    logic        seen;
     want_flags = '0;
+    seen       = 1'b0;
     if (len == 0) return;
     acc = grp_get(s1, 32, 0);
     for (int i = 0; i < group_elems(32, regs); i++) begin
       if ((i < len) && (vmb || shadow[0][i])) begin
-        v = grp_get(s2, 32, i);
-        if (fred_snan(acc) || fred_snan(v)) want_flags = 5'b10000;
-        acc = fred_pair(o, acc, v);
+        v    = grp_get(s2, 32, i);
+        seen = 1'b1;
+        if (fred_is_sum(o)) begin
+          r          = ref_add(acc, v, rm);
+          acc        = r[31:0];
+          want_flags = want_flags | r[36:32];
+        end else begin
+          if (fred_snan(acc) || fred_snan(v)) want_flags = 5'b10000;
+          acc = fred_pair(o, acc, v);
+        end
       end
+    end
+    if (!seen && (o == VEC_FREDUSUM) && (acc[30:23] == 8'hFF) && (acc[22:0] != '0)) begin
+      if (fred_snan(acc)) want_flags = 5'b10000;
+      acc = 32'h7FC0_0000;
     end
     grp_set(d, 32, 0, acc);
   endtask
@@ -2945,7 +3024,14 @@ module vec_unit_tb
   function automatic logic [31:0] fred_encode(input vec_fop_e o, input logic [4:0] s1,
                                               input logic [4:0] s2, input logic [4:0] d,
                                               input logic vmb);
-    return enc((o == VEC_FMAX) ? 6'b000111 : 6'b000101, vmb, s2, s1, 3'b001, d);
+    logic [5:0] f6;
+    case (o)
+      VEC_FREDUSUM: f6 = 6'b000001;
+      VEC_FREDOSUM: f6 = 6'b000011;
+      VEC_FMAX:     f6 = 6'b000111;
+      default:      f6 = 6'b000101;
+    endcase
+    return enc(f6, vmb, s2, s1, 3'b001, d);
   endfunction
 
   task automatic run_fred(input vec_fop_e o, input logic [4:0] s1, input logic [4:0] s2,
@@ -2959,7 +3045,7 @@ module vec_unit_tb
       vlmul = lmul;
       vl    = len;
       frm   = rm;
-      ref_fred(o, s1, s2, d, vmb, regs, int'(len), want);
+      ref_fred(o, s1, s2, d, vmb, regs, int'(len), rm, want);
       flags_seen = '0;
       wb_writes  = 0;
       issue(fred_encode(o, s1, s2, d, vmb));
@@ -2995,9 +3081,13 @@ module vec_unit_tb
     vec_fop_e o;
     int       regs;
     begin
-      for (int k = 0; k < 2; k++) begin
-        if (k == 0) o = VEC_FMIN;
-        else o = VEC_FMAX;
+      for (int k = 0; k < 4; k++) begin
+        case (k)
+          0: o = VEC_FMIN;
+          1: o = VEC_FMAX;
+          2: o = VEC_FREDOSUM;
+          default: o = VEC_FREDUSUM;
+        endcase
         for (int lmul = 0; lmul < 4; lmul++) begin
           regs = 1 << lmul;
           for (int m = 0; m < 2; m++) begin
@@ -3011,6 +3101,16 @@ module vec_unit_tb
         end
       end
       seed_fred();
+      seed_reg(5'd16, {32'hCB80_0000, 32'h3F80_0000, 32'h3F80_0000, 32'h4B80_0000});
+      seed_reg(5'd4, '0);
+      for (int rm = 0; rm < 5; rm++) begin
+        run_fred(VEC_FREDOSUM, 5'd4, 5'd16, 5'd5, 1'b1, 3'd0, 8'd4, 3'(rm));
+        run_fred(VEC_FREDUSUM, 5'd4, 5'd16, 5'd5, 1'b1, 3'd0, 8'd4, 3'(rm));
+      end
+      seed_reg(5'd4, {(VLEN / 32) {32'h7F80_0001}});
+      seed_reg(5'd0, '0);
+      run_fred(VEC_FREDOSUM, 5'd4, 5'd16, 5'd5, 1'b0, 3'd0, 8'd4, 3'd0);
+      run_fred(VEC_FREDUSUM, 5'd4, 5'd16, 5'd5, 1'b0, 3'd0, 8'd4, 3'd0);
       seed_reg(5'd16, {(VLEN / 32) {32'h8000_0000}});
       seed_reg(5'd4, {(VLEN / 32) {32'h0000_0000}});
       run_fred(VEC_FMIN, 5'd4, 5'd16, 5'd5, 1'b1, 3'd0, 8'd4, 3'd0);
@@ -3037,21 +3137,29 @@ module vec_unit_tb
         want  = '0;
         model_fp(VEC_FMUL, 0, 5'd1, 5'd2, 5'd10, 1'b1, '0, 1, 8'd4, 3'(r % 5), f);
         want = want | f;
-        ref_fred(VEC_FMIN, 5'd3, 5'd10, 5'd11, 1'b1, 1, 4, f);
+        ref_fred(VEC_FREDOSUM, 5'd3, 5'd10, 5'd11, 1'b1, 1, 4, frm, f);
         want = want | f;
         ref_apply(VEC_ADD, 0, 5'd4, 5'd5, 5'd12, 1'b1, '0, 5'd0, 32, 1, 4);
-        ref_fred(VEC_FMAX, 5'd11, 5'd6, 5'd13, 1'b0, 1, 4, f);
+        ref_fred(VEC_FMAX, 5'd11, 5'd6, 5'd13, 1'b0, 1, 4, frm, f);
         want = want | f;
         model_lane(VEC_MUL, 0, 5'd7, 5'd8, 5'd14, 1'b1, '0, 5'd0, 32, 1, 8'd4, 2'd0, sat);
-        ref_fred(VEC_FMIN, 5'd13, 5'd14, 5'd15, 1'b1, 1, 4, f);
+        ref_fred(VEC_FREDUSUM, 5'd13, 5'd14, 5'd15, 1'b1, 1, 4, frm, f);
         want = want | f;
+        ref_fred(VEC_FREDOSUM, 5'd15, 5'd10, 5'd16, 1'b0, 1, 4, frm, f);
+        want = want | f;
+        ref_fred(VEC_FMIN, 5'd3, 5'd2, 5'd17, 1'b1, 1, 4, frm, f);
+        want = want | f;
+        ref_reduce(VEC_REDSUM, 5'd1, 5'd2, 5'd18, 1'b1, 32, 1, 4, 1'b0);
         flags_seen = '0;
         issue(fp_encode(VEC_FMUL, 0, 5'd1, 5'd2, 5'd10, 1'b1));
-        issue(fred_encode(VEC_FMIN, 5'd3, 5'd10, 5'd11, 1'b1));
+        issue(fred_encode(VEC_FREDOSUM, 5'd3, 5'd10, 5'd11, 1'b1));
         issue(enc(6'b000000, 1'b1, 5'd5, 5'd4, 3'b000, 5'd12));
         issue(fred_encode(VEC_FMAX, 5'd11, 5'd6, 5'd13, 1'b0));
         issue(lane_instr(VEC_MUL, 0, 5'd7, 5'd8, 5'd14, 1'b1, 5'd0));
-        issue(fred_encode(VEC_FMIN, 5'd13, 5'd14, 5'd15, 1'b1));
+        issue(fred_encode(VEC_FREDUSUM, 5'd13, 5'd14, 5'd15, 1'b1));
+        issue(fred_encode(VEC_FREDOSUM, 5'd15, 5'd10, 5'd16, 1'b0));
+        issue(fred_encode(VEC_FMIN, 5'd3, 5'd2, 5'd17, 1'b1));
+        issue(enc(6'b000000, 1'b1, 5'd2, 5'd1, 3'b010, 5'd18));
         frm = 3'd0;
         drain();
         check_regs($sformatf("reduction stream %0d", r));
@@ -3069,8 +3177,14 @@ module vec_unit_tb
       for (int i = 0; i < n; i++) begin
         lmul = 3'($urandom_range(3));
         regs = 1 << lmul[1:0];
-        if ($urandom_range(1) != 0) o = VEC_FMAX;
-        else o = VEC_FMIN;
+        case ($urandom_range(
+            3
+        ))
+          0: o = VEC_FMIN;
+          1: o = VEC_FMAX;
+          2: o = VEC_FREDOSUM;
+          default: o = VEC_FREDUSUM;
+        endcase
         run_fred(o, 5'($urandom_range(31)), 5'(8 * $urandom_range(3)), 5'($urandom_range(31)),
                  1'($urandom), lmul, 8'($urandom_range(4 * regs)), 3'($urandom_range(4)));
         if ($urandom_range(7) == 0) seed_fred();
@@ -3096,7 +3210,24 @@ module vec_unit_tb
         @(negedge clk);
         note($sformatf("float reduction at frm %0d", m), 32'(is_vector), 32'(m < 5));
       end
+      for (int k = 0; k < 2; k++) begin
+        if (k == 0) instr = fred_encode(VEC_FREDOSUM, 5'd4, 5'd8, 5'd12, 1'b1);
+        else instr = fred_encode(VEC_FREDUSUM, 5'd4, 5'd8, 5'd12, 1'b0);
+        for (int s = 0; s < 3; s++) begin
+          for (int m = 4; m < 7; m++) begin
+            vsew = 3'(s);
+            frm  = 3'(m);
+            @(negedge clk);
+            note($sformatf("float sum %0d at sew %0d frm %0d", k, 8 << s, m), 32'(is_vector),
+                 32'((s == 2) && (m < 5)));
+          end
+        end
+      end
+      vsew  = 3'd2;
       frm   = 3'd0;
+      instr = enc(6'b000001, 1'b1, 5'd8, 5'd4, 3'b101, 5'd12);
+      @(negedge clk);
+      note("float sum scalar form", 32'(is_vector), 32'd0);
       instr = enc(6'b000111, 1'b1, 5'd8, 5'd4, 3'b101, 5'd12);
       @(negedge clk);
       note("float reduction scalar form", 32'(is_vector), 32'd0);
@@ -3173,6 +3304,34 @@ module vec_unit_tb
         note($sformatf("vfmv.f.s after merge %0d", r), got, want);
         frm = 3'd0;
       end
+    end
+  endtask
+
+  int busy_cycles = 0;
+  always @(negedge clk) if (rst_n && core_en && dut.seq_busy) busy_cycles = busy_cycles + 1;
+
+  // Group step cadence
+  task automatic check_fred_timing();
+    begin
+      seed_fred();
+      vsew  = 3'd2;
+      vlmul = 3'd3;
+      vl    = 8'd32;
+      frm   = 3'd0;
+      for (int k = 0; k < 4; k++) begin
+        busy_cycles = 0;
+        case (k)
+          0: issue(enc(6'b000000, 1'b1, 5'd8, 5'd16, 3'b000, 5'd24));
+          1: issue(fred_encode(VEC_FMIN, 5'd1, 5'd8, 5'd2, 1'b1));
+          2: issue(fred_encode(VEC_FREDOSUM, 5'd1, 5'd8, 5'd3, 1'b1));
+          default: issue(fred_encode(VEC_FREDUSUM, 5'd1, 5'd8, 5'd4, 1'b1));
+        endcase
+        drain();
+        note($sformatf("busy cycles of form %0d", k), 32'(busy_cycles), (k < 2) ? 32'd8 : 32'd63);
+      end
+      seed_fred();
+      vlmul = 3'd0;
+      vl    = 8'd4;
     end
   endtask
 
@@ -3284,6 +3443,7 @@ module vec_unit_tb
     check_fred_rules();
     check_fred_ops();
     check_fred_stream();
+    check_fred_timing();
     soak_fred(150);
 
     verdict();
