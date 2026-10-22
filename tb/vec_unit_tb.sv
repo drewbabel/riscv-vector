@@ -34,6 +34,7 @@ module vec_unit_tb
   logic [ XLEN-1:0] fdata;
   logic [      2:0] frm;
   logic [      4:0] fflags;
+  logic             vstart_set;
   logic [      4:0] flags_seen;
   logic             vill;
   logic [  VlW-1:0] vl;
@@ -171,6 +172,7 @@ module vec_unit_tb
       .vxsat(vxsat),
       .frm(frm),
       .fflags(fflags),
+      .vstart_set(vstart_set),
       .mem_rdata(mem_rdata),
       .mem_ready(mem_ready),
       .mem_req(mem_req),
@@ -332,6 +334,7 @@ module vec_unit_tb
     xstride     = '0;
     fdata       = '0;
     frm         = 3'd0;
+    vstart_set  = 1'b0;
     vill        = 1'b0;
     mem_ready   = 1'b1;
     for (int b = 0; b < Bytes; b++) begin
@@ -3307,6 +3310,55 @@ module vec_unit_tb
     end
   endtask
 
+  // Nonzero vstart traps
+  task automatic check_vstart_rules();
+    logic [5:0] f6;
+    logic [2:0] f3;
+    begin
+      vill  = 1'b0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      frm   = 3'd0;
+      for (int k = 0; k < 16; k++) begin
+        f3 = 3'b010;
+        case (k)
+          8: begin
+            f6 = 6'b110000;
+            f3 = 3'b000;
+          end
+          9: begin
+            f6 = 6'b110001;
+            f3 = 3'b000;
+          end
+          10, 11, 12, 13: begin
+            f6 = {3'b000, 2'(k - 10), 1'b1};
+            f3 = 3'b001;
+          end
+          14: begin
+            f6 = 6'b000000;
+            f3 = 3'b000;
+          end
+          15: begin
+            f6 = 6'b000000;
+            f3 = 3'b001;
+          end
+          default: f6 = 6'(k);
+        endcase
+        vsew  = (f3 == 3'b001) ? 3'd2 : 3'd1;
+        instr = enc(f6, 1'b1, 5'd8, 5'd4, f3, 5'd12);
+        for (int v = 0; v < 2; v++) begin
+          vstart_set = 1'(v);
+          @(negedge clk);
+          note($sformatf("form %0d with vstart set %0d", k, v), 32'(is_vector),
+               32'((k >= 14) || (v == 0)));
+        end
+      end
+      vstart_set = 1'b0;
+      instr      = 32'd0;
+      vsew       = 3'd2;
+    end
+  endtask
+
   int busy_cycles = 0;
   always @(negedge clk) if (rst_n && core_en && dut.seq_busy) busy_cycles = busy_cycles + 1;
 
@@ -3441,6 +3493,7 @@ module vec_unit_tb
 
     // Float reductions
     check_fred_rules();
+    check_vstart_rules();
     check_fred_ops();
     check_fred_stream();
     check_fred_timing();
