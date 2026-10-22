@@ -46,6 +46,7 @@ VECTOR_MARCH = "rv32im_zve32x_zvl128b"  # Zvl128b or VLEN reads 32
 VECTOR = False
 FP_MARCH = "rv32imf_zicsr"
 FP = False
+VECTOR_FP_MARCH = "rv32imf_zicsr_zve32f_zvl128b"
 
 VL_ADDR, VTYPE_ADDR, VSTART_ADDR = 0xC20, 0xC21, 0x008
 VTYPE_RESET = 0x8000_0000  # vill set out of reset
@@ -72,6 +73,8 @@ MEPC_ADDR = 0x341
 
 
 def march():
+    if FP and VECTOR:
+        return VECTOR_FP_MARCH
     if FP:
         return FP_MARCH
     if VECTOR:
