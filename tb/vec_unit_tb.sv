@@ -2189,6 +2189,112 @@ module vec_unit_tb
     end
   endtask
 
+  // Compress model
+  task automatic ref_compress(input logic [4:0] s1, input logic [4:0] s2, input logic [4:0] d,
+                              input int w, input logic [VlW-1:0] len);
+    int pos;
+    begin
+      pos = 0;
+      for (int i = 0; i < int'(len); i++) begin
+        if (mbit(s1, i)) begin
+          grp_set(d, w, pos, grp_get(s2, w, i));
+          pos = pos + 1;
+        end
+      end
+    end
+  endtask
+
+  // One compress
+  task automatic run_compress(input logic [4:0] s1, input logic [4:0] s2, input logic [4:0] d,
+                              input logic [2:0] sew, input logic [2:0] lmul,
+                              input logic [VlW-1:0] len);
+    begin
+      vsew  = sew;
+      vlmul = lmul;
+      vl    = len;
+      ref_compress(s1, s2, d, 8 << sew, len);
+      issue(enc(6'b010111, 1'b1, s2, s1, 3'b010, d));
+      drain();
+      check_regs("compress");
+    end
+  endtask
+
+  // Every compress shape
+  task automatic check_compress();
+    int vlmax;
+    logic [2:0] sew;
+    begin
+      seed_all();
+      for (int e = 0; e < 3; e++) begin
+        sew = 3'(e);
+        for (int lmul = 0; lmul < 2; lmul++) begin
+          vlmax = (VLEN >> (3 + sew)) << lmul;
+          run_compress(5'd3, 5'd8, 5'd12, sew, 3'(lmul), VlW'(vlmax));
+          run_compress(5'd3, 5'd8, 5'd12, sew, 3'(lmul), VlW'(1 + ($urandom % vlmax)));
+          seed_reg(5'd3, '0);
+          run_compress(5'd3, 5'd8, 5'd12, sew, 3'(lmul), VlW'(vlmax));
+          seed_reg(5'd3, '1);
+          run_compress(5'd3, 5'd8, 5'd12, sew, 3'(lmul), VlW'(vlmax));
+          run_compress(5'd3, 5'd8, 5'd12, sew, 3'(lmul), VlW'(vlmax / 2 - 1));
+          seed_reg(5'd3, rand_vec());
+          run_compress(5'd3, 5'd8, 5'd12, sew, 3'(lmul), VlW'(vlmax - 3));
+          run_compress(5'd0, 5'd16, 5'd20, sew, 3'(lmul), VlW'(vlmax));
+        end
+      end
+      run_compress(5'd3, 5'd8, 5'd16, 3'd0, 3'd3, 8'd0);
+      for (int k = 0; k < 12; k++) begin
+        sew = 3'($urandom % 3);
+        seed_reg(5'd3, rand_vec());
+        run_compress(5'd3, 5'd8, 5'd16, sew, 3'd2,
+                     VlW'($urandom % (((VLEN >> (3 + sew)) << 2) + 1)));
+      end
+    end
+  endtask
+
+  // Compress back to back
+  task automatic check_compress_stream();
+    begin
+      seed_all();
+      vsew  = 3'd2;
+      vlmul = 3'd1;
+      vl    = 8'd8;
+      ref_apply(VEC_ADD, 0, 5'd4, 5'd6, 5'd8, 1'b1, '0, 5'd0, 32, 2, 8);
+      issue(enc(6'b000000, 1'b1, 5'd6, 5'd4, 3'b000, 5'd8));
+      ref_compress(5'd3, 5'd8, 5'd12, 32, 8'd8);
+      issue(enc(6'b010111, 1'b1, 5'd8, 5'd3, 3'b010, 5'd12));
+      ref_apply(VEC_XOR, 0, 5'd12, 5'd8, 5'd14, 1'b1, '0, 5'd0, 32, 2, 8);
+      issue(enc(6'b001011, 1'b1, 5'd8, 5'd12, 3'b000, 5'd14));
+      drain();
+      check_regs("compress stream");
+    end
+  endtask
+
+  // Compress encodings trap
+  task automatic check_compress_rules();
+    begin
+      vill  = 1'b0;
+      vsew  = 3'd0;
+      vl    = 8'd8;
+      vlmul = 3'd1;
+      instr = enc(6'b010111, 1'b1, 5'd8, 5'd3, 3'b010, 5'd12);
+      #1 note("compress legal", 32'(is_vector), 32'd1);
+      instr = enc(6'b010111, 1'b0, 5'd8, 5'd3, 3'b010, 5'd12);
+      #1 note("compress masked", 32'(is_vector), 32'd0);
+      instr = enc(6'b010111, 1'b1, 5'd8, 5'd3, 3'b010, 5'd8);
+      #1 note("compress onto source", 32'(is_vector), 32'd0);
+      instr = enc(6'b010111, 1'b1, 5'd8, 5'd13, 3'b010, 5'd12);
+      #1 note("compress onto mask", 32'(is_vector), 32'd0);
+      instr = enc(6'b010111, 1'b1, 5'd8, 5'd12, 3'b010, 5'd12);
+      #1 note("compress mask is base", 32'(is_vector), 32'd0);
+      instr = enc(6'b010111, 1'b1, 5'd8, 5'd3, 3'b010, 5'd13);
+      #1 note("compress base off", 32'(is_vector), 32'd0);
+      instr = enc(6'b010111, 1'b1, 5'd8, 5'd0, 3'b010, 5'd10);
+      #1 note("compress beside source", 32'(is_vector), 32'd1);
+      vlmul = 3'd0;
+      instr = 32'd0;
+    end
+  endtask
+
   task automatic verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
@@ -2278,6 +2384,10 @@ module vec_unit_tb
     check_divide_overlap();
     check_lane_stream();
     soak_lanes(200);
+
+    check_compress_rules();
+    check_compress();
+    check_compress_stream();
 
     verdict();
   end
