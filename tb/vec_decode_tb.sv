@@ -25,6 +25,7 @@ module vec_decode_tb
   logic            writes_mask;
   logic     [ 1:0] mem_width;
   logic            mem_whole;
+  logic     [ 2:0] mem_nf;
   logic            mem_mask;
   logic            mem_strided;
 
@@ -51,6 +52,7 @@ module vec_decode_tb
       .writes_mask(writes_mask),
       .mem_width  (mem_width),
       .mem_whole  (mem_whole),
+      .mem_nf     (mem_nf),
       .mem_mask   (mem_mask),
       .mem_strided(mem_strided)
   );
@@ -82,11 +84,14 @@ module vec_decode_tb
       3'b110:  w = 2'd2;
       default: return 6'b0;
     endcase
-    if (nf != 3'b000 || mew) return 6'b0;
+    if (mew) return 6'b0;
+    if (rs2 == 5'b01000 && mop == 2'b00 && mask_bit && (!store || width == 3'b000) &&
+        (nf == 3'd0 || nf == 3'd1 || nf == 3'd3 || nf == 3'd7))
+      return {1'b1, w, 3'b100};
+    if (nf != 3'b000) return 6'b0;
     if (mop == 2'b10) return {1'b1, w, 3'b010};
     if (mop != 2'b00) return 6'b0;
     if (rs2 == 5'b00000) return {1'b1, w, 3'b000};
-    if (rs2 == 5'b01000 && mask_bit && (!store || width == 3'b000)) return {1'b1, w, 3'b100};
     if (rs2 == 5'b01011 && mask_bit && width == 3'b000) return {1'b1, w, 3'b001};
     return 6'b0;
   endfunction
@@ -117,7 +122,7 @@ module vec_decode_tb
         6'b100000, 6'b100001: return 1'b1;
         6'b100010, 6'b100011: return v || x;
         6'b100101: return 1'b1;
-        6'b100111: return 1'b1;
+        6'b100111: return !i || rs1 == 5'd0 || rs1 == 5'd1 || rs1 == 5'd3 || rs1 == 5'd7;
         6'b101000, 6'b101001, 6'b101010, 6'b101011: return 1'b1;
         6'b101100, 6'b101101, 6'b101110, 6'b101111: return 1'b1;
         6'b110000, 6'b110001: return v;
@@ -195,6 +200,18 @@ module vec_decode_tb
     end
   endtask
 
+  task automatic chk_masked_illegal(input logic [5:0] funct6, input logic [2:0] funct3,
+                                    input logic [4:0] rs1);
+    instr = enc(funct6, 1'b0, 5'd2, rs1, funct3, 5'd3);
+    #1;
+    checks++;
+    if (valid !== 1'b0 || op !== VEC_ILLEGAL) begin
+      errors++;
+      $display("FAIL masked f6=%b f3=%b got=%0d at %0t", funct6, funct3, op, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
+  endtask
+
   task automatic chk_fields(input logic [4:0] rs2, input logic [4:0] rs1, input logic [4:0] rd,
                             input logic mask_bit);
     instr = enc(6'b000000, mask_bit, rs2, rs1, Fvv, rd);
@@ -244,7 +261,7 @@ module vec_decode_tb
     if (!exp[5]) got[4:0] = 5'b0;
     checks++;
     if (got !== exp || op !== exp_op || (exp[5] && (!reads_xreg || vd !== 5'd3 ||
-        vm !== top[0] || src !== VEC_SRC_NONE))) begin
+        vm !== top[0] || src !== VEC_SRC_NONE || mem_nf !== (exp[2] ? top[6:4] : 3'd0)))) begin
       errors++;
       $display("FAIL mem top=%b rs2=%b w=%b store=%b got=%b exp=%b at %0t", top, rs2, width, store,
                got, exp, $time);
@@ -311,6 +328,15 @@ module vec_decode_tb
     chk_op(6'b100111, Fvv, 5'd1, VEC_SMUL, VEC_SRC_VV, VEC_EEW_SAME);
     chk_op(6'b100111, Fvi, 5'd1, VEC_MVNRR, VEC_SRC_VI, VEC_EEW_SAME);
 
+    // Whole register moves
+    chk_op(6'b100111, Fvi, 5'd0, VEC_MVNRR, VEC_SRC_VI, VEC_EEW_SAME);
+    chk_op(6'b100111, Fvi, 5'd3, VEC_MVNRR, VEC_SRC_VI, VEC_EEW_SAME);
+    chk_op(6'b100111, Fvi, 5'd7, VEC_MVNRR, VEC_SRC_VI, VEC_EEW_SAME);
+    chk_illegal(6'b100111, Fvi, 5'd2);
+    chk_illegal(6'b100111, Fvi, 5'd15);
+    chk_masked_illegal(6'b100111, Fvi, 5'd0);
+    chk_flags(6'b100111, Fvi, 5'd7, 4'b0000);
+
     // Narrowing
     chk_op(6'b101100, Fvv, 5'd1, VEC_NSRL, VEC_SRC_VV, VEC_EEW_NARROW);
     chk_op(6'b101111, Fvi, 5'd1, VEC_NCLIP, VEC_SRC_VI, VEC_EEW_NARROW);
@@ -368,6 +394,18 @@ module vec_decode_tb
     chk_mem(7'b0000001, 5'b01011, 3'b000, 1'b1, 6'b100001);
     chk_mem(7'b0000000, 5'b01011, 3'b000, 1'b0, 6'b000000);
     chk_mem(7'b0000001, 5'b01011, 3'b101, 1'b0, 6'b000000);
+
+    // Whole register groups
+    chk_mem(7'b0010001, 5'b01000, 3'b000, 1'b0, 6'b100100);
+    chk_mem(7'b0110001, 5'b01000, 3'b101, 1'b0, 6'b101100);
+    chk_mem(7'b1110001, 5'b01000, 3'b110, 1'b0, 6'b110100);
+    chk_mem(7'b1110001, 5'b01000, 3'b000, 1'b1, 6'b100100);
+    chk_mem(7'b0100001, 5'b01000, 3'b000, 1'b0, 6'b000000);
+    chk_mem(7'b1010001, 5'b01000, 3'b000, 1'b1, 6'b000000);
+    chk_mem(7'b0011001, 5'b01000, 3'b000, 1'b0, 6'b000000);
+    chk_mem(7'b0110000, 5'b01000, 3'b000, 1'b0, 6'b000000);
+    chk_mem(7'b0110001, 5'b01011, 3'b000, 1'b0, 6'b000000);
+    chk_mem(7'b0110100, 5'd12, 3'b000, 1'b0, 6'b000000);
 
     // Memory form illegal
     chk_mem(7'b0000001, 5'b01000, 3'b101, 1'b1, 6'b000000);
