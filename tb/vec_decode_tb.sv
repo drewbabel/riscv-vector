@@ -176,7 +176,8 @@ module vec_decode_tb
         6'b010111: return (funct3 == Fff) && (!vmb || (rs2 == 5'b00000));
         6'b010000: return (funct3 == Ffv) ? (rs1 == 5'b00000) : (rs2 == 5'b00000);
         6'b000001, 6'b000011, 6'b000101, 6'b000111: return funct3 == Ffv;
-        6'b010011: return (funct3 == Ffv) && (rs1 == 5'b10000);
+        6'b010011:
+        return (funct3 == Ffv) && (rs1 == 5'b00100 || rs1 == 5'b00101 || rs1 == 5'b10000);
         default: return 1'b0;
       endcase
     end
@@ -184,7 +185,7 @@ module vec_decode_tb
   endfunction
 
   // Reference float forms
-  function automatic vec_fop_e ref_fop(input logic [5:0] funct6);
+  function automatic vec_fop_e ref_fop(input logic [5:0] funct6, input logic [4:0] rs1);
     case (funct6)
       6'b000000: return VEC_FADD;
       6'b000010: return VEC_FSUB;
@@ -199,7 +200,12 @@ module vec_decode_tb
       6'b001010: return VEC_FSGNJX;
       6'b100100: return VEC_FMUL;
       6'b100111: return VEC_FRSUB;
-      6'b010011: return VEC_FCLASS;
+      6'b010011:
+      case (rs1)
+        5'b00100: return VEC_FRSQRT7;
+        5'b00101: return VEC_FREC7;
+        default:  return VEC_FCLASS;
+      endcase
       6'b101000: return VEC_FMADD;
       6'b101001: return VEC_FNMADD;
       6'b101010: return VEC_FMSUB;
@@ -213,7 +219,7 @@ module vec_decode_tb
       6'b011011: return VEC_MFLT;
       6'b011100: return VEC_MFNE;
       6'b011101: return VEC_MFGT;
-      default:   return VEC_MFGE;
+      default: return VEC_MFGE;
     endcase
   endfunction
 
@@ -227,6 +233,17 @@ module vec_decode_tb
       errors++;
       $display("FAIL op f6=%b f3=%b got=%0d/%0d/%0d exp=%0d/%0d/%0d at %0t", funct6, funct3, op,
                src, eew, exp_op, exp_src, exp_eew, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
+  endtask
+
+  task automatic chk_fop(input logic [4:0] rs1, input vec_fop_e exp_fop);
+    instr = enc(6'b010011, 1'b1, 5'd2, rs1, Ffv, 5'd3);
+    #1;
+    checks++;
+    if (fop !== exp_fop || !valid) begin
+      errors++;
+      $display("FAIL fop vs1=%b got=%0d exp=%0d at %0t", rs1, fop, exp_fop, $time);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask
@@ -284,7 +301,16 @@ module vec_decode_tb
       f3 = (f != 0) ? Fff : Ffv;
       for (int c = 0; c < 64; c++) begin
         if ((6'(c) == 6'b010111) || (6'(c) == 6'b010000)) continue;
-        rs1   = ((6'(c) == 6'b010011) && ($urandom_range(1) != 0)) ? 5'b10000 : 5'($urandom);
+        rs1 = 5'($urandom);
+        if ((6'(c) == 6'b010011) && ($urandom_range(1) != 0)) begin
+          case ($urandom_range(
+              2
+          ))
+            0: rs1 = 5'b00100;
+            1: rs1 = 5'b00101;
+            default: rs1 = 5'b10000;
+          endcase
+        end
         instr = enc(6'(c), 1'($urandom), 5'($urandom), rs1, f3, 5'($urandom));
         #1;
         legal = ref_valid(f3, 6'(c), instr[19:15], instr[24:20], instr[25]);
@@ -298,11 +324,11 @@ module vec_decode_tb
         exp = {legal, legal && fma, 1'b0, 1'b0, legal && cmp, legal && f3 == Fff, 1'b0};
         checks++;
         if (got !== exp || (legal && (op !== want_op || fop !== ref_fop(
-                6'(c)
+                6'(c), rs1
             ) || src !== ((f != 0) ? VEC_SRC_VX : VEC_SRC_VV) || eew !== VEC_EEW_SAME))) begin
           errors++;
           $display("FAIL float f6=%b f3=%b got=%b/%0d/%0d exp=%b/%0d at %0t", 6'(c), f3, got, op,
-                   fop, exp, ref_fop(6'(c)), $time);
+                   fop, exp, ref_fop(6'(c), rs1), $time);
           if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
         end
       end
@@ -578,6 +604,13 @@ module vec_decode_tb
     chk_flags(6'b010011, Ffv, 5'b10000, 4'b0000);
     chk_illegal(6'b010011, Fff, 5'b10000);
     chk_illegal(6'b010011, Ffv, 5'b10001);
+    chk_op(6'b010011, Ffv, 5'b00100, VEC_FARITH, VEC_SRC_VV, VEC_EEW_SAME);
+    chk_op(6'b010011, Ffv, 5'b00101, VEC_FARITH, VEC_SRC_VV, VEC_EEW_SAME);
+    chk_illegal(6'b010011, Fff, 5'b00100);
+    chk_illegal(6'b010011, Fff, 5'b00101);
+    chk_fop(5'b00100, VEC_FRSQRT7);
+    chk_fop(5'b00101, VEC_FREC7);
+    chk_fop(5'b10000, VEC_FCLASS);
     repeat (8) sweep_float();
     sweep_float_moves();
     sweep_int_moves();
