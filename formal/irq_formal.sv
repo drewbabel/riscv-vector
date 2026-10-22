@@ -106,6 +106,7 @@ module irq_formal
       .fp_wb_flags(5'b0),
       .vec_fflags(5'b0),
       .frm_q(frm_q),
+      .vstart_set(),
       .dbg_csr_wdata(dbg_csr_wdata),
       .dbg_mscratch(dbg_mscratch),
       .dbg_mstatus(dbg_mstatus),

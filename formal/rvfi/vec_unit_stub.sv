@@ -55,6 +55,8 @@ module vec_unit_stub
     input  wire  [2:0] frm,
     output logic [4:0] fflags,
 
+    input wire vstart_set,
+
     output logic            xreg_valid,
     output logic [XLEN-1:0] xreg_result,
 
