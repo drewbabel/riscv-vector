@@ -231,7 +231,7 @@ package vec_pkg;
   function automatic vec_cls_e vec_class(input vec_op_e op);
     case (op)
       VEC_ADD, VEC_SUB, VEC_RSUB, VEC_MINU, VEC_MIN, VEC_MAXU, VEC_MAX, VEC_AND, VEC_OR, VEC_XOR,
-          VEC_ADC, VEC_SBC, VEC_MERGE, VEC_SLL, VEC_SRL, VEC_SRA:
+          VEC_ADC, VEC_SBC, VEC_MERGE, VEC_MVNRR, VEC_SLL, VEC_SRL, VEC_SRA:
       vec_class = VEC_CLS_ALU;
       VEC_WADDU, VEC_WADD, VEC_WSUBU, VEC_WSUB, VEC_NSRL, VEC_NSRA, VEC_ZEXT2, VEC_ZEXT4, VEC_SEXT2,
           VEC_SEXT4:

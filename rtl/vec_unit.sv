@@ -102,6 +102,7 @@ module vec_unit
   logic                     dec_writes_mask;
   logic      [         1:0] dec_width;
   logic                     dec_whole;
+  logic      [         2:0] dec_nf;
   logic                     dec_mask_ls;
   logic                     dec_strided;
 
@@ -299,12 +300,28 @@ module vec_unit
   logic carry_legal;
   assign carry_legal = ((dec_op != VEC_ADC) && (dec_op != VEC_SBC)) || !dec_vm;
 
+  // Whole register forms
+  logic              dec_mvnr;
+  logic              dec_full;
+  logic        [2:0] full_nf;
+  logic signed [3:0] full_emul;
+  logic              full_nop;
+
+  assign dec_mvnr  = (dec_op == VEC_MVNRR);
+  assign dec_full  = dec_whole || dec_mvnr;
+  assign full_nf   = dec_mvnr ? dec_simm[2:0] : dec_nf;
+  assign full_emul = 4'(full_nf[0]) + 4'(full_nf[1]) + 4'(full_nf[2]);
+
+  // Copy onto itself
+  assign full_nop  = dec_mvnr && (dec_vd == dec_vs2);
+
   // Memory snapshot
   logic                   dec_mem;
   logic signed [     3:0] emul_log2;
   logic                   emul_ok;
   logic        [ VlW-1:0] issue_vl;
   logic        [     2:0] issue_vsew;
+  logic        [     2:0] issue_vlmul;
   logic        [XLEN-1:0] issue_stride;
   logic                   base_off;
   logic                   stride_off;
@@ -314,10 +331,11 @@ module vec_unit
   assign
       emul_ok = !dec_mem || dec_whole || dec_mask_ls || (emul_log2 >= -4'sd3 && emul_log2 <= 4'sd3);
 
-  assign issue_vl = (dec_mem && dec_whole) ? VlW'(VLEN >> (3 + dec_width)) :
+  assign issue_vl = full_nop ? '0 : (dec_full ? VlW'((VLEN >> (3 + dec_width)) << full_emul) :
       ((dec_mem && dec_mask_ls) ?
-       VlW'((vl + VlW'(7)) >> 3) : ((dec_cls == VEC_CLS_XS) ? VlW'(1) : vl));
-  assign issue_vsew = dec_mem ? {1'b0, dec_width} : vsew;
+       VlW'((vl + VlW'(7)) >> 3) : ((dec_cls == VEC_CLS_XS) ? VlW'(1) : vl)));
+  assign issue_vsew = dec_mem ? {1'b0, dec_width} : (dec_mvnr ? 3'd0 : vsew);
+  assign issue_vlmul = dec_mvnr ? 3'(full_emul) : vlmul;
   assign issue_stride = dec_strided ? xstride : (XLEN'(1) << dec_width);
 
   // Alignment check
@@ -391,12 +409,12 @@ module vec_unit
   assign s1_delta = 4'($signed({1'b0, dec_ls1})) - 4'($signed({1'b0, lsew}));
   assign s2_delta = 4'($signed({1'b0, dec_ls2})) - 4'($signed({1'b0, lsew}));
 
-  assign d_emul = dec_mem ? ((dec_whole || dec_mask_ls) ? 4'sd0 : emul_log2) :
-      ((dec_geom_s.single_write || dec_geom_s.mask_dest) ? 4'sd0 : (lmul_log2 + d_delta));
+  assign d_emul = dec_full ? full_emul : (dec_mem ? (dec_mask_ls ? 4'sd0 : emul_log2) :
+      ((dec_geom_s.single_write || dec_geom_s.mask_dest) ? 4'sd0 : (lmul_log2 + d_delta)));
   assign
       s1_emul = (dec_geom_s.single_write || dec_geom_s.mask_src) ? 4'sd0 : (lmul_log2 + s1_delta);
-  assign
-      s2_emul = ((dec_cls == VEC_CLS_XS) || dec_geom_s.mask_src) ? 4'sd0 : (lmul_log2 + s2_delta);
+  assign s2_emul = dec_mvnr ? full_emul :
+      (((dec_cls == VEC_CLS_XS) || dec_geom_s.mask_src) ? 4'sd0 : (lmul_log2 + s2_delta));
 
   assign d_regs = group_regs(d_emul);
   assign s1_regs = uses_vs1 ? group_regs(s1_emul) : GrpW'(1);
@@ -483,8 +501,8 @@ module vec_unit
   assign mul_built = (dec_cls != VEC_CLS_MUL) || !dec_geom_s.widen;
 
   assign op_ready = (dec_cls != VEC_CLS_NONE) && mul_built && group_legal &&
-      (dec_mem || (width_legal && scalar_legal && carry_legal));
-  assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
+      (dec_mem || dec_mvnr || (width_legal && scalar_legal && carry_legal));
+  assign is_vector = dec_valid && op_ready && (dec_full || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 
   assign dec_valid = dec.valid;
@@ -502,6 +520,7 @@ module vec_unit
   assign dec_writes_mask = dec.writes_mask;
   assign dec_width = dec.mem_width;
   assign dec_whole = dec.mem_whole;
+  assign dec_nf = dec.mem_nf;
   assign dec_mask_ls = dec.mem_mask;
   assign dec_strided = dec.mem_strided;
 
@@ -535,7 +554,7 @@ module vec_unit
       .clear_addr(reg_done_wb ? waddr_wb : m_raddr),
       .vl(issue_vl),
       .vsew(issue_vsew),
-      .vlmul(vlmul),
+      .vlmul(issue_vlmul),
       .vxrm(vxrm_q),
       .seq_busy(seq_busy || m_busy),
       .seq_done(seq_done || m_done),
