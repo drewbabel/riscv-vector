@@ -155,7 +155,7 @@ module vec_decode
           op = VEC_MSBC;
           writes_mask = 1'b1;
         end
-        6'b010111: op = VEC_MERGE;
+        6'b010111: if (!vm || (vs2 == 5'b00000)) op = VEC_MERGE;
         6'b011000: begin
           op = VEC_MSEQ;
           writes_mask = 1'b1;
