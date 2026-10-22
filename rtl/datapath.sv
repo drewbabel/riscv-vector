@@ -377,6 +377,7 @@ module datapath
   logic vec_dec_id_writes_mask;
   vec_pkg::vec_fop_e vec_dec_id_fop;
   logic vec_dec_id_reads_freg;
+  logic vec_dec_id_writes_freg;
   logic [1:0] vec_dec_id_mem_width;
   logic vec_dec_id_mem_whole;
   logic [2:0] vec_dec_id_mem_nf;
@@ -401,6 +402,7 @@ module datapath
       .writes_mask(vec_dec_id_writes_mask),
       .fop(vec_dec_id_fop),
       .reads_freg(vec_dec_id_reads_freg),
+      .writes_freg(vec_dec_id_writes_freg),
       .mem_width(vec_dec_id_mem_width),
       .mem_whole(vec_dec_id_mem_whole),
       .mem_nf(vec_dec_id_mem_nf),
@@ -424,6 +426,7 @@ module datapath
     vec_dec_id.writes_mask = vec_dec_id_writes_mask;
     vec_dec_id.fop = vec_dec_id_fop;
     vec_dec_id.reads_freg = vec_dec_id_reads_freg;
+    vec_dec_id.writes_freg = vec_dec_id_writes_freg;
     vec_dec_id.mem_width = vec_dec_id_mem_width;
     vec_dec_id.mem_whole = vec_dec_id_mem_whole;
     vec_dec_id.mem_nf = vec_dec_id_mem_nf;
@@ -576,8 +579,8 @@ module datapath
         is_muldiv_ex      <= (is_muldiv && !idex_bubble);
         muldiv_op_ex      <= muldiv_op;
         fp_op_ex          <= (fp_op_d && !idex_bubble);
-        fp_unit_ex        <= fp_unit_d;
-        frd_write_ex      <= (fp_op_d && frd_write_d && !idex_bubble);
+        fp_unit_ex        <= fp_unit_e'(vec_dec_id.writes_freg ? FP_MV_W_X : fp_unit_d);
+        frd_write_ex      <= (((fp_op_d && frd_write_d) || vec_dec_id.writes_freg) && !idex_bubble);
         fxrd_write_ex     <= (fp_op_d && fxrd_write_d && !idex_bubble);
         fp_sub_ex         <= fp_sub_d;
         fp_neg_prod_ex    <= fp_neg_prod_d;
@@ -647,7 +650,7 @@ module datapath
       .frs1_read_id(frs1_read_d || vec_dec_id.reads_freg),
       .frs2_read_id(frs2_read_d),
       .frs3_read_id(frs3_read_d),
-      .frd_write_id(frd_write_d),
+      .frd_write_id(frd_write_d || vec_dec_id.writes_freg),
       .rs3_id(instr_id[31:27]),
       .fp_busy(fp_busy),
       .frd_write_ex(frd_write_ex && valid_ex),
@@ -785,7 +788,7 @@ module datapath
       .a          (fp_a_ex),
       .b          (fp_b_ex),
       .c          (fp_c_ex),
-      .xa         (forwarded_rs1),
+      .xa         (vec_dec_ex.writes_freg ? vec_xreg_result : forwarded_rs1),
       .ready      (fp_ready),
       .idle       (fp_idle),
       .reg_busy   (fp_busy),
@@ -903,9 +906,10 @@ module datapath
       || (instr_ex[31:20] == FcsrAddr) || (instr_ex[31:20] == MstatusAddr));
 
   // Vector float forms
-  assign vec_fp_id = (vec_dec_id.op == vec_pkg::VEC_FARITH) || (vec_dec_id.op == vec_pkg::VEC_FCMP);
-  assign vec_fp_ex = valid_ex &&
-      ((vec_dec_ex.op == vec_pkg::VEC_FARITH) || (vec_dec_ex.op == vec_pkg::VEC_FCMP));
+  assign vec_fp_id = (vec_dec_id.op == vec_pkg::VEC_FARITH) ||
+      (vec_dec_id.op == vec_pkg::VEC_FCMP) || vec_dec_id.reads_freg || vec_dec_id.writes_freg;
+  assign vec_fp_ex = valid_ex && ((vec_dec_ex.op == vec_pkg::VEC_FARITH) ||
+      (vec_dec_ex.op == vec_pkg::VEC_FCMP) || vec_dec_ex.reads_freg || vec_dec_ex.writes_freg);
 
   assign exc_vec_encoding = (((instr_ex[6:0] == OpcodeOpV) && !is_vset) ||
       (instr_ex[6:0] == OpcodeLoadFp) || (instr_ex[6:0] == OpcodeStoreFp)) && !vec_is_vector;
