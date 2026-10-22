@@ -2898,6 +2898,220 @@ module vec_unit_tb
     end
   endtask
 
+  function automatic logic fred_snan(input logic [31:0] x);
+    return (x[30:23] == 8'hFF) && (x[22:0] != '0) && !x[22];
+  endfunction
+
+  // Numeric order key
+  function automatic logic signed [32:0] fred_key(input logic [31:0] x);
+    return x[31] ? -33'(x[30:0]) : 33'(x[30:0]);
+  endfunction
+
+  // Minimum number pair
+  function automatic logic [31:0] fred_pair(input vec_fop_e o, input logic [31:0] x,
+                                            input logic [31:0] y);
+    logic x_nan;
+    logic y_nan;
+    logic x_first;
+    x_nan = (x[30:23] == 8'hFF) && (x[22:0] != '0);
+    y_nan = (y[30:23] == 8'hFF) && (y[22:0] != '0);
+    if (x_nan && y_nan) return 32'h7FC0_0000;
+    if (x_nan) return y;
+    if (y_nan) return x;
+    if (fred_key(x) == fred_key(y)) x_first = (o == VEC_FMAX) ? !x[31] : x[31];
+    else x_first = (o == VEC_FMAX) ? (fred_key(x) > fred_key(y)) : (fred_key(x) < fred_key(y));
+    return x_first ? x : y;
+  endfunction
+
+  // Element order fold
+  task automatic ref_fred(input vec_fop_e o, input logic [4:0] s1, input logic [4:0] s2,
+                          input logic [4:0] d, input logic vmb, input int regs, input int len,
+                          output logic [4:0] want_flags);
+    logic [31:0] acc;
+    logic [31:0] v;
+    want_flags = '0;
+    if (len == 0) return;
+    acc = grp_get(s1, 32, 0);
+    for (int i = 0; i < group_elems(32, regs); i++) begin
+      if ((i < len) && (vmb || shadow[0][i])) begin
+        v = grp_get(s2, 32, i);
+        if (fred_snan(acc) || fred_snan(v)) want_flags = 5'b10000;
+        acc = fred_pair(o, acc, v);
+      end
+    end
+    grp_set(d, 32, 0, acc);
+  endtask
+
+  function automatic logic [31:0] fred_encode(input vec_fop_e o, input logic [4:0] s1,
+                                              input logic [4:0] s2, input logic [4:0] d,
+                                              input logic vmb);
+    return enc((o == VEC_FMAX) ? 6'b000111 : 6'b000101, vmb, s2, s1, 3'b001, d);
+  endfunction
+
+  task automatic run_fred(input vec_fop_e o, input logic [4:0] s1, input logic [4:0] s2,
+                          input logic [4:0] d, input logic vmb, input logic [2:0] lmul,
+                          input logic [VlW-1:0] len, input logic [2:0] rm);
+    logic [4:0] want;
+    int         regs;
+    begin
+      regs  = lmul[2] ? 1 : (1 << lmul[1:0]);
+      vsew  = 3'd2;
+      vlmul = lmul;
+      vl    = len;
+      frm   = rm;
+      ref_fred(o, s1, s2, d, vmb, regs, int'(len), want);
+      flags_seen = '0;
+      wb_writes  = 0;
+      issue(fred_encode(o, s1, s2, d, vmb));
+      frm = 3'($urandom_range(4));
+      drain();
+      check_regs($sformatf("%0s reduction lmul %0d vl %0d", o.name(), lmul, len));
+      note($sformatf("fflags after %0s reduction", o.name()), 32'(flags_seen), 32'(want));
+      note($sformatf("writes by %0s reduction", o.name()), 32'(wb_writes), 32'(len != 0));
+    end
+  endtask
+
+  // Signed zeros and NaNs
+  function automatic logic [31:0] fred_pick();
+    case ($urandom_range(
+        7
+    ))
+      0: return ($urandom_range(1) != 0) ? 32'h0000_0000 : 32'h8000_0000;
+      1: return ($urandom_range(1) != 0) ? 32'h7F80_0001 : 32'hFFA0_0000;
+      2: return ($urandom_range(1) != 0) ? 32'h7FC0_0000 : 32'hFFC0_1234;
+      default: return fp_pick();
+    endcase
+  endfunction
+
+  task automatic seed_fred();
+    logic [VLEN-1:0] v;
+    for (int r = 0; r < Depth; r++) begin
+      for (int e = 0; e < VLEN / 32; e++) v[e*32+:32] = fred_pick();
+      seed_reg(AWIDTH'(r), v);
+    end
+  endtask
+
+  task automatic check_fred_ops();
+    vec_fop_e o;
+    int       regs;
+    begin
+      for (int k = 0; k < 2; k++) begin
+        if (k == 0) o = VEC_FMIN;
+        else o = VEC_FMAX;
+        for (int lmul = 0; lmul < 4; lmul++) begin
+          regs = 1 << lmul;
+          for (int m = 0; m < 2; m++) begin
+            seed_fred();
+            run_fred(o, 5'd4, 5'd16, 5'd5, 1'(m), 3'(lmul), 8'd0, 3'd0);
+            run_fred(o, 5'd4, 5'd16, 5'd5, 1'(m), 3'(lmul), 8'd1, 3'd1);
+            run_fred(o, 5'd4, 5'd16, 5'd4, 1'(m), 3'(lmul), 8'($urandom_range(4 * regs, 1)), 3'd2);
+            run_fred(o, 5'd4, 5'd16, 5'd16, 1'(m), 3'(lmul), 8'(4 * regs), 3'd3);
+            run_fred(o, 5'd4, 5'd16, 5'd0, 1'(m), 3'(lmul), 8'(4 * regs), 3'd4);
+          end
+        end
+      end
+      seed_fred();
+      seed_reg(5'd16, {(VLEN / 32) {32'h8000_0000}});
+      seed_reg(5'd4, {(VLEN / 32) {32'h0000_0000}});
+      run_fred(VEC_FMIN, 5'd4, 5'd16, 5'd5, 1'b1, 3'd0, 8'd4, 3'd0);
+      run_fred(VEC_FMAX, 5'd4, 5'd16, 5'd5, 1'b1, 3'd0, 8'd4, 3'd0);
+      seed_reg(5'd4, {(VLEN / 32) {32'h7F80_0001}});
+      seed_reg(5'd0, '0);
+      run_fred(VEC_FMIN, 5'd4, 5'd16, 5'd5, 1'b0, 3'd1, 8'd8, 3'd0);
+      run_fred(VEC_FMAX, 5'd4, 5'd16, 5'd6, 1'b1, 3'd1, 8'd8, 3'd0);
+    end
+  endtask
+
+  // Reductions among traffic
+  task automatic check_fred_stream();
+    logic [4:0] want;
+    logic [4:0] f;
+    logic       sat;
+    begin
+      for (int r = 0; r < 6; r++) begin
+        seed_fred();
+        vsew  = 3'd2;
+        vlmul = 3'd0;
+        vl    = 8'd4;
+        frm   = 3'(r % 5);
+        want  = '0;
+        model_fp(VEC_FMUL, 0, 5'd1, 5'd2, 5'd10, 1'b1, '0, 1, 8'd4, 3'(r % 5), f);
+        want = want | f;
+        ref_fred(VEC_FMIN, 5'd3, 5'd10, 5'd11, 1'b1, 1, 4, f);
+        want = want | f;
+        ref_apply(VEC_ADD, 0, 5'd4, 5'd5, 5'd12, 1'b1, '0, 5'd0, 32, 1, 4);
+        ref_fred(VEC_FMAX, 5'd11, 5'd6, 5'd13, 1'b0, 1, 4, f);
+        want = want | f;
+        model_lane(VEC_MUL, 0, 5'd7, 5'd8, 5'd14, 1'b1, '0, 5'd0, 32, 1, 8'd4, 2'd0, sat);
+        ref_fred(VEC_FMIN, 5'd13, 5'd14, 5'd15, 1'b1, 1, 4, f);
+        want = want | f;
+        flags_seen = '0;
+        issue(fp_encode(VEC_FMUL, 0, 5'd1, 5'd2, 5'd10, 1'b1));
+        issue(fred_encode(VEC_FMIN, 5'd3, 5'd10, 5'd11, 1'b1));
+        issue(enc(6'b000000, 1'b1, 5'd5, 5'd4, 3'b000, 5'd12));
+        issue(fred_encode(VEC_FMAX, 5'd11, 5'd6, 5'd13, 1'b0));
+        issue(lane_instr(VEC_MUL, 0, 5'd7, 5'd8, 5'd14, 1'b1, 5'd0));
+        issue(fred_encode(VEC_FMIN, 5'd13, 5'd14, 5'd15, 1'b1));
+        frm = 3'd0;
+        drain();
+        check_regs($sformatf("reduction stream %0d", r));
+        note($sformatf("fflags after reduction stream %0d", r), 32'(flags_seen), 32'(want));
+      end
+    end
+  endtask
+
+  task automatic soak_fred(input int n);
+    vec_fop_e       o;
+    logic     [2:0] lmul;
+    int             regs;
+    begin
+      seed_fred();
+      for (int i = 0; i < n; i++) begin
+        lmul = 3'($urandom_range(3));
+        regs = 1 << lmul[1:0];
+        if ($urandom_range(1) != 0) o = VEC_FMAX;
+        else o = VEC_FMIN;
+        run_fred(o, 5'($urandom_range(31)), 5'(8 * $urandom_range(3)), 5'($urandom_range(31)),
+                 1'($urandom), lmul, 8'($urandom_range(4 * regs)), 3'($urandom_range(4)));
+        if ($urandom_range(7) == 0) seed_fred();
+      end
+    end
+  endtask
+
+  task automatic check_fred_rules();
+    begin
+      vill  = 1'b0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      vsew  = 3'd2;
+      frm   = 3'd0;
+      instr = fred_encode(VEC_FMIN, 5'd4, 5'd8, 5'd12, 1'b1);
+      for (int s = 0; s < 3; s++) begin
+        vsew = 3'(s);
+        @(negedge clk);
+        note($sformatf("float reduction at sew %0d", 8 << s), 32'(is_vector), 32'(s == 2));
+      end
+      for (int m = 0; m < 8; m++) begin
+        frm = 3'(m);
+        @(negedge clk);
+        note($sformatf("float reduction at frm %0d", m), 32'(is_vector), 32'(m < 5));
+      end
+      frm   = 3'd0;
+      instr = enc(6'b000111, 1'b1, 5'd8, 5'd4, 3'b101, 5'd12);
+      @(negedge clk);
+      note("float reduction scalar form", 32'(is_vector), 32'd0);
+      instr = fred_encode(VEC_FMAX, 5'd4, 5'd9, 5'd12, 1'b1);
+      vlmul = 3'd1;
+      @(negedge clk);
+      note("misaligned reduction source", 32'(is_vector), 32'd0);
+      instr = fred_encode(VEC_FMAX, 5'd5, 5'd8, 5'd13, 1'b0);
+      @(negedge clk);
+      note("reduction scalar and dest any", 32'(is_vector), 32'd1);
+      instr = 32'd0;
+      vlmul = 3'd0;
+    end
+  endtask
+
   // Every float move
   task automatic check_fp_moves();
     logic [2:0] lmul;
@@ -3065,6 +3279,12 @@ module vec_unit_tb
     check_fp_move_rules();
     check_fp_moves();
     check_fp_move_stream();
+
+    // Float reductions
+    check_fred_rules();
+    check_fred_ops();
+    check_fred_stream();
+    soak_fred(150);
 
     verdict();
   end
