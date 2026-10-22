@@ -203,6 +203,7 @@ module vec_unit
   vec_op_e                  op_x2;
   logic      [         2:0] vsew_x2;
   logic      [         1:0] vxrm_x2;
+  logic                     wmul_x2;
   logic      [    OffW-1:0] d_off_x2;
   logic      [  AWIDTH-1:0] waddr_x2;
   logic      [    VLEN-1:0] wstrb_x2;
@@ -215,6 +216,7 @@ module vec_unit
   vec_op_e                  op_x3;
   logic      [         2:0] vsew_x3;
   logic      [         1:0] vxrm_x3;
+  logic                     wmul_x3;
   logic      [    OffW-1:0] d_off_x3;
   logic      [  AWIDTH-1:0] waddr_x3;
   logic      [    VLEN-1:0] wstrb_x3;
@@ -225,6 +227,7 @@ module vec_unit
   vec_cls_e                 cls_x4;
   vec_op_e                  op_x4;
   logic      [         2:0] vsew_x4;
+  logic                     wmul_x4;
   logic      [    OffW-1:0] d_off_x4;
   logic      [  AWIDTH-1:0] waddr_x4;
   logic      [    VLEN-1:0] wstrb_x4;
@@ -470,11 +473,7 @@ module vec_unit
   logic op_ready;
   logic accept_now;
 
-  // Widening multiplies trap
-  logic mul_built;
-  assign mul_built = (dec_cls != VEC_CLS_MUL) || !dec_geom_s.widen;
-
-  assign op_ready = (dec_cls != VEC_CLS_NONE) && mul_built && group_legal &&
+  assign op_ready = (dec_cls != VEC_CLS_NONE) && group_legal &&
       (dec_mem || (width_legal && scalar_legal));
   assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
@@ -831,6 +830,7 @@ module vec_unit
 
   // Multiply operand select
   logic                    narrow_ex;
+  logic                    wmul_ex;
   logic                    vd_mul_ex;
   logic    [     VLEN-1:0] vd_data;
   logic    [     ELEN-1:0] imm_ex;
@@ -843,6 +843,7 @@ module vec_unit
   logic                    lane_x2;
 
   assign narrow_ex = (eew_ex == VEC_EEW_NARROW);
+  assign wmul_ex = (cls_ex == VEC_CLS_MUL) && geom_ex.widen;
   assign vd_mul_ex = (op_ex == VEC_MADD) || (op_ex == VEC_NMSUB);
   assign vd_data = rdata3_ex >> d_off_ex;
   assign imm_ex = ((op_ex == VEC_SSRL) || (op_ex == VEC_SSRA) || narrow_ex) ?
@@ -879,7 +880,7 @@ module vec_unit
       assign a_w[w] = narrow_ex ? ELEN'(vs2_data[l*AW+:AW]) : ELEN'(vs2_data[l*EW+:EW]);
       assign b_w[w] = ELEN'(vs1_data[l*EW+:EW]);
       assign s_w[w] = ELEN'(vs2_data[l*EW+:EW]);
-      assign d_w[w] = ELEN'(vd_data[l*EW+:EW]);
+      assign d_w[w] = wmul_ex ? ELEN'(vd_data[l*AW+:AW]) : ELEN'(vd_data[l*EW+:EW]);
     end
 
     assign a_ex = vd_mul_ex ? d_w[vsew_ex[WSelW-1:0]] : a_w[vsew_ex[WSelW-1:0]];
@@ -974,7 +975,7 @@ module vec_unit
     end
   end
 
-  assign lane_result = lane_pack[vsew_x4[WSelW-1:0]];
+  assign lane_result = lane_pack[vsew_x4[WSelW-1:0]+WSelW'(wmul_x4)];
 
   // Divide stall
   assign div_op_x2 = is_div(op_x2);
@@ -1016,6 +1017,7 @@ module vec_unit
       op_x2       <= op_ex;
       vsew_x2     <= vsew_ex;
       vxrm_x2     <= vxrm_ex;
+      wmul_x2     <= wmul_ex;
       active_x2   <= elem_active_ex[MUL_LANES-1:0];
       d_off_x2    <= d_off_ex;
       waddr_x2    <= waddr_ex;
@@ -1039,6 +1041,7 @@ module vec_unit
       op_x3       <= op_x2;
       vsew_x3     <= vsew_x2;
       vxrm_x3     <= vxrm_x2;
+      wmul_x3     <= wmul_x2;
       active_x3   <= active_x2;
       d_off_x3    <= d_off_x2;
       waddr_x3    <= waddr_x2;
@@ -1061,6 +1064,7 @@ module vec_unit
       cls_x4      <= cls_x3;
       op_x4       <= op_x3;
       vsew_x4     <= vsew_x3;
+      wmul_x4     <= wmul_x3;
       active_x4   <= active_x3;
       d_off_x4    <= d_off_x3;
       waddr_x4    <= waddr_x3;
