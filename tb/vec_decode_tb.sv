@@ -122,7 +122,7 @@ module vec_decode_tb
         6'b001111: return x || i;
         6'b010000, 6'b010001: return 1'b1;
         6'b010010, 6'b010011: return v || x;
-        6'b010111: return 1'b1;
+        6'b010111: return !vmb || (rs2 == 5'b00000);
         6'b011000, 6'b011001: return 1'b1;
         6'b011010, 6'b011011: return v || x;
         6'b011100, 6'b011101: return 1'b1;
@@ -289,6 +289,34 @@ module vec_decode_tb
           $display("FAIL float f6=%b f3=%b got=%b/%0d/%0d exp=%b/%0d at %0t", 6'(c), f3, got, op,
                    fop, exp, ref_fop(6'(c)), $time);
           if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+        end
+      end
+    end
+  endtask
+
+  // Integer move encodings
+  task automatic sweep_int_moves();
+    logic     [2:0] f3;
+    logic           legal;
+    vec_src_e       exp_src;
+    for (int f = 0; f < 3; f++) begin
+      f3 = (f == 0) ? Fvv : ((f == 1) ? Fvx : Fvi);
+      exp_src = vec_src_e'(f);
+      for (int m = 0; m < 2; m++) begin
+        for (int b = 0; b < 32; b++) begin
+          instr = enc(6'b010111, 1'(m), 5'(b), 5'($urandom), f3, 5'($urandom));
+          #1;
+          legal = (m == 0) || (b == 0);
+          checks++;
+          if (valid !== legal || op !== (legal ? VEC_MERGE : VEC_ILLEGAL) ||
+              (legal && src !== exp_src) || legal !== ref_valid(
+                  f3, 6'b010111, 5'd0, 5'(b), 1'(m)
+              )) begin
+            errors++;
+            $display("FAIL integer move f3=%b vm=%0d vs2=%0d got=%b/%0d at %0t", f3, m, b, valid,
+                     op, $time);
+            if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+          end
         end
       end
     end
@@ -533,6 +561,7 @@ module vec_decode_tb
     chk_illegal(6'b010111, Fff, 5'd1);
     repeat (8) sweep_float();
     sweep_float_moves();
+    sweep_int_moves();
 
     // Loads and stores
     chk_mem(7'b0000001, 5'b00000, 3'b000, 1'b0, 6'b100000);
