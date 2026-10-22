@@ -85,4 +85,62 @@ _start:
         vsetvli t0, a0, e32, m2, ta, ma
         vmacc.vv v24, v4, v2
 
+        li      a0, 16
+        vsetvli t0, a0, e8, m1, ta, ma
+        vwmul.vv v6, v4, v3
+        vwmulu.vv v8, v4, v3
+        vwmulsu.vv v10, v4, v3
+        vwmul.vx v12, v4, t1
+        vwmulu.vx v14, v4, t1
+        vwmulsu.vx v16, v4, t1
+        vwmacc.vv v6, v4, v3
+        vwmaccu.vv v8, v4, v3
+        vwmaccsu.vv v10, v4, v3
+        vwmacc.vx v12, t1, v4
+        vwmaccu.vx v14, t1, v4
+        vwmaccsu.vx v16, t1, v4
+        vwmaccus.vx v18, t1, v4
+        vwmul.vv v26, v4, v3, v0.t
+        vwmacc.vv v26, v4, v3, v0.t
+
+        li      a0, 8
+        vsetvli t0, a0, e16, m1, ta, ma
+        vwmul.vv v6, v4, v3
+        vwmulu.vv v8, v4, v3
+        vwmulsu.vv v10, v4, v3
+        vwmul.vx v12, v4, t1
+        vwmulu.vx v14, v4, t1
+        vwmulsu.vx v16, v4, t1
+        vwmacc.vv v6, v4, v3
+        vwmaccu.vv v8, v4, v3
+        vwmaccsu.vv v10, v4, v3
+        vwmacc.vx v12, t1, v4
+        vwmaccu.vx v14, t1, v4
+        vwmaccsu.vx v16, t1, v4
+        vwmaccus.vx v18, t1, v4
+
+        li      a0, 32
+        vsetvli t0, a0, e8, m2, ta, ma
+        vwmulu.vv v8, v4, v2
+        vwmaccsu.vx v8, t1, v4
+
+        li      a0, 16
+        vsetvli t0, a0, e16, m2, ta, ma
+        li      t4, 0xFF
+        vmv.v.x v20, t4
+        vsetvli t0, a0, e8, m1, ta, ma
+        vmv.v.i v24, -1
+        vwmaccu.vv v20, v24, v24
+        vwmaccu.vx v20, t4, v24
+        li      a0, 8
+        vsetvli t0, a0, e32, m2, ta, ma
+        li      t4, 0xFFFF
+        vmv.v.x v20, t4
+        vsetvli t0, a0, e16, m1, ta, ma
+        vmv.v.i v24, -1
+        vwmaccu.vv v20, v24, v24
+        li      t4, 0x8000
+        vwmacc.vx v20, t4, v24
+        vwmaccus.vx v20, t4, v24
+
 Ldone:  beq     x0, x0, Ldone
