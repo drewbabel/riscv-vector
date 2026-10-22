@@ -469,6 +469,16 @@ module vec_decode
         end
 
         // Float reductions
+        6'b000001:
+        if (is_fv) begin
+          op  = VEC_FRED;
+          fop = VEC_FREDUSUM;
+        end
+        6'b000011:
+        if (is_fv) begin
+          op  = VEC_FRED;
+          fop = VEC_FREDOSUM;
+        end
         6'b000101:
         if (is_fv) begin
           op  = VEC_FRED;
