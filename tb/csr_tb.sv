@@ -57,6 +57,7 @@ module csr_tb;
   logic [        4:0] fp_flags;
   logic               fp_wb_flags_we;
   logic [        4:0] fp_wb_flags;
+  logic [        4:0] vec_fflags;
   logic [        2:0] frm_q;
 
   logic [   Xlen-1:0] exp_mscratch;
@@ -115,6 +116,7 @@ module csr_tb;
       .fp_flags            (fp_flags),
       .fp_wb_flags_we      (fp_wb_flags_we),
       .fp_wb_flags         (fp_wb_flags),
+      .vec_fflags          (vec_fflags),
       .frm_q               (frm_q)
   );
 
@@ -156,6 +158,7 @@ module csr_tb;
     fp_flags                                                          = 0;
     fp_wb_flags_we                                                    = 0;
     fp_wb_flags                                                       = 0;
+    vec_fflags                                                        = 0;
     exp_fflags                                                        = 0;
     exp_frm                                                           = 0;
     rst_n                                                             = 0;
@@ -918,6 +921,61 @@ module csr_tb;
     exp_fflags = 5'h10;
   endtask
 
+  // Vector flags land late
+  task automatic test_vec_flags();
+    set_status(FsDirty, VsClean);
+    fp_apply(Funct3Csrrw, FflagsAddr, 32'h0);
+    set_status(FsClean, VsClean);
+
+    #1;
+    core_en = 0;
+    @(posedge clk);
+    #1;
+    core_en = 1;
+    check_fs("vec_zero_flags_keep_clean", FsClean, 1'b0);
+
+    #1;
+    core_en    = 0;
+    vec_fflags = 5'h04;
+    @(posedge clk);
+    #1;
+    core_en    = 1;
+    vec_fflags = 0;
+    csr_peek(FflagsAddr);
+    check("vec_flags_without_commit", csr_rdata, 32'h04);
+    check_fs("vec_flags_dirty_off_commit", FsDirty, 1'b1);
+
+    set_status(FsClean, VsClean);
+    #1;
+    exc_illegal = 1;
+    vec_fflags  = 5'h01;
+    @(posedge clk);
+    #1;
+    exc_illegal = 0;
+    vec_fflags  = 0;
+    csr_peek(FflagsAddr);
+    check("vec_flags_beside_trap", csr_rdata, 32'h05);
+    check_fs("vec_flags_dirty_beside_trap", FsDirty, 1'b1);
+
+    set_status(FsClean, VsClean);
+    #1;
+    vec_fflags = 5'h08;
+    @(posedge clk);
+    #1;
+    vec_fflags = 0;
+    check_fs("vec_flags_dirty_on_commit", FsDirty, 1'b1);
+
+    csr_drive(Funct3Csrrw, MstatusAddr,
+              (Xlen'(FsClean) << MstatusFsLo) | (Xlen'(VsClean) << MstatusVsLo));
+    vec_fflags = 5'h10;
+    csr_commit();
+    vec_fflags = 0;
+    check_fs("mstatus_write_beats_vec_flags", FsClean, 1'b0);
+    csr_peek(FflagsAddr);
+    check("vec_flags_beside_mstatus_write", csr_rdata, 32'h1D);
+    exp_fflags = 5'h1D;
+  endtask
+
   task automatic test_fp_reset_clears();
     set_status(FsDirty, VsClean);
     fp_apply(Funct3Csrrw, FcsrAddr, 32'hFF);
@@ -954,6 +1012,7 @@ module csr_tb;
     test_frm_q();
     test_fp_random();
     test_fp_late_flags();
+    test_vec_flags();
     test_fp_reset_clears();
     verdict();
   end
