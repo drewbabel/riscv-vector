@@ -897,7 +897,9 @@ module vec_unit
       .vs2_data(vs2_data),
       .vs1_data(vs1_data),
       .elem_active(elem_active_ex[VLEN/FpW-1:0]),
+      .rm(frm_ex),
       .result(fred_result),
+      .sum_result(),
       .fflags(fred_flags)
   );
 

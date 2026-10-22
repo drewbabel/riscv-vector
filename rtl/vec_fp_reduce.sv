@@ -3,13 +3,15 @@
 module vec_fp_reduce
   import vec_pkg::*;
   import fp_pkg::Funct5Fminmax, fp_pkg::Funct3Fmin, fp_pkg::Funct3Fmax;
+  import fp_pkg::FlagNv;
 #(
     parameter  int DLEN   = arch_pkg::VLEN,
     localparam int FpW    = 32,
     localparam int Elems  = DLEN / FpW,
     localparam int Levels = $clog2(Elems),
     localparam int Cut    = Levels / 2,
-    localparam int Half   = Elems >> Cut
+    localparam int Half   = Elems >> Cut,
+    localparam int AddLat = fp_pkg::FpAddLatency
 ) (
     input wire clk,
     input wire rst_n,
@@ -21,13 +23,21 @@ module vec_fp_reduce
     input wire           [ DLEN-1:0] vs2_data,
     input wire           [ DLEN-1:0] vs1_data,
     input wire           [Elems-1:0] elem_active,
+    input wire           [      2:0] rm,
 
     output logic [DLEN-1:0] result,
+    output logic [ FpW-1:0] sum_result,
     output logic [     4:0] fflags
 );
 
+  localparam logic [FpW-1:0] CanonNan = 32'h7FC0_0000;
+
   if ((Elems < 2) || (Elems != (1 << Levels))) begin : g_elems
     $error("DLEN must hold a power of two float elements, at least two");
+  end
+
+  if (AddLat < 2) begin : g_add_lat
+    $error("ordered sum expects a pipelined adder");
   end
 
   function automatic logic [2:0] pick(input vec_fop_e kind);
@@ -76,17 +86,23 @@ module vec_fp_reduce
   end
 
   // Mid tree cut
-  logic     [FpW-1:0] cut_val_q [Half];
-  logic               cut_live_q[Half];
-  logic     [    4:0] cut_flag_q[Half];
+  logic     [FpW-1:0] cut_val_q   [Half];
+  logic               cut_live_q  [Half];
+  logic     [    4:0] cut_flag_q  [Half];
   logic     [FpW-1:0] seed_q;
   vec_fop_e           op_q;
   logic               first_q;
   logic               step_q;
+  logic               sum_q;
+  logic               unord_q;
+  logic     [    2:0] rm_q;
+  logic     [FpW-1:0] elem_q;
+  logic               elem_live_q;
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       step_q <= 1'b0;
+      sum_q  <= 1'b0;
     end else if (core_en) begin
       for (int n = 0; n < Half; n++) begin
         cut_val_q[n]  <= lo_val[Half+n];
@@ -96,7 +112,12 @@ module vec_fp_reduce
       seed_q  <= vs1_data[FpW-1:0];
       op_q    <= op;
       first_q <= first;
-      step_q  <= step;
+      step_q  <= step && !is_sum(op);
+      sum_q   <= step && is_sum(op);
+      unord_q <= op == VEC_FREDUSUM;
+      rm_q    <= rm;
+      elem_q  <= vs2_data[FpW-1:0];
+      elem_live_q <= elem_active[0];
     end
   end
 
@@ -139,6 +160,7 @@ module vec_fp_reduce
   end
 
   // Carried accumulator
+  logic [    4:0] sum_flags;
   logic [FpW-1:0] acc_q;
   logic [FpW-1:0] base;
   logic [FpW-1:0] acc_res;
@@ -168,7 +190,75 @@ module vec_fp_reduce
   end
 
   assign result = DLEN'(acc_next);
-  assign fflags = (step_q && hi_live[1]) ? (hi_flag[1] | acc_flags) : '0;
+
+  function automatic logic is_sum(input vec_fop_e kind);
+    is_sum = (kind == VEC_FREDOSUM) || (kind == VEC_FREDUSUM);
+  endfunction
+
+  // Ordered sum
+  logic [   FpW-1:0] sum_acc_q;
+  logic [   FpW-1:0] sum_now;
+  logic [   FpW-1:0] sum_base;
+  logic              launch;
+  logic [   FpW-1:0] add_res;
+  logic [       4:0] add_flags;
+  logic              add_done;
+  logic [AddLat-1:0] add_v_q;
+  logic [AddLat-1:0] fin_v_q;
+  logic [AddLat-1:0] fin_unord_q;
+
+  assign add_done = add_v_q[AddLat-1];
+  assign sum_now  = add_done ? add_res : sum_acc_q;
+  assign sum_base = first_q ? seed_q : sum_now;
+  assign launch   = sum_q && elem_live_q;
+
+  fp_add #(
+      .ExpW (8),
+      .FracW(23)
+  ) u_add (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(core_en),
+      .sub(1'b0),
+      .rm(rm_q),
+      .a(sum_base),
+      .b(elem_q),
+      .result(add_res),
+      .fflags(add_flags)
+  );
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      sum_acc_q <= '0;
+      add_v_q   <= '0;
+      fin_v_q   <= '0;
+    end else if (core_en) begin
+      if (sum_q) begin
+        sum_acc_q <= sum_base;
+      end else if (add_done) begin
+        sum_acc_q <= add_res;
+      end
+      add_v_q     <= {add_v_q[AddLat-2:0], launch};
+      fin_v_q     <= {fin_v_q[AddLat-2:0], sum_q};
+      fin_unord_q <= {fin_unord_q[AddLat-2:0], unord_q};
+    end
+  end
+
+  // Unordered NaN rule
+  logic fin_done;
+  logic sum_nan;
+  logic sum_snan;
+  logic canon;
+
+  assign fin_done = fin_v_q[AddLat-1];
+  assign sum_nan = (sum_now[30:23] == 8'hFF) && (sum_now[22:0] != '0);
+  assign sum_snan = sum_nan && !sum_now[22];
+  assign canon = fin_done && fin_unord_q[AddLat-1] && sum_nan;
+
+  assign sum_result = canon ? CanonNan : sum_now;
+  assign sum_flags = (add_done ? add_flags : '0) | ((canon && sum_snan) ? FlagNv : '0);
+
+  assign fflags = ((step_q && hi_live[1]) ? (hi_flag[1] | acc_flags) : '0) | sum_flags;
 
 endmodule
 

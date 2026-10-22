@@ -177,7 +177,9 @@ package vec_pkg;
     VEC_FCVT_RTZ_X_F,
     VEC_FCVT_F_XU,
     VEC_FCVT_F_X,
-    VEC_FMV
+    VEC_FMV,
+    VEC_FREDOSUM,
+    VEC_FREDUSUM
   } vec_fop_e;
 
   localparam int VecFpUnitLatency = fp_pkg::FpMaxLatency;
