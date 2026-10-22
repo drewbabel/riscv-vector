@@ -255,9 +255,9 @@ jobs:
           echo "RAND_SEED=$seed" >> "$GITHUB_ENV"
           echo "random co-sim seed $seed"
       - name: Randomized vector memory co-sim (100 programs)
-        run: python3 tests/cosim.py --vec --rand 100 "$RAND_SEED"
+        run: python3 tests/cosim.py --vec --stall --rand 100 "$RAND_SEED"
       - name: Randomized co-sim regression (500 programs)
-        run: python3 tests/cosim.py --rand 500 "$RAND_SEED"
+        run: python3 tests/cosim.py --stall --rand 500 "$RAND_SEED"
       - name: Generated RVV test sweep
         run: |
           git clone -q https://github.com/chipsalliance/riscv-vector-tests.git build/rvv-gen
