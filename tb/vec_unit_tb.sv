@@ -86,6 +86,7 @@ module vec_unit_tb
   logic dec_writes_mask;
   vec_fop_e dec_fop;
   logic dec_reads_freg;
+  logic dec_writes_freg;
   logic [1:0] dec_mem_width;
   logic dec_mem_whole;
   logic [2:0] dec_mem_nf;
@@ -110,6 +111,7 @@ module vec_unit_tb
       .writes_mask(dec_writes_mask),
       .fop(dec_fop),
       .reads_freg(dec_reads_freg),
+      .writes_freg(dec_writes_freg),
       .mem_width(dec_mem_width),
       .mem_whole(dec_mem_whole),
       .mem_nf(dec_mem_nf),
@@ -133,6 +135,7 @@ module vec_unit_tb
     dec.writes_mask = dec_writes_mask;
     dec.fop = dec_fop;
     dec.reads_freg = dec_reads_freg;
+    dec.writes_freg = dec_writes_freg;
     dec.mem_width = dec_mem_width;
     dec.mem_whole = dec_mem_whole;
     dec.mem_nf = dec_mem_nf;
@@ -152,6 +155,7 @@ module vec_unit_tb
       .dec(dec),
       .instr_valid(instr_valid),
       .cancel(cancel),
+      .ex_advance(!vec_hold),
       .xdata(xdata),
       .xstride(xstride),
       .fdata(fdata),
@@ -2724,6 +2728,17 @@ module vec_unit_tb
         @(negedge clk);
         note($sformatf("float add at frm %0d", m), 32'(is_vector), 32'(m < 5));
       end
+      instr = fp_encode(VEC_MFLT, 0, 5'd4, 5'd8, 5'd12, 1'b1);
+      for (int s = 0; s < 3; s++) begin
+        vsew = 3'(s);
+        for (int m = 0; m < 8; m++) begin
+          frm = 3'(m);
+          @(negedge clk);
+          note($sformatf("float compare at sew %0d frm %0d", 8 << s, m), 32'(is_vector),
+               32'((s == 2) && (m < 5)));
+        end
+      end
+      vsew  = 3'd2;
       frm   = 3'd0;
       instr = fp_encode(VEC_MFGT, 1, 5'd4, 5'd8, 5'd12, 1'b1);
       @(negedge clk);
@@ -2743,6 +2758,207 @@ module vec_unit_tb
       note("misaligned group", 32'(is_vector), 32'd0);
       instr = 32'd0;
       vlmul = 3'd0;
+    end
+  endtask
+
+  // Float merge model
+  task automatic run_fmerge(input logic vmb, input logic [4:0] s2, input logic [4:0] d,
+                            input logic [2:0] lmul, input logic [VlW-1:0] len);
+    logic [31:0] fsc;
+    logic [31:0] e;
+    begin
+      fsc   = fp_pick();
+      vsew  = 3'd2;
+      vlmul = lmul;
+      vl    = len;
+      frm   = 3'($urandom_range(4));
+      fdata = fsc;
+      xdata = 32'($urandom);
+      for (int i = 0; i < int'(len); i++) begin
+        e = (vmb || shadow[0][i]) ? fsc : 32'(grp_get(s2, 32, i));
+        grp_set(d, 32, i, e);
+      end
+      flags_seen = '0;
+      issue(enc(6'b010111, vmb, vmb ? 5'd0 : s2, 5'($urandom), 3'b101, d));
+      fdata = 32'($urandom);
+      xdata = 32'($urandom);
+      frm   = 3'($urandom);
+      drain();
+      check_regs($sformatf("%0s lmul %0d vl %0d", vmb ? "vfmv.v.f" : "vfmerge", lmul, len));
+      note("float merge flags", 32'(flags_seen), 32'd0);
+      frm = 3'd0;
+    end
+  endtask
+
+  // Float to element
+  task automatic run_fmv_sf(input logic [4:0] d, input logic [2:0] lmul, input logic [VlW-1:0] len);
+    logic [31:0] fsc;
+    begin
+      fsc   = fp_pick();
+      vsew  = 3'd2;
+      vlmul = lmul;
+      vl    = len;
+      fdata = fsc;
+      xdata = 32'($urandom);
+      if (len != '0) shadow[d][31:0] = fsc;
+      flags_seen = '0;
+      issue(enc(6'b010000, 1'b1, 5'd0, 5'($urandom), 3'b101, d));
+      fdata = 32'($urandom);
+      xdata = 32'($urandom);
+      drain();
+      check_regs($sformatf("vfmv.s.f v%0d lmul %0d vl %0d", d, lmul, len));
+      note("vfmv.s.f flags", 32'(flags_seen), 32'd0);
+    end
+  endtask
+
+  // Element to float
+  task automatic run_fmv_fs(input logic [4:0] s2, input logic [2:0] lmul,
+                            input logic [VlW-1:0] len);
+    logic [31:0] want;
+    logic [31:0] got;
+    begin
+      vsew  = 3'd2;
+      vlmul = lmul;
+      vl    = len;
+      want  = shadow[s2][31:0];
+      flags_seen = '0;
+      @(negedge clk);
+      instr       = enc(6'b010000, 1'b1, s2, 5'd0, 3'b001, 5'($urandom));
+      instr_valid = 1'b1;
+      #1;
+      note("vfmv.f.s holds", 32'(vec_hold), 32'd1);
+      note("vfmv.f.s not integer", 32'(xreg_valid), 32'd0);
+      while (vec_hold) @(negedge clk);
+      got = xreg_result;
+      @(posedge clk);
+      #1 instr_valid = 1'b0;
+      drain();
+      check_regs($sformatf("vfmv.f.s v%0d lmul %0d vl %0d", s2, lmul, len));
+      note($sformatf("vfmv.f.s v%0d lmul %0d vl %0d", s2, lmul, len), got, want);
+      note("vfmv.f.s flags", 32'(flags_seen), 32'd0);
+    end
+  endtask
+
+  // Float move legality
+  task automatic check_fp_move_rules();
+    logic [31:0] forms[4];
+    begin
+      forms[0] = enc(6'b010111, 1'b0, 5'd8, 5'd1, 3'b101, 5'd12);
+      forms[1] = enc(6'b010111, 1'b1, 5'd0, 5'd1, 3'b101, 5'd12);
+      forms[2] = enc(6'b010000, 1'b1, 5'd0, 5'd1, 3'b101, 5'd12);
+      forms[3] = enc(6'b010000, 1'b1, 5'd8, 5'd0, 3'b001, 5'd12);
+      vill  = 1'b0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      for (int k = 0; k < 4; k++) begin
+        instr = forms[k];
+        for (int sw = 0; sw < 3; sw++) begin
+          vsew = 3'(sw);
+          for (int m = 0; m < 8; m++) begin
+            frm = 3'(m);
+            @(negedge clk);
+            note($sformatf("float move %0d sew %0d frm %0d", k, 8 << sw, m), 32'(is_vector),
+                 32'((sw == 2) && (m < 5)));
+          end
+        end
+        vsew = 3'd2;
+        frm  = 3'd0;
+        vill = 1'b1;
+        @(negedge clk);
+        note($sformatf("float move %0d vill", k), 32'(is_vector), 32'd0);
+        vill = 1'b0;
+      end
+      instr = enc(6'b010000, 1'b0, 5'd0, 5'd1, 3'b101, 5'd12);
+      @(negedge clk);
+      note("vfmv.s.f masked", 32'(is_vector), 32'd0);
+      instr = enc(6'b010000, 1'b0, 5'd8, 5'd0, 3'b001, 5'd12);
+      @(negedge clk);
+      note("vfmv.f.s masked", 32'(is_vector), 32'd0);
+      instr = enc(6'b010111, 1'b0, 5'd8, 5'd1, 3'b101, 5'd0);
+      @(negedge clk);
+      note("vfmerge onto v0", 32'(is_vector), 32'd0);
+      instr = enc(6'b010111, 1'b1, 5'd0, 5'd1, 3'b101, 5'd0);
+      @(negedge clk);
+      note("vfmv.v.f onto v0", 32'(is_vector), 32'd1);
+      vlmul = 3'd2;
+      instr = enc(6'b010111, 1'b0, 5'd8, 5'd1, 3'b101, 5'd6);
+      @(negedge clk);
+      note("vfmerge misaligned vd", 32'(is_vector), 32'd0);
+      instr = enc(6'b010111, 1'b0, 5'd6, 5'd1, 3'b101, 5'd8);
+      @(negedge clk);
+      note("vfmerge misaligned vs2", 32'(is_vector), 32'd0);
+      instr = enc(6'b010000, 1'b1, 5'd0, 5'd1, 3'b101, 5'd3);
+      @(negedge clk);
+      note("vfmv.s.f ignores lmul", 32'(is_vector), 32'd1);
+      instr = enc(6'b010000, 1'b1, 5'd3, 5'd0, 3'b001, 5'd12);
+      @(negedge clk);
+      note("vfmv.f.s ignores lmul", 32'(is_vector), 32'd1);
+      instr = 32'd0;
+      vlmul = 3'd0;
+    end
+  endtask
+
+  // Every float move
+  task automatic check_fp_moves();
+    logic [2:0] lmul;
+    int regs;
+    begin
+      seed_fp();
+      for (int g = 0; g < 4; g++) begin
+        lmul = 3'(g);
+        regs = 1 << g;
+        run_fmerge(1'b0, 5'd16, 5'd8, lmul, 8'(4 * regs));
+        run_fmerge(1'b0, 5'd24, 5'd16, lmul, 8'(1 + $urandom_range(4 * regs - 1)));
+        run_fmerge(1'b1, 5'd0, 5'd8, lmul, 8'(4 * regs));
+        run_fmerge(1'b1, 5'd0, 5'd24, lmul, 8'(1 + $urandom_range(4 * regs - 1)));
+        run_fmerge(1'b0, 5'd8, 5'd8, lmul, 8'(4 * regs));
+        run_fmerge(1'b0, 5'd16, 5'd8, lmul, 8'd0);
+        run_fmerge(1'b1, 5'd0, 5'd8, lmul, 8'd0);
+        run_fmv_sf(5'(8 + g), lmul, 8'(1 + $urandom_range(4 * regs - 1)));
+        run_fmv_sf(5'd9, lmul, 8'd0);
+        run_fmv_fs(5'(16 + g), lmul, 8'(1 + $urandom_range(4 * regs - 1)));
+        run_fmv_fs(5'd17, lmul, 8'd0);
+        seed_fp();
+      end
+      run_fmerge(1'b1, 5'd0, 5'd0, 3'd0, 8'd4);
+    end
+  endtask
+
+  // Moves behind float
+  task automatic check_fp_move_stream();
+    logic [ 4:0] f;
+    logic [31:0] fsc;
+    logic [31:0] want;
+    logic [31:0] got;
+    begin
+      for (int r = 0; r < 6; r++) begin
+        seed_fp();
+        vsew  = 3'd2;
+        vlmul = 3'(r % 4);
+        vl    = 8'(4 << (r % 4));
+        frm   = 3'($urandom_range(4));
+        fsc   = fp_pick();
+        model_fp(VEC_FMUL, 0, 5'd16, 5'd24, 5'd8, 1'b1, '0, 1 << (r % 4), vl, frm, f);
+        for (int i = 0; i < int'(vl); i++)
+        grp_set(5'd16, 32, i, shadow[0][i] ? fsc : 32'(grp_get(5'd8, 32, i)));
+        want = shadow[16][31:0];
+        issue(fp_encode(VEC_FMUL, 0, 5'd16, 5'd24, 5'd8, 1'b1));
+        fdata = fsc;
+        issue(enc(6'b010111, 1'b0, 5'd8, 5'd1, 3'b101, 5'd16));
+        fdata = 32'($urandom);
+        @(negedge clk);
+        instr       = enc(6'b010000, 1'b1, 5'd16, 5'd0, 3'b001, 5'd3);
+        instr_valid = 1'b1;
+        #1;
+        while (vec_hold) @(negedge clk);
+        got = xreg_result;
+        @(posedge clk);
+        #1 instr_valid = 1'b0;
+        drain();
+        check_regs($sformatf("float move stream %0d", r));
+        note($sformatf("vfmv.f.s after merge %0d", r), got, want);
+        frm = 3'd0;
+      end
     end
   endtask
 
@@ -2846,6 +3062,9 @@ module vec_unit_tb
     check_fp_stream();
     check_fp_group_stream();
     soak_fp(200);
+    check_fp_move_rules();
+    check_fp_moves();
+    check_fp_move_stream();
 
     verdict();
   end
