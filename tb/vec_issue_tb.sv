@@ -20,6 +20,7 @@ module vec_issue_tb
 
   logic instr_valid;
   logic cancel;
+  logic ex_adv = 1'b1;
   vec_op_e op;
   vec_src_e src;
   vec_eew_e eew;
@@ -78,6 +79,7 @@ module vec_issue_tb
       .core_en(core_en),
       .instr_valid(instr_valid),
       .cancel(cancel),
+      .ex_advance(ex_adv && !vec_hold),
       .op(op),
       .src(src),
       .eew(eew),
@@ -562,6 +564,44 @@ module vec_issue_tb
     settle();
   endtask
 
+  // Stalled result release
+  task automatic check_xreg_stall();
+    int acc0;
+    settle();
+    @(negedge clk);
+    op = VEC_MV_X_S;
+    src = VEC_SRC_VV;
+    eew = VEC_EEW_SAME;
+    writes_xreg = 1'b1;
+    vs1 = 5'd0;
+    vs2 = 5'd5;
+    vd = 5'd1;
+    vm = 1'b1;
+    reads_vd = 1'b0;
+    vl = 8'd4;
+    instr_valid = 1'b1;
+    #1;
+    acc0 = accepted;
+    while (vec_hold) @(negedge clk);
+    instr_valid = 1'b0;
+    ex_adv = 1'b0;
+    repeat (2) @(negedge clk);
+    instr_valid = 1'b1;
+    for (int c = 0; c < 3; c++) begin
+      #1;
+      note("stalled result no hold", 32'(vec_hold), 32'd0);
+      note("stalled result no accept", 32'(dut.accept), 32'd0);
+      @(negedge clk);
+    end
+    ex_adv = 1'b1;
+    @(posedge clk);
+    #1 instr_valid = 1'b0;
+    writes_xreg = 1'b0;
+    op = VEC_ADD;
+    note("accepts across a stall", 32'(accepted - acc0), 32'd1);
+    settle();
+  endtask
+
   task automatic verdict();
     checks = checks + 1;
     if (accepted != launched) begin
@@ -600,6 +640,7 @@ module vec_issue_tb
 
     // Scalar result waits
     check_xreg_wait();
+    check_xreg_stall();
 
     // Random traffic
     soak(400);
