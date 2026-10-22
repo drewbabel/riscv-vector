@@ -84,6 +84,7 @@ module vec_seq_formal
       .mask_dest   (mask_dest),
       .mask_whole  (mask_whole),
       .mask_src    (mask_src),
+      .serial      (1'b0),
       .v0_bits     ({VLEN{1'b1}}),
       .raddr1      (raddr1),
       .raddr2      (raddr2),
@@ -98,6 +99,7 @@ module vec_seq_formal
       .elem_count  (elem_count),
       .elem_active (elem_active),
       .last        (last),
+      .reg_done    (),
       .busy        (busy),
       .done        (done)
   );
@@ -133,8 +135,7 @@ module vec_seq_formal
   assign src2_pos = (PosW'(raddr2 - vs2) << OffW) + PosW'(s2_off);
 
   // Reset once
-  logic f_past_valid;
-  initial f_past_valid = 1'b0;
+  logic f_past_valid = 1'b0;
   always_ff @(posedge clk) f_past_valid <= 1'b1;
   always_comb if (!f_past_valid) assume (!rst_n);
   always_ff @(posedge clk) if (f_past_valid) assume (rst_n);
