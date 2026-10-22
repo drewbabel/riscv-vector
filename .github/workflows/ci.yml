@@ -4,6 +4,7 @@ env:
   OSS_CAD_SUITE: '2026-07-24'
   SV2V: 'v0.0.13'
   RISCV_FORMAL_SHA: '2bd7410'
+  SPIKE_SHA: '55b4658dbf574ba0b714083ec436ce2cb5be1998'
 
 on:
   push:
@@ -210,11 +211,12 @@ jobs:
         uses: actions/cache@v6
         with:
           path: /opt/spike
-          key: spike-riscv-isa-sim-v1
+          key: spike-${{ env.SPIKE_SHA }}
       - name: Build Spike
         if: steps.spike-cache.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 https://github.com/riscv-software-src/riscv-isa-sim.git
+          git clone https://github.com/riscv-software-src/riscv-isa-sim.git
+          git -C riscv-isa-sim checkout "$SPIKE_SHA"
           cd riscv-isa-sim && mkdir build && cd build
           ../configure --prefix=/opt/spike
           make -j"$(nproc)"
@@ -255,9 +257,9 @@ jobs:
           echo "RAND_SEED=$seed" >> "$GITHUB_ENV"
           echo "random co-sim seed $seed"
       - name: Randomized vector memory co-sim (100 programs)
-        run: python3 tests/cosim.py --vec --stall --rand 100 "$RAND_SEED"
+        run: python3 tests/cosim.py --vec --stall --irq --rand 100 "$RAND_SEED"
       - name: Randomized co-sim regression (500 programs)
-        run: python3 tests/cosim.py --stall --rand 500 "$RAND_SEED"
+        run: python3 tests/cosim.py --stall --irq --rand 500 "$RAND_SEED"
       - name: Generated RVV test sweep
         run: |
           git clone -q https://github.com/chipsalliance/riscv-vector-tests.git build/rvv-gen
