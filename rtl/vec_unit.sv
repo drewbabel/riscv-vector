@@ -64,6 +64,9 @@ module vec_unit
     input  wire  [2:0] frm,
     output logic [4:0] fflags,
 
+    // Reduction start
+    input wire vstart_set,
+
     // Scalar result
     output logic            xreg_valid,
     output logic [XLEN-1:0] xreg_result,
@@ -526,6 +529,10 @@ module vec_unit
   logic mul_built;
   assign mul_built = (dec_cls != VEC_CLS_MUL) || !dec_geom_s.widen;
 
+  // Reduction vstart rule
+  logic red_legal;
+  assign red_legal = !vstart_set || (dec_cls != VEC_CLS_RED);
+
   // Float needs e32
   logic dec_fp;
   logic fp_legal;
@@ -534,7 +541,7 @@ module vec_unit
   assign fp_legal = !dec_fp || ((vsew == 3'd2) && (frm < 3'd5));
 
   assign op_ready = (dec_cls != VEC_CLS_NONE) && mul_built && fp_legal && group_legal &&
-      (dec_mem || dec_mvnr || (width_legal && scalar_legal && carry_legal));
+      red_legal && (dec_mem || dec_mvnr || (width_legal && scalar_legal && carry_legal));
   assign is_vector = dec_valid && op_ready && (dec_full || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 

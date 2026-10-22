@@ -88,7 +88,8 @@ module csr
     input  wire        fp_wb_flags_we,
     input  wire  [4:0] fp_wb_flags,
     input  wire  [4:0] vec_fflags,
-    output logic [2:0] frm_q
+    output logic [2:0] frm_q,
+    output logic       vstart_set
 );
 
   logic [   XLEN-1:0] mstatus;
@@ -150,6 +151,7 @@ module csr
   assign vl_q = vl;
   assign vtype_q = vtype_ill ? {1'b1, {XLEN - 1{1'b0}}} : {{XLEN - 8{1'b0}}, vtype_bits};
   assign frm_q = frm;
+  assign vstart_set = vstart != '0;
   assign mstatus_read = mstatus | (XLEN'((mstatus[MstatusVsLo+1:MstatusVsLo] == VsDirty) ||
       (mstatus[MstatusFsLo+1:MstatusFsLo] == FsDirty)) << MstatusSd);
   assign vec_csr_addr = (csr_addr == VstartAddr) || (csr_addr == VlAddr) ||

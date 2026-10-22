@@ -238,6 +238,7 @@ module datapath
   logic                   [    XLEN-1:0] vec_csr_wdata;
   logic                                  vec_csr_wait;
   logic                                  vec_hold;
+  logic                                  vec_vstart_set;
   logic                   [         4:0] vec_fflags;
   logic                                  vec_fp_id;
   logic                                  vec_fp_ex;
@@ -965,6 +966,7 @@ module datapath
       .vxsat         (vec_vxsat),
       .frm           (frm_q),
       .fflags        (vec_fflags),
+      .vstart_set    (vec_vstart_set),
       .mem_rdata     (read_line),
       .mem_ready     (vmem_ready),
       .mem_req       (vmem_req),
@@ -1054,7 +1056,8 @@ module datapath
       .fp_wb_flags_we      (fp_wb_valid),
       .fp_wb_flags         (fp_wb_flags),
       .vec_fflags          (vec_fflags),
-      .frm_q               (frm_q)
+      .frm_q               (frm_q),
+      .vstart_set          (vec_vstart_set)
   );
 
   always_comb begin
