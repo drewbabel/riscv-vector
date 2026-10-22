@@ -175,7 +175,7 @@ module vec_decode_tb
         6'b011101, 6'b011111: return funct3 == Fff;
         6'b010111: return (funct3 == Fff) && (!vmb || (rs2 == 5'b00000));
         6'b010000: return (funct3 == Ffv) ? (rs1 == 5'b00000) : (rs2 == 5'b00000);
-        6'b000101, 6'b000111: return funct3 == Ffv;
+        6'b000001, 6'b000011, 6'b000101, 6'b000111: return funct3 == Ffv;
         default: return 1'b0;
       endcase
     end
@@ -189,6 +189,8 @@ module vec_decode_tb
       6'b000010: return VEC_FSUB;
       6'b000100: return VEC_FMIN;
       6'b000110: return VEC_FMAX;
+      6'b000001: return VEC_FREDUSUM;
+      6'b000011: return VEC_FREDOSUM;
       6'b000101: return VEC_FMIN;
       6'b000111: return VEC_FMAX;
       6'b001000: return VEC_FSGNJ;
