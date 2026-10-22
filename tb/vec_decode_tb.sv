@@ -176,6 +176,7 @@ module vec_decode_tb
         6'b010111: return (funct3 == Fff) && (!vmb || (rs2 == 5'b00000));
         6'b010000: return (funct3 == Ffv) ? (rs1 == 5'b00000) : (rs2 == 5'b00000);
         6'b000001, 6'b000011, 6'b000101, 6'b000111: return funct3 == Ffv;
+        6'b010011: return (funct3 == Ffv) && (rs1 == 5'b10000);
         default: return 1'b0;
       endcase
     end
@@ -198,6 +199,7 @@ module vec_decode_tb
       6'b001010: return VEC_FSGNJX;
       6'b100100: return VEC_FMUL;
       6'b100111: return VEC_FRSUB;
+      6'b010011: return VEC_FCLASS;
       6'b101000: return VEC_FMADD;
       6'b101001: return VEC_FNMADD;
       6'b101010: return VEC_FMSUB;
@@ -274,6 +276,7 @@ module vec_decode_tb
     logic          cmp;
     logic          fma;
     logic          red;
+    logic    [4:0] rs1;
     vec_op_e       want_op;
     logic    [6:0] got;
     logic    [6:0] exp;
@@ -281,7 +284,8 @@ module vec_decode_tb
       f3 = (f != 0) ? Fff : Ffv;
       for (int c = 0; c < 64; c++) begin
         if ((6'(c) == 6'b010111) || (6'(c) == 6'b010000)) continue;
-        instr = enc(6'(c), 1'($urandom), 5'($urandom), 5'($urandom), f3, 5'($urandom));
+        rs1   = ((6'(c) == 6'b010011) && ($urandom_range(1) != 0)) ? 5'b10000 : 5'($urandom);
+        instr = enc(6'(c), 1'($urandom), 5'($urandom), rs1, f3, 5'($urandom));
         #1;
         legal = ref_valid(f3, 6'(c), instr[19:15], instr[24:20], instr[25]);
         cmp   = (c[5:3] == 3'b011);
@@ -570,6 +574,10 @@ module vec_decode_tb
     chk_illegal(6'b100111, Ffv, 5'd1);
     chk_illegal(6'b100000, Ffv, 5'd1);
     chk_illegal(6'b010111, Fff, 5'd1);
+    chk_op(6'b010011, Ffv, 5'b10000, VEC_FARITH, VEC_SRC_VV, VEC_EEW_SAME);
+    chk_flags(6'b010011, Ffv, 5'b10000, 4'b0000);
+    chk_illegal(6'b010011, Fff, 5'b10000);
+    chk_illegal(6'b010011, Ffv, 5'b10001);
     repeat (8) sweep_float();
     sweep_float_moves();
     sweep_int_moves();
