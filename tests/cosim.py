@@ -208,7 +208,7 @@ TRACE = []  # Retirement times
 DUT_VWR = []  # Vector writes
 SPK_VWR = []  # Vector writes
 DUT_VMEM = []  # Vector store bytes
-FENCE_BUSY = []  # Fence retired early
+FAULTS = []  # Monitor faults
 HUNG = []  # Never reached the end
 SPK_VMEM = []  # Vector store bytes
 SPK_VWR_AT = []
@@ -239,8 +239,12 @@ def run_dut(
     out = subprocess.run(
         args, cwd=ROOT, capture_output=True, text=True, check=False
     ).stdout
-    FENCE_BUSY.clear()
-    FENCE_BUSY.extend(l for l in out.splitlines() if l.startswith("FENCE BUSY"))
+    FAULTS.clear()
+    FAULTS.extend(
+        l
+        for l in out.splitlines()
+        if l.startswith(("FENCE BUSY", "VEC REISSUE"))
+    )
     HUNG.clear()
     HUNG.extend(l for l in out.splitlines() if l.startswith("HUNG"))
     IRQ_LOST.clear()
@@ -1225,8 +1229,8 @@ def run_one(src, stall_seed=None, irq_seed=None):
                 )
             )
     ok, why = compare(dut, spike)
-    if ok and FENCE_BUSY:
-        return False, FENCE_BUSY[0]
+    if ok and FAULTS:
+        return False, FAULTS[0]
     if not ok or not VECTOR:
         return ok, why
     vok, vwhy = compare_vec()
@@ -1494,8 +1498,8 @@ def gen_verdict(dut, spike, data):
     ):
         if a != b:
             return "DIVERGE", f"{what} DUT {a} Spike {b}"
-    if FENCE_BUSY:
-        return "DIVERGE", FENCE_BUSY[0]
+    if FAULTS:
+        return "DIVERGE", FAULTS[0]
     if data["end"] != "pass":
         return "DIVERGE", f"Spike ended at {data['end']}"
     return (
@@ -1663,8 +1667,8 @@ def main():
     if not ok:
         print(f"DIVERGENCE {detail}")
         sys.exit(1)
-    if FENCE_BUSY:
-        print(f"DIVERGENCE {FENCE_BUSY[0]}")
+    if FAULTS:
+        print(f"DIVERGENCE {FAULTS[0]}")
         sys.exit(1)
     if HUNG:
         print(f"DIVERGENCE {HUNG[0]}")
