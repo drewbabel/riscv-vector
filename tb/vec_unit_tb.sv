@@ -802,6 +802,21 @@ module vec_unit_tb
       instr = enc(6'b011000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd8);
       #1 note("fractional compare over vs2", 32'(is_vector), 32'd1);
       vlmul = 3'd0;
+      instr = enc(6'b010000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd1);
+      #1 note("unmasked vadc vv", 32'(is_vector), 32'd0);
+      instr = enc(6'b010000, 1'b1, 5'd8, 5'd5, 3'b011, 5'd1);
+      #1 note("unmasked vadc vi", 32'(is_vector), 32'd0);
+      instr = enc(6'b010010, 1'b1, 5'd8, 5'd5, 3'b100, 5'd1);
+      #1 note("unmasked vsbc vx", 32'(is_vector), 32'd0);
+      instr = enc(6'b010000, 1'b0, 5'd8, 5'd4, 3'b000, 5'd1);
+      #1 note("masked vadc vv", 32'(is_vector), 32'd1);
+      instr = enc(6'b010010, 1'b0, 5'd8, 5'd4, 3'b000, 5'd1);
+      #1 note("masked vsbc vv", 32'(is_vector), 32'd1);
+      instr = enc(6'b010001, 1'b1, 5'd8, 5'd4, 3'b000, 5'd1);
+      #1 note("unmasked vmadc vv", 32'(is_vector), 32'd1);
+      instr = enc(6'b010111, 1'b1, 5'd0, 5'd4, 3'b000, 5'd1);
+      #1 note("unmasked merge is a move", 32'(is_vector), 32'd1);
+      vlmul = 3'd0;
       instr = 32'd0;
     end
   endtask
