@@ -368,6 +368,7 @@ module vec_unit
   logic        [GrpW-1:0] s2_regs;
   logic                   emul_legal;
   logic                   align_ok;
+  logic        [     2:0] dest_lw;
   logic                   overlap_ok;
   logic                   mask_ok;
   logic                   group_legal;
@@ -409,11 +410,14 @@ module vec_unit
       (!uses_vs1 || ((GrpW'(dec_vs1) & (s1_regs - GrpW'(1))) == '0)) &&
       (!uses_vs2 || ((GrpW'(dec_vs2) & (s2_regs - GrpW'(1))) == '0));
 
-  assign overlap_ok = dec_mem || !has_vd || dec_geom_s.single_write || dec_geom_s.mask_dest ||
-      ((!uses_vs1 || pair_ok(
-      GrpW'(dec_vd), d_regs, dec_ld, GrpW'(dec_vs1), s1_regs, dec_ls1, s1_emul >= 4'sd0
+  // Mask elements EEW 1
+  assign dest_lw = dec_geom_s.mask_dest ? 3'd0 : dec_ld;
+
+  assign overlap_ok = dec_mem || !has_vd || dec_geom_s.single_write ||
+      (dec_geom_s.mask_dest && dec_geom_s.mask_src) || ((!uses_vs1 || pair_ok(
+      GrpW'(dec_vd), d_regs, dest_lw, GrpW'(dec_vs1), s1_regs, dec_ls1, s1_emul >= 4'sd0
   )) && (!uses_vs2 || pair_ok(
-      GrpW'(dec_vd), d_regs, dec_ld, GrpW'(dec_vs2), s2_regs, dec_ls2, s2_emul >= 4'sd0
+      GrpW'(dec_vd), d_regs, dest_lw, GrpW'(dec_vs2), s2_regs, dec_ls2, s2_emul >= 4'sd0
   )));
 
   assign mask_ok = dec_vm || dec_store || !has_vd || dec_geom_s.single_write || dec_writes_mask ||
