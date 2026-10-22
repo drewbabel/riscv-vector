@@ -88,7 +88,7 @@ jobs:
                 -name=ruff -reporter=github-pr-review -filter-mode=added -fail-level=none
       - name: Apply formatters
         run: |
-          [ -s "$RUNNER_TEMP/sv" ] && verible-verilog-format --inplace --try_wrap_long_lines $(cat "$RUNNER_TEMP/sv") || true
+          [ -s "$RUNNER_TEMP/sv" ] && verible-verilog-format --inplace $(cat "$RUNNER_TEMP/sv") || true
           [ -s "$RUNNER_TEMP/py" ] && ruff format --line-length 80 $(cat "$RUNNER_TEMP/py") || true
           [ -s "$RUNNER_TEMP/c" ] && clang-format -i -style="$CLANG_STYLE" $(cat "$RUNNER_TEMP/c") || true
           while read -r f; do
