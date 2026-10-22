@@ -529,8 +529,8 @@ module vec_unit
   // Float needs e32
   logic dec_fp;
   logic fp_legal;
-  assign dec_fp = (dec_cls == VEC_CLS_FP) || (dec_cls == VEC_CLS_FCMP) || dec.reads_freg ||
-      dec_writes_freg;
+  assign dec_fp = (dec_cls == VEC_CLS_FP) || (dec_cls == VEC_CLS_FCMP) || (dec_op == VEC_FRED) ||
+      dec.reads_freg || dec_writes_freg;
   assign fp_legal = !dec_fp || ((vsew == 3'd2) && (frm < 3'd5));
 
   assign op_ready = (dec_cls != VEC_CLS_NONE) && mul_built && fp_legal && group_legal &&
@@ -879,6 +879,32 @@ module vec_unit
       .elem_active(elem_active_ex),
       .result(red_result)
   );
+
+  // Float reduce
+  logic [VLEN-1:0] fred_result;
+  logic [     4:0] fred_flags;
+  logic [     4:0] fred_flags_wb;
+
+  vec_fp_reduce #(
+      .DLEN(VLEN)
+  ) u_fp_reduce (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(core_en),
+      .op(fop_ex),
+      .first(valid_ex && (elem_base_ex == '0)),
+      .step(valid_ex && (op_ex == VEC_FRED)),
+      .vs2_data(vs2_data),
+      .vs1_data(vs1_data),
+      .elem_active(elem_active_ex[VLEN/FpW-1:0]),
+      .result(fred_result),
+      .fflags(fred_flags)
+  );
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) fred_flags_wb <= '0;
+    else if (core_en) fred_flags_wb <= fred_flags;
+  end
 
   vec_mask #(
       .DLEN(VLEN),
@@ -1263,7 +1289,7 @@ module vec_unit
       xdata_wb        <= xdata_ex;
       alu_result_wb   <= alu_result;
       mixed_result_wb <= mixed_result;
-      red_result_wb   <= red_result;
+      red_result_wb   <= (op_x2 == VEC_FRED) ? fred_result : red_result;
       mask_result_wb  <= mask_result;
       lane_result_wb  <= lane_result;
       active_wb       <= active_x5;
@@ -1325,7 +1351,7 @@ module vec_unit
   assign xreg_valid = dec_writes_xreg && is_vector;
   assign xreg_result = xres_q;
   assign vec_hold = issue_hold || (csr_wait && !vec_idle);
-  assign fflags = (valid_wb && fp_wb) ? fp_flags_or : '0;
+  assign fflags = ((valid_wb && fp_wb) ? fp_flags_or : '0) | fred_flags_wb;
 
 `ifdef RISCV_FORMAL
   // Retire after last write

@@ -907,9 +907,11 @@ module datapath
 
   // Vector float forms
   assign vec_fp_id = (vec_dec_id.op == vec_pkg::VEC_FARITH) ||
-      (vec_dec_id.op == vec_pkg::VEC_FCMP) || vec_dec_id.reads_freg || vec_dec_id.writes_freg;
+      (vec_dec_id.op == vec_pkg::VEC_FCMP) || (vec_dec_id.op == vec_pkg::VEC_FRED) ||
+      vec_dec_id.reads_freg || vec_dec_id.writes_freg;
   assign vec_fp_ex = valid_ex && ((vec_dec_ex.op == vec_pkg::VEC_FARITH) ||
-      (vec_dec_ex.op == vec_pkg::VEC_FCMP) || vec_dec_ex.reads_freg || vec_dec_ex.writes_freg);
+      (vec_dec_ex.op == vec_pkg::VEC_FCMP) || (vec_dec_ex.op == vec_pkg::VEC_FRED) ||
+      vec_dec_ex.reads_freg || vec_dec_ex.writes_freg);
 
   assign exc_vec_encoding = (((instr_ex[6:0] == OpcodeOpV) && !is_vset) ||
       (instr_ex[6:0] == OpcodeLoadFp) || (instr_ex[6:0] == OpcodeStoreFp)) && !vec_is_vector;
