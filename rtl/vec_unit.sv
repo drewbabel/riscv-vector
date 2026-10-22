@@ -31,6 +31,7 @@ module vec_unit
     input wire                      cancel,
     input wire           [XLEN-1:0] xdata,
     input wire           [XLEN-1:0] xstride,
+    input wire           [XLEN-1:0] fdata,
 
     // Live configuration
     input wire           vill,
@@ -58,6 +59,10 @@ module vec_unit
     output logic [     1:0] vxrm,
     output logic            vxsat,
 
+    // Float control
+    input  wire  [2:0] frm,
+    output logic [4:0] fflags,
+
     // Scalar result
     output logic            xreg_valid,
     output logic [XLEN-1:0] xreg_result,
@@ -84,7 +89,14 @@ module vec_unit
   localparam int ShallowWb = 2;
   localparam int DeepWb = 3;
   localparam int LaneWb = 5;
-  localparam int SlotW = $clog2(LaneWb + 1);
+  localparam int FpWb = VecFpLatency + 1;
+  localparam int SlotW = $clog2(FpWb + 1);
+  localparam int FpW = 32;
+
+  // Float stage sized
+  if (FpWb != LaneWb + 1) begin : g_fp_depth
+    $error("vector float lane latency needs one stage after X4");
+  end
 
   // Decoded fields
   logic                     dec_valid;
@@ -123,6 +135,8 @@ module vec_unit
   logic      [         2:0] seq_vsew;
   logic      [         2:0] seq_vlmul;
   logic      [         1:0] seq_vxrm;
+  vec_fop_e                 seq_fop;
+  logic      [         2:0] seq_frm;
 
   // Sequencer outputs
   logic      [  AWIDTH-1:0] raddr1;
@@ -178,6 +192,8 @@ module vec_unit
   vec_eew_e                 eew_ex;
   logic      [         2:0] vsew_ex;
   logic      [         1:0] vxrm_ex;
+  vec_fop_e                 fop_ex;
+  logic      [         2:0] frm_ex;
   logic                     vm_ex;
   logic      [         4:0] simm_ex;
   logic      [    XLEN-1:0] xdata_ex;
@@ -232,6 +248,14 @@ module vec_unit
   logic                     wen_x4;
   logic                     reg_done_x4;
   logic                     last_x4;
+  logic                     valid_x5;
+  vec_cls_e                 cls_x5;
+  logic      [    OffW-1:0] d_off_x5;
+  logic      [  AWIDTH-1:0] waddr_x5;
+  logic      [    VLEN-1:0] wstrb_x5;
+  logic                     wen_x5;
+  logic                     reg_done_x5;
+  logic                     last_x5;
 
   vec_cls_e                 cls_wb;
   logic      [    XLEN-1:0] xdata_wb;
@@ -500,7 +524,13 @@ module vec_unit
   logic mul_built;
   assign mul_built = (dec_cls != VEC_CLS_MUL) || !dec_geom_s.widen;
 
-  assign op_ready = (dec_cls != VEC_CLS_NONE) && mul_built && group_legal &&
+  // Float needs e32
+  logic dec_fp;
+  logic fp_legal;
+  assign dec_fp = (dec_cls == VEC_CLS_FP) || (dec_cls == VEC_CLS_FCMP);
+  assign fp_legal = !dec_fp || ((vsew == 3'd2) && (frm < 3'd5));
+
+  assign op_ready = (dec_cls != VEC_CLS_NONE) && mul_built && fp_legal && group_legal &&
       (dec_mem || dec_mvnr || (width_legal && scalar_legal && carry_legal));
   assign is_vector = dec_valid && op_ready && (dec_full || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
@@ -544,8 +574,9 @@ module vec_unit
       .vm(dec_vm),
       .reads_vd(dec_reads_vd),
       .simm(dec_simm),
-      .xdata(xdata),
+      .xdata(dec.reads_freg ? fdata : xdata),
       .xstride(issue_stride),
+      .fop(dec.fop),
       .wr_regs(wr_regs),
       .rd1(dec_store ? dec_vd : dec_vs1),
       .rd1_regs(rd1_regs),
@@ -556,9 +587,10 @@ module vec_unit
       .vsew(issue_vsew),
       .vlmul(issue_vlmul),
       .vxrm(vxrm_q),
+      .frm(frm),
       .seq_busy(seq_busy || m_busy),
       .seq_done(seq_done || m_done),
-      .pipe_busy(valid_ex || valid_x2 || valid_x3 || valid_x4 || valid_wb),
+      .pipe_busy(valid_ex || valid_x2 || valid_x3 || valid_x4 || valid_x5 || valid_wb),
       .x_done(x_done),
       .seq_start(seq_start),
       .seq_op(seq_op),
@@ -576,6 +608,8 @@ module vec_unit
       .seq_vsew(seq_vsew),
       .seq_vlmul(seq_vlmul),
       .seq_vxrm(seq_vxrm),
+      .seq_fop(seq_fop),
+      .seq_frm(seq_frm),
       .vec_hold(issue_hold),
       .vec_idle(vec_idle),
       .load_pending(load_pending),
@@ -596,22 +630,25 @@ module vec_unit
   // Book the write
   logic                 seq_lane;
   logic                 seq_deep;
+  logic                 seq_fp;
   logic                 slot_free;
   logic                 seq_hold;
   logic [    SlotW-1:0] seq_depth;
 
   assign seq_lane = (seq_cls == VEC_CLS_MUL) || (seq_cls == VEC_CLS_SAT);
+  assign seq_fp   = (seq_cls == VEC_CLS_FP) || (seq_cls == VEC_CLS_FCMP);
   assign seq_deep = (seq_cls == VEC_CLS_RED) || seq_lane;
   assign seq_hold = seq_busy && (!slot_free || div_hold);
 
   always_comb begin
-    if (seq_lane) seq_depth = SlotW'(LaneWb);
+    if (seq_fp) seq_depth = SlotW'(FpWb);
+    else if (seq_lane) seq_depth = SlotW'(LaneWb);
     else if (seq_deep) seq_depth = SlotW'(DeepWb);
     else seq_depth = SlotW'(ShallowWb);
   end
 
   vec_write_slots #(
-      .DEPTH(LaneWb)
+      .DEPTH(FpWb)
   ) u_slots (
       .clk(clk),
       .rst_n(rst_n),
@@ -761,6 +798,8 @@ module vec_unit
       eew_ex         <= seq_eew;
       vsew_ex        <= seq_vsew;
       vxrm_ex        <= seq_vxrm;
+      fop_ex         <= seq_fop;
+      frm_ex         <= seq_frm;
       vm_ex          <= seq_vm;
       simm_ex        <= seq_simm;
       xdata_ex       <= seq_xdata;
@@ -876,7 +915,18 @@ module vec_unit
   assign imm_ex = ((op_ex == VEC_SSRL) || (op_ex == VEC_SSRA) || narrow_ex) ?
       ELEN'(simm_ex) : {{(ELEN - 5) {simm_ex[4]}}, simm_ex};
   assign mul_op_x2 = vec_pkg::vec_op_e'((op_x2 == VEC_SMUL) ? VEC_MULH : op_x2);
-  assign lane_x2 = (cls_x2 == VEC_CLS_MUL) || (cls_x2 == VEC_CLS_SAT);
+
+  // Float lane outputs
+  logic                 fp_ex;
+  logic [      FpW-1:0] fp_res    [MUL_LANES];
+  logic [          4:0] fp_flag   [MUL_LANES];
+  logic [MUL_LANES-1:0] fp_cmp;
+  logic [MUL_LANES-1:0] active_x5;
+  logic [MUL_LANES-1:0] active_wb;
+
+  assign fp_ex = (cls_ex == VEC_CLS_FP) || (cls_ex == VEC_CLS_FCMP);
+  assign lane_x2 = (cls_x2 == VEC_CLS_MUL) || (cls_x2 == VEC_CLS_SAT) || (cls_x2 == VEC_CLS_FP) ||
+      (cls_x2 == VEC_CLS_FCMP);
 
   for (genvar l = 0; l < MUL_LANES; l++) begin : g_lane
     logic [  ELEN-1:0] a_w     [Widths];
@@ -986,6 +1036,40 @@ module vec_unit
 
     assign lane_res[l] = res_sel;
     assign lane_sat[l] = sat && active_x4[l];
+
+    // Float element operands
+    logic [FpW-1:0] fp_b_ex;
+    assign fp_b_ex = (src_ex == VEC_SRC_VX) ? FpW'(xdata_ex) : vs1_data[l*FpW+:FpW];
+
+    vec_fp_lane u_fp (
+        .clk(clk),
+        .rst_n(rst_n),
+        .core_en(core_en),
+        .valid(valid_ex && fp_ex),
+        .op(fop_ex),
+        .rm(frm_ex),
+        .a(vs2_data[l*FpW+:FpW]),
+        .b(fp_b_ex),
+        .c(vd_data[l*FpW+:FpW]),
+        .result(fp_res[l]),
+        .fflags(fp_flag[l]),
+        .result_valid()
+    );
+
+    assign fp_cmp[l] = fp_res[l][0];
+  end
+
+  // Pack float results
+  logic [VLEN-1:0] fp_pack;
+  logic [     4:0] fp_flags_or;
+
+  always_comb begin
+    fp_pack     = '0;
+    fp_flags_or = '0;
+    for (int l = 0; l < MUL_LANES; l++) begin
+      fp_pack[l*FpW+:FpW] = fp_res[l];
+      if (active_wb[l]) fp_flags_or = fp_flags_or | fp_flag[l];
+    end
   end
 
   // Pack lane results
@@ -1026,7 +1110,8 @@ module vec_unit
 
   // Deep units
   logic deep_ex;
-  assign deep_ex = (cls_ex == VEC_CLS_RED) || (cls_ex == VEC_CLS_MUL) || (cls_ex == VEC_CLS_SAT);
+  assign deep_ex = (cls_ex == VEC_CLS_RED) || (cls_ex == VEC_CLS_MUL) || (cls_ex == VEC_CLS_SAT) ||
+      fp_ex;
 
   // EX/X2
   always_ff @(posedge clk) begin
@@ -1096,6 +1181,33 @@ module vec_unit
     end
   end
 
+  // Float lane tail
+  logic fp_x4;
+  logic fp_wb;
+
+  assign fp_x4 = (cls_x4 == VEC_CLS_FP) || (cls_x4 == VEC_CLS_FCMP);
+  assign fp_wb = (cls_wb == VEC_CLS_FP) || (cls_wb == VEC_CLS_FCMP);
+
+  // X4/X5
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      valid_x5    <= 1'b0;
+      wen_x5      <= 1'b0;
+      reg_done_x5 <= 1'b0;
+      last_x5     <= 1'b0;
+    end else if (core_en) begin
+      valid_x5    <= valid_x4 && fp_x4;
+      wen_x5      <= wen_x4 && fp_x4;
+      reg_done_x5 <= reg_done_x4 && fp_x4;
+      last_x5     <= last_x4 && fp_x4;
+      cls_x5      <= cls_x4;
+      active_x5   <= active_x4;
+      d_off_x5    <= d_off_x4;
+      waddr_x5    <= waddr_x4;
+      wstrb_x5    <= wstrb_x4;
+    end
+  end
+
   // Writeback stage
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -1106,7 +1218,16 @@ module vec_unit
       sat_wb      <= 1'b0;
     end else if (core_en) begin
       sat_wb <= valid_x4 && (cls_x4 == VEC_CLS_SAT) && (lane_sat != '0);
-      if (valid_x4) begin  // Slot row keeps one
+      if (valid_x5) begin  // Slot row keeps one
+        valid_wb    <= 1'b1;
+        wen_wb      <= wen_x5;
+        reg_done_wb <= reg_done_x5;
+        last_wb     <= last_x5;
+        cls_wb      <= cls_x5;
+        d_off_wb    <= d_off_x5;
+        waddr_wb    <= waddr_x5;
+        wstrb_wb    <= wstrb_x5;
+      end else if (valid_x4 && !fp_x4) begin
         valid_wb    <= 1'b1;
         wen_wb      <= wen_x4;
         reg_done_wb <= reg_done_x4;
@@ -1140,6 +1261,7 @@ module vec_unit
       red_result_wb   <= red_result;
       mask_result_wb  <= mask_result;
       lane_result_wb  <= lane_result;
+      active_wb       <= active_x5;
     end
   end
 
@@ -1149,6 +1271,8 @@ module vec_unit
       VEC_CLS_MIXED:                                         raw_result = mixed_result_wb;
       VEC_CLS_RED:                                           raw_result = red_result_wb;
       VEC_CLS_MUL, VEC_CLS_SAT:                              raw_result = lane_result_wb;
+      VEC_CLS_FP:                                            raw_result = fp_pack;
+      VEC_CLS_FCMP:                                          raw_result = VLEN'(fp_cmp);
       VEC_CLS_SX:                                            raw_result = VLEN'(xdata_wb);
       VEC_CLS_CMP, VEC_CLS_MLOG, VEC_CLS_MSET, VEC_CLS_IOTA: raw_result = mask_result_wb;
       default:                                               raw_result = alu_result_wb;
@@ -1196,6 +1320,7 @@ module vec_unit
   assign xreg_valid = dec_writes_xreg && is_vector;
   assign xreg_result = xres_q;
   assign vec_hold = issue_hold || (csr_wait && !vec_idle);
+  assign fflags = (valid_wb && fp_wb) ? fp_flags_or : '0;
 
 `ifdef RISCV_FORMAL
   // Retire after last write

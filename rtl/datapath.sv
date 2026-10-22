@@ -11,6 +11,7 @@ module datapath
   import csr_pkg::FflagsAddr;
   import csr_pkg::FrmAddr;
   import csr_pkg::FcsrAddr;
+  import csr_pkg::MstatusAddr;
   import fp_pkg::*;
 #(
     parameter  int XLEN      = arch_pkg::XLEN,
@@ -237,6 +238,9 @@ module datapath
   logic                   [    XLEN-1:0] vec_csr_wdata;
   logic                                  vec_csr_wait;
   logic                                  vec_hold;
+  logic                   [         4:0] vec_fflags;
+  logic                                  vec_fp_id;
+  logic                                  vec_fp_ex;
   logic                                  vec_issue_ok;
   logic                                  vec_idle;
   logic                                  vec_load_pending;
@@ -639,8 +643,8 @@ module datapath
       .result_src_ex(result_src_ex),
       .result_src_mem(result_src_mem),
       .result_src_wb(result_src_wb),
-      .fp_op_id(fp_is_d && valid_id),
-      .frs1_read_id(frs1_read_d),
+      .fp_op_id((fp_is_d || vec_fp_id) && valid_id),
+      .frs1_read_id(frs1_read_d || vec_dec_id.reads_freg),
       .frs2_read_id(frs2_read_d),
       .frs3_read_id(frs3_read_d),
       .frd_write_id(frd_write_d),
@@ -895,7 +899,13 @@ module datapath
   logic            exc_vec_encoding;
 
   assign vec_csr_wait = csr_access_ex && ((instr_ex[31:20] == VxsatAddr)
-      || (instr_ex[31:20] == VcsrAddr));
+      || (instr_ex[31:20] == VcsrAddr) || (instr_ex[31:20] == FflagsAddr)
+      || (instr_ex[31:20] == FcsrAddr) || (instr_ex[31:20] == MstatusAddr));
+
+  // Vector float forms
+  assign vec_fp_id = (vec_dec_id.op == vec_pkg::VEC_FARITH) || (vec_dec_id.op == vec_pkg::VEC_FCMP);
+  assign vec_fp_ex = valid_ex &&
+      ((vec_dec_ex.op == vec_pkg::VEC_FARITH) || (vec_dec_ex.op == vec_pkg::VEC_FCMP));
 
   assign exc_vec_encoding = (((instr_ex[6:0] == OpcodeOpV) && !is_vset) ||
       (instr_ex[6:0] == OpcodeLoadFp) || (instr_ex[6:0] == OpcodeStoreFp)) && !vec_is_vector;
@@ -935,6 +945,7 @@ module datapath
       .cancel        (trap_taken),
       .xdata         (forwarded_rs1),
       .xstride       (forwarded_rs2),
+      .fdata         (fp_a_ex),
       .vill          (vtype_q[XLEN-1]),
       .vl            (vl_q),
       .vsew          (vtype_q[5:3]),
@@ -945,6 +956,8 @@ module datapath
       .csr_wait      (vec_csr_wait),
       .vxrm          (vec_vxrm),
       .vxsat         (vec_vxsat),
+      .frm           (frm_q),
+      .fflags        (vec_fflags),
       .mem_rdata     (read_line),
       .mem_ready     (vmem_ready),
       .mem_req       (vmem_req),
@@ -1027,12 +1040,13 @@ module datapath
       .vec_csr_we          (vec_csr_we),
       .vec_csr_waddr       (vec_csr_waddr),
       .vec_csr_wdata       (vec_csr_wdata),
-      .is_fp_instr         ((fp_op_ex && valid_ex) && commit_valid),
+      .is_fp_instr         (((fp_op_ex && valid_ex) || vec_fp_ex) && commit_valid),
       .fp_state_we         (frd_write_ex),
       .fp_flags_we         (fxrd_write_ex && fp_xvalid),
       .fp_flags            (fp_xflags),
       .fp_wb_flags_we      (fp_wb_valid),
       .fp_wb_flags         (fp_wb_flags),
+      .vec_fflags          (vec_fflags),
       .frm_q               (frm_q)
   );
 
