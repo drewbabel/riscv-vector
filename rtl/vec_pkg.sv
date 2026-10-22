@@ -350,6 +350,7 @@ package vec_pkg;
     logic writes_mask;
     vec_fop_e fop;
     logic reads_freg;
+    logic writes_freg;
     logic [1:0] mem_width;
     logic mem_whole;
     logic [2:0] mem_nf;
