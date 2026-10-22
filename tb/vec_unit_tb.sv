@@ -1768,6 +1768,109 @@ module vec_unit_tb
     for (int e = 0; e < VLEN / w; e++) min_vec[e*w+w-1] = 1'b1;
   endfunction
 
+  // Widening multiply model
+  function automatic logic [ELEN-1:0] ref_wmul(input vec_op_e o, input int w,
+                                               input logic [ELEN-1:0] a, input logic [ELEN-1:0] b,
+                                               input logic [ELEN-1:0] c);
+    longint m, ua, ub, sa, sb, v;
+    begin
+      m  = (64'sd1 <<< w) - 1;
+      ua = longint'(a) & m;
+      ub = longint'(b) & m;
+      sa = ua[w-1] ? (ua - (64'sd1 <<< w)) : ua;
+      sb = ub[w-1] ? (ub - (64'sd1 <<< w)) : ub;
+      case (o)
+        VEC_WMULU:   v = ua * ub;
+        VEC_WMULSU:  v = sa * ub;
+        VEC_WMUL:    v = sa * sb;
+        VEC_WMACCU:  v = (ua * ub) + longint'(c);
+        VEC_WMACC:   v = (sa * sb) + longint'(c);
+        VEC_WMACCSU: v = (ua * sb) + longint'(c);
+        VEC_WMACCUS: v = (sa * ub) + longint'(c);
+        default:     v = 0;
+      endcase
+      return ELEN'(v & ((64'sd1 <<< (2 * w)) - 1));
+    end
+  endfunction
+
+  function automatic logic [5:0] wmul_funct6(input vec_op_e o);
+    case (o)
+      VEC_WMULU:   return 6'b111000;
+      VEC_WMULSU:  return 6'b111010;
+      VEC_WMUL:    return 6'b111011;
+      VEC_WMACCU:  return 6'b111100;
+      VEC_WMACC:   return 6'b111101;
+      VEC_WMACCUS: return 6'b111110;
+      default:     return 6'b111111;
+    endcase
+  endfunction
+
+  task automatic run_wmul(input vec_op_e o, input int form, input logic [4:0] s1,
+                          input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                          input logic [XLEN-1:0] xd, input logic [2:0] sew, input logic [2:0] lmul,
+                          input logic [VlW-1:0] len);
+    int w;
+    int regs;
+    logic [ELEN-1:0] b;
+    begin
+      w = 8 << sew;
+      regs = lmul[2] ? 1 : (1 << lmul[1:0]);
+      vsew = sew;
+      vlmul = lmul;
+      vl = len;
+      xdata = xd;
+      for (int i = 0; i < group_elems(w, regs); i++) begin
+        if ((i < int'(len)) && (vmb || shadow[0][i])) begin
+          b = (form == 0) ? grp_get(s1, w, i) : xd;
+          grp_set(d, 2 * w, i, ref_wmul(o, w, grp_get(s2, w, i), b, grp_get(d, 2 * w, i)));
+        end
+      end
+      issue(enc(wmul_funct6(o), vmb, s2, (form == 0) ? s1 : 5'd1, (form == 0) ? 3'b010 : 3'b110, d
+            ));
+      drain();
+      check_regs($sformatf("wmul %0s sew %0d form %0d", o.name(), w, form));
+    end
+  endtask
+
+  task automatic check_widening_muls();
+    vec_op_e ops[7] = '{
+        VEC_WMULU,
+        VEC_WMULSU,
+        VEC_WMUL,
+        VEC_WMACCU,
+        VEC_WMACC,
+        VEC_WMACCSU,
+        VEC_WMACCUS
+    };
+    seed_all();
+    for (int k = 0; k < 7; k++) begin
+      for (int s = 0; s < 2; s++) begin
+        if (ops[k] != VEC_WMACCUS)
+          run_wmul(ops[k], 0, 5'd4, 5'd8, 5'd16, 1'b1, '0, 3'(s), 3'd0, 8'(VLEN / (8 << s)));
+        run_wmul(ops[k], 1, 5'd0, 5'd8, 5'd18, 1'b1, $urandom, 3'(s), 3'd0, 8'(VLEN / (8 << s)));
+        run_wmul(ops[k], 1, 5'd0, 5'd8, 5'd20, 1'b0, $urandom, 3'(s), 3'd1,
+                 8'(2 * VLEN / (8 << s)));
+      end
+      if (ops[k] != VEC_WMACCUS) begin
+        run_wmul(ops[k], 0, 5'd4, 5'd8, 5'd24, 1'b1, '0, 3'd0, 3'd1, 8'd32);
+        run_wmul(ops[k], 0, 5'd4, 5'd8, 5'd16, 1'b0, '0, 3'd1, 3'd0, 8'd8);
+        run_wmul(ops[k], 0, 5'd4, 5'd8, 5'd16, 1'b1, '0, 3'd0, 3'd0, 8'd5);
+      end
+    end
+    // Accumulate carries past SEW
+    seed_reg(5'd4, '1);
+    seed_reg(5'd8, '1);
+    seed_reg(5'd16, {(VLEN / 16) {16'h00ff}});
+    seed_reg(5'd17, {(VLEN / 16) {16'h00ff}});
+    run_wmul(VEC_WMACCU, 0, 5'd4, 5'd8, 5'd16, 1'b1, '0, 3'd0, 3'd0, 8'd16);
+    run_wmul(VEC_WMACCU, 1, 5'd0, 5'd8, 5'd16, 1'b1, 32'hff, 3'd0, 3'd0, 8'd16);
+    seed_reg(5'd16, {(VLEN / 32) {32'h0000_ffff}});
+    seed_reg(5'd17, {(VLEN / 32) {32'h0000_ffff}});
+    run_wmul(VEC_WMACCU, 0, 5'd4, 5'd8, 5'd16, 1'b1, '0, 3'd1, 3'd0, 8'd8);
+    run_wmul(VEC_WMACC, 1, 5'd0, 5'd8, 5'd16, 1'b1, 32'h8000, 3'd1, 3'd0, 8'd8);
+    seed_all();
+  endtask
+
   task automatic check_multiplies();
     vec_op_e ops[8] = '{
         VEC_MUL,
@@ -2065,7 +2168,11 @@ module vec_unit_tb
       note("multiply add", 32'(is_vector), 32'd1);
       instr = enc(6'b111000, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
       @(negedge clk);
-      note("widening multiply", 32'(is_vector), 32'd0);
+      note("widening multiply", 32'(is_vector), 32'd1);
+      vsew = 3'd2;
+      @(negedge clk);
+      note("widening multiply at e32", 32'(is_vector), 32'd0);
+      vsew  = 3'd1;
       instr = enc(6'b001000, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
       @(negedge clk);
       note("averaging add", 32'(is_vector), 32'd1);
@@ -2164,6 +2271,7 @@ module vec_unit_tb
 
     check_lane_rules();
     check_multiplies();
+    check_widening_muls();
     check_fixed_ops();
     check_divides();
     check_averaging();
