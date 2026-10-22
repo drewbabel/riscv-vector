@@ -25,6 +25,7 @@ module vec_decode_tb
   logic            writes_mask;
   vec_fop_e        fop;
   logic            reads_freg;
+  logic            writes_freg;
   logic     [ 1:0] mem_width;
   logic            mem_whole;
   logic     [ 2:0] mem_nf;
@@ -56,6 +57,7 @@ module vec_decode_tb
       .writes_mask(writes_mask),
       .fop        (fop),
       .reads_freg (reads_freg),
+      .writes_freg(writes_freg),
       .mem_width  (mem_width),
       .mem_whole  (mem_whole),
       .mem_nf     (mem_nf),
@@ -104,7 +106,7 @@ module vec_decode_tb
 
   // Reference legality
   function automatic logic ref_valid(input logic [2:0] funct3, input logic [5:0] funct6,
-                                     input logic [4:0] rs1, input logic [4:0] rs2);
+                                     input logic [4:0] rs1, input logic [4:0] rs2, input logic vmb);
     logic v, x, i;
     v = (funct3 == Fvv);
     x = (funct3 == Fvx);
@@ -171,6 +173,8 @@ module vec_decode_tb
         6'b101100, 6'b101101, 6'b101110, 6'b101111: return 1'b1;
         6'b011000, 6'b011001, 6'b011011, 6'b011100: return 1'b1;
         6'b011101, 6'b011111: return funct3 == Fff;
+        6'b010111: return (funct3 == Fff) && (!vmb || (rs2 == 5'b00000));
+        6'b010000: return (funct3 == Ffv) ? (rs1 == 5'b00000) : (rs2 == 5'b00000);
         default: return 1'b0;
       endcase
     end
@@ -264,18 +268,19 @@ module vec_decode_tb
     logic       legal;
     logic       cmp;
     logic       fma;
-    logic [5:0] got;
-    logic [5:0] exp;
+    logic [6:0] got;
+    logic [6:0] exp;
     for (int f = 0; f < 2; f++) begin
       f3 = (f != 0) ? Fff : Ffv;
       for (int c = 0; c < 64; c++) begin
+        if ((6'(c) == 6'b010111) || (6'(c) == 6'b010000)) continue;
         instr = enc(6'(c), 1'($urandom), 5'($urandom), 5'($urandom), f3, 5'($urandom));
         #1;
-        legal = ref_valid(f3, 6'(c), 5'd0, 5'd0);
+        legal = ref_valid(f3, 6'(c), instr[19:15], instr[24:20], instr[25]);
         cmp   = (c[5:3] == 3'b011);
         fma   = (c[5:3] == 3'b101);
-        got   = {valid, reads_vd, reads_xreg, writes_xreg, writes_mask, reads_freg};
-        exp   = {legal, legal && fma, 1'b0, 1'b0, legal && cmp, legal && f3 == Fff};
+        got   = {valid, reads_vd, reads_xreg, writes_xreg, writes_mask, reads_freg, writes_freg};
+        exp   = {legal, legal && fma, 1'b0, 1'b0, legal && cmp, legal && f3 == Fff, 1'b0};
         checks++;
         if (got !== exp || (legal && (op !== (cmp ? VEC_FCMP : VEC_FARITH) || fop !== ref_fop(
                 6'(c)
@@ -284,6 +289,64 @@ module vec_decode_tb
           $display("FAIL float f6=%b f3=%b got=%b/%0d/%0d exp=%b/%0d at %0t", 6'(c), f3, got, op,
                    fop, exp, ref_fop(6'(c)), $time);
           if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+        end
+      end
+    end
+  endtask
+
+  // Float move encodings
+  task automatic sweep_float_moves();
+    logic     [2:0] f3;
+    logic     [5:0] f6;
+    logic           legal;
+    vec_op_e        exp_op;
+    vec_src_e       exp_src;
+    logic     [7:0] got;
+    logic     [7:0] exp;
+    for (int k = 0; k < 4; k++) begin
+      f6 = k[1] ? 6'b010000 : 6'b010111;
+      f3 = k[0] ? Fff : Ffv;
+      for (int m = 0; m < 2; m++) begin
+        for (int a = 0; a < 32; a++) begin
+          for (int b = 0; b < 32; b++) begin
+            instr = enc(f6, 1'(m), 5'(b), 5'(a), f3, 5'($urandom));
+            #1;
+            exp_op  = VEC_ILLEGAL;
+            exp_src = vec_src_e'((f3 == Fff) ? VEC_SRC_VX : VEC_SRC_VV);
+            if ((f6 == 6'b010111) && (f3 == Fff) && ((m == 0) || (b == 0))) exp_op = VEC_MERGE;
+            if ((f6 == 6'b010000) && (f3 == Fff) && (b == 0)) exp_op = VEC_MV_S_X;
+            if ((f6 == 6'b010000) && (f3 == Ffv) && (a == 0)) exp_op = VEC_MV_X_S;
+            legal = (exp_op != VEC_ILLEGAL);
+            got = {
+              valid,
+              reads_vd,
+              reads_xreg,
+              writes_xreg,
+              writes_mask,
+              reads_freg,
+              writes_freg,
+              eew == VEC_EEW_SAME
+            };
+            exp = {
+              legal,
+              1'b0,
+              1'b0,
+              1'b0,
+              1'b0,
+              legal && (f3 == Fff),
+              legal && (exp_op == VEC_MV_X_S),
+              1'b1
+            };
+            checks++;
+            if (got !== exp || op !== exp_op || (legal && src !== exp_src) || legal !== ref_valid(
+                    f3, f6, 5'(a), 5'(b), 1'(m)
+                )) begin
+              errors++;
+              $display("FAIL float move f6=%b f3=%b vm=%0d vs1=%0d vs2=%0d", f6, f3, m, a, b);
+              $display("  got=%b/%0d exp=%b/%0d at %0t", got, op, exp, exp_op, $time);
+              if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+            end
+          end
         end
       end
     end
@@ -316,7 +379,7 @@ module vec_decode_tb
         for (int u = 0; u < 32; u++) begin
           instr = enc(6'(c), 1'b1, 5'd0, 5'(u), forms[f], 5'd3);
           #1;
-          exp = ref_valid(forms[f], 6'(c), 5'(u), 5'd0);
+          exp = ref_valid(forms[f], 6'(c), 5'(u), 5'd0, 1'b1);
           checks++;
           if (valid !== exp) begin
             errors++;
@@ -469,6 +532,7 @@ module vec_decode_tb
     chk_illegal(6'b100000, Ffv, 5'd1);
     chk_illegal(6'b010111, Fff, 5'd1);
     repeat (8) sweep_float();
+    sweep_float_moves();
 
     // Loads and stores
     chk_mem(7'b0000001, 5'b00000, 3'b000, 1'b0, 6'b100000);
