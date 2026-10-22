@@ -2439,7 +2439,7 @@ module vec_unit_tb
       VEC_MFLT:   return 6'b011011;
       VEC_MFNE:   return 6'b011100;
       VEC_MFGT:   return 6'b011101;
-      VEC_FCLASS: return 6'b010011;
+      VEC_FCLASS, VEC_FREC7, VEC_FRSQRT7: return 6'b010011;
       default:    return 6'b011111;
     endcase
   endfunction
@@ -2447,6 +2447,11 @@ module vec_unit_tb
   // Scalar only forms
   function automatic logic fp_vf_only(input vec_fop_e o);
     return (o == VEC_FRSUB) || (o == VEC_MFGT) || (o == VEC_MFGE);
+  endfunction
+
+  // Vector only forms
+  function automatic logic fp_vv_only(input vec_fop_e o);
+    return (o == VEC_FCLASS) || (o == VEC_FREC7) || (o == VEC_FRSQRT7);
   endfunction
 
   // Float operand values
@@ -2478,8 +2483,12 @@ module vec_unit_tb
                                             input logic [4:0] s2, input logic [4:0] d,
                                             input logic vmb);
     logic [4:0] rs1;
-    if (o == VEC_FCLASS) rs1 = 5'b10000;
-    else rs1 = (form != 0) ? 5'($urandom) : s1;
+    case (o)
+      VEC_FCLASS:  rs1 = 5'b10000;
+      VEC_FREC7:   rs1 = 5'b00101;
+      VEC_FRSQRT7: rs1 = 5'b00100;
+      default:     rs1 = (form != 0) ? 5'($urandom) : s1;
+    endcase
     return enc(fp_funct6(o), vmb, s2, rs1, (form != 0) ? 3'b101 : 3'b001, d);
   endfunction
 
@@ -2578,7 +2587,7 @@ module vec_unit_tb
     begin
       note("no flags from integer work", 32'(flags_seen), 32'd0);
       seed_fp();
-      for (int k = 0; k < 24; k++) begin
+      for (int k = 0; k < 26; k++) begin
         case (k)
           0: o = VEC_FADD;
           1: o = VEC_FSUB;
@@ -2603,11 +2612,13 @@ module vec_unit_tb
           20: o = VEC_MFLE;
           21: o = VEC_MFGT;
           22: o = VEC_MFGE;
-          default: o = VEC_FCLASS;
+          23: o = VEC_FCLASS;
+          24: o = VEC_FREC7;
+          default: o = VEC_FRSQRT7;
         endcase
         for (int f = 0; f < 2; f++) begin
           if ((f == 0) && fp_vf_only(o)) continue;
-          if ((f != 0) && (o == VEC_FCLASS)) continue;
+          if ((f != 0) && fp_vv_only(o)) continue;
           for (int rm = 0; rm < 5; rm++)
           run_fp(o, f, 5'd4, 5'd8, 5'd12, 1'($urandom), 3'd0, 8'(1 + $urandom_range(3)), 3'(rm));
         end
@@ -2625,12 +2636,10 @@ module vec_unit_tb
       seed_fp();
       for (int i = 0; i < n; i++) begin
         o = vec_fop_e'($urandom_range(32'(VEC_FCLASS)));
-        if ((o == VEC_FDIV) || (o == VEC_FRDIV) || (o == VEC_FSQRT) || (o == VEC_FRSQRT7) ||
-            (o == VEC_FREC7))
-          o = VEC_FMACC;
+        if ((o == VEC_FDIV) || (o == VEC_FRDIV) || (o == VEC_FSQRT)) o = VEC_FMACC;
         form = int'($urandom_range(1));
         if (fp_vf_only(o)) form = 1;
-        if (o == VEC_FCLASS) form = 0;
+        if (fp_vv_only(o)) form = 0;
         lmul = 3'($urandom_range(3));
         regs = 1 << lmul[1:0];
         run_fp(o, form, 5'd8, 5'd16, 5'd24, 1'($urandom), lmul, 8'($urandom_range(4 * regs)),
@@ -2773,6 +2782,21 @@ module vec_unit_tb
       instr = enc(6'b010011, 1'b1, 5'd8, 5'b10000, 3'b101, 5'd12);
       @(negedge clk);
       note("float classify scalar", 32'(is_vector), 32'd0);
+      for (int u = 4; u < 6; u++) begin
+        instr = enc(6'b010011, 1'b1, 5'd8, 5'(u), 3'b001, 5'd12);
+        vlmul = 3'd1;
+        @(negedge clk);
+        note($sformatf("float estimate %0d at lmul 2", u), 32'(is_vector), 32'd1);
+        note($sformatf("float estimate %0d reads no vs1", u), 32'(dut.rd1_regs), 32'd0);
+        vlmul = 3'd0;
+        frm   = 3'd5;
+        @(negedge clk);
+        note($sformatf("float estimate %0d at frm 5", u), 32'(is_vector), 32'd0);
+        frm   = 3'd0;
+        instr = enc(6'b010011, 1'b1, 5'd8, 5'(u), 3'b101, 5'd12);
+        @(negedge clk);
+        note($sformatf("float estimate %0d scalar", u), 32'(is_vector), 32'd0);
+      end
       instr = fp_encode(VEC_FMACC, 0, 5'd4, 5'd8, 5'd3, 1'b1);
       vlmul = 3'd1;
       @(negedge clk);
