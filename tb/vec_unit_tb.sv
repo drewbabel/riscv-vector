@@ -16,7 +16,7 @@ module vec_unit_tb
   localparam int Depth = 2 ** AWIDTH;
   localparam int Bytes = 256;
   localparam int LineB = VLEN / 8;
-  localparam int Timeout = 100000;
+  localparam int Timeout = 200000;
   localparam int MinChecks = 140000;
 
   int               checks = 0;
@@ -31,6 +31,10 @@ module vec_unit_tb
   logic             cancel;
   logic [ XLEN-1:0] xdata;
   logic [ XLEN-1:0] xstride;
+  logic [ XLEN-1:0] fdata;
+  logic [      2:0] frm;
+  logic [      4:0] fflags;
+  logic [      4:0] flags_seen;
   logic             vill;
   logic [  VlW-1:0] vl;
   logic [      2:0] vsew;
@@ -80,6 +84,8 @@ module vec_unit_tb
   logic dec_reads_xreg;
   logic dec_writes_xreg;
   logic dec_writes_mask;
+  vec_fop_e dec_fop;
+  logic dec_reads_freg;
   logic [1:0] dec_mem_width;
   logic dec_mem_whole;
   logic [2:0] dec_mem_nf;
@@ -102,6 +108,8 @@ module vec_unit_tb
       .reads_xreg(dec_reads_xreg),
       .writes_xreg(dec_writes_xreg),
       .writes_mask(dec_writes_mask),
+      .fop(dec_fop),
+      .reads_freg(dec_reads_freg),
       .mem_width(dec_mem_width),
       .mem_whole(dec_mem_whole),
       .mem_nf(dec_mem_nf),
@@ -123,6 +131,8 @@ module vec_unit_tb
     dec.reads_xreg = dec_reads_xreg;
     dec.writes_xreg = dec_writes_xreg;
     dec.writes_mask = dec_writes_mask;
+    dec.fop = dec_fop;
+    dec.reads_freg = dec_reads_freg;
     dec.mem_width = dec_mem_width;
     dec.mem_whole = dec_mem_whole;
     dec.mem_nf = dec_mem_nf;
@@ -144,6 +154,7 @@ module vec_unit_tb
       .cancel(cancel),
       .xdata(xdata),
       .xstride(xstride),
+      .fdata(fdata),
       .vill(vill),
       .vl(vl),
       .vsew(vsew),
@@ -154,6 +165,8 @@ module vec_unit_tb
       .csr_wait(csr_wait),
       .vxrm(vxrm),
       .vxsat(vxsat),
+      .frm(frm),
+      .fflags(fflags),
       .mem_rdata(mem_rdata),
       .mem_ready(mem_ready),
       .mem_req(mem_req),
@@ -313,6 +326,8 @@ module vec_unit_tb
     cancel      = 1'b0;
     xdata       = '0;
     xstride     = '0;
+    fdata       = '0;
+    frm         = 3'd0;
     vill        = 1'b0;
     mem_ready   = 1'b1;
     for (int b = 0; b < Bytes; b++) begin
@@ -473,9 +488,9 @@ module vec_unit_tb
       issue(32'h0010_0093);
       drain();
       check_regs("addi");
-      issue(enc(6'b000000, 1'b1, 5'd4, 5'd3, 3'b001, 5'd5));
+      issue(enc(6'b100000, 1'b1, 5'd4, 5'd3, 3'b001, 5'd5));
       drain();
-      check_regs("float form");
+      check_regs("float divide");
       issue(enc(6'b001100, 1'b1, 5'd4, 5'd3, 3'b000, 5'd5));
       drain();
       check_regs("gather");
@@ -2354,6 +2369,383 @@ module vec_unit_tb
     end
   endtask
 
+  // Reference float lane
+  logic            fref_valid = 1'b0;
+  vec_fop_e        fref_op = VEC_FADD;
+  logic     [ 2:0] fref_rm = 3'd0;
+  logic     [31:0] fref_a = '0;
+  logic     [31:0] fref_b = '0;
+  logic     [31:0] fref_c = '0;
+  logic     [31:0] fref_res;
+  logic     [ 4:0] fref_flags;
+  logic            fref_rvalid;
+
+  vec_fp_lane u_ref (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(1'b1),
+      .valid(fref_valid),
+      .op(fref_op),
+      .rm(fref_rm),
+      .a(fref_a),
+      .b(fref_b),
+      .c(fref_c),
+      .result(fref_res),
+      .fflags(fref_flags),
+      .result_valid(fref_rvalid)
+  );
+
+  // Flags reaching fflags
+  initial flags_seen = '0;
+  always @(negedge clk) if (rst_n && core_en) flags_seen = flags_seen | fflags;
+
+  // Write port uses
+  int wb_writes = 0;
+  always @(negedge clk) if (rst_n && core_en && dut.wen_wb) wb_writes = wb_writes + 1;
+
+  function automatic logic fp_cmp_op(input vec_fop_e o);
+    return (o == VEC_MFEQ) || (o == VEC_MFNE) || (o == VEC_MFLT) || (o == VEC_MFLE) ||
+        (o == VEC_MFGT) || (o == VEC_MFGE);
+  endfunction
+
+  function automatic logic [5:0] fp_funct6(input vec_fop_e o);
+    case (o)
+      VEC_FADD:   return 6'b000000;
+      VEC_FSUB:   return 6'b000010;
+      VEC_FMIN:   return 6'b000100;
+      VEC_FMAX:   return 6'b000110;
+      VEC_FSGNJ:  return 6'b001000;
+      VEC_FSGNJN: return 6'b001001;
+      VEC_FSGNJX: return 6'b001010;
+      VEC_FMUL:   return 6'b100100;
+      VEC_FRSUB:  return 6'b100111;
+      VEC_FMADD:  return 6'b101000;
+      VEC_FNMADD: return 6'b101001;
+      VEC_FMSUB:  return 6'b101010;
+      VEC_FNMSUB: return 6'b101011;
+      VEC_FMACC:  return 6'b101100;
+      VEC_FNMACC: return 6'b101101;
+      VEC_FMSAC:  return 6'b101110;
+      VEC_FNMSAC: return 6'b101111;
+      VEC_MFEQ:   return 6'b011000;
+      VEC_MFLE:   return 6'b011001;
+      VEC_MFLT:   return 6'b011011;
+      VEC_MFNE:   return 6'b011100;
+      VEC_MFGT:   return 6'b011101;
+      default:    return 6'b011111;
+    endcase
+  endfunction
+
+  // Scalar only forms
+  function automatic logic fp_vf_only(input vec_fop_e o);
+    return (o == VEC_FRSUB) || (o == VEC_MFGT) || (o == VEC_MFGE);
+  endfunction
+
+  // Float operand values
+  function automatic logic [31:0] fp_pick();
+    logic [31:0] x;
+    x = $urandom;
+    case ($urandom_range(
+        7
+    ))
+      0: x[30:23] = 8'hFF;
+      1: x[30:23] = 8'h00;
+      2: x[30:23] = 8'(250 + $urandom_range(4));
+      3: x[30:23] = 8'($urandom_range(3));
+      4: x = ($urandom_range(1) != 0) ? 32'h3F80_0000 : 32'h7F7F_FFFF;
+      default: x[30:23] = 8'(120 + $urandom_range(14));
+    endcase
+    return x;
+  endfunction
+
+  function automatic logic [VLEN-1:0] fp_vec();
+    for (int e = 0; e < VLEN / 32; e++) fp_vec[e*32+:32] = fp_pick();
+  endfunction
+
+  task automatic seed_fp();
+    for (int r = 0; r < Depth; r++) seed_reg(AWIDTH'(r), fp_vec());
+  endtask
+
+  function automatic logic [31:0] fp_encode(input vec_fop_e o, input int form, input logic [4:0] s1,
+                                            input logic [4:0] s2, input logic [4:0] d,
+                                            input logic vmb);
+    return enc(fp_funct6(o), vmb, s2, (form != 0) ? 5'($urandom) : s1,
+               (form != 0) ? 3'b101 : 3'b001, d);
+  endfunction
+
+  // Float op model
+  task automatic model_fp(input vec_fop_e o, input int form, input logic [4:0] s1,
+                          input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                          input logic [31:0] fsc, input int regs, input logic [VlW-1:0] len,
+                          input logic [2:0] rm, output logic [4:0] want_flags);
+    int          ids   [$];
+    logic [31:0] av    [$];
+    logic [31:0] bv    [$];
+    logic [31:0] cv    [$];
+    int          sent;
+    int          got;
+    int          guard;
+    logic [31:0] r;
+    begin
+      want_flags = '0;
+      for (int i = 0; i < group_elems(32, regs); i++) begin
+        if ((i < len) && (vmb || shadow[0][i])) begin
+          ids.push_back(i);
+          av.push_back(grp_get(s2, 32, i));
+          bv.push_back((form != 0) ? fsc : grp_get(s1, 32, i));
+          cv.push_back(grp_get(d, 32, i));
+        end
+      end
+      sent  = 0;
+      got   = 0;
+      guard = 0;
+      while ((got < ids.size()) && (guard < 200)) begin
+        @(negedge clk);
+        guard = guard + 1;
+        if (fref_rvalid) begin
+          r = fref_res;
+          want_flags = want_flags | fref_flags;
+          if (fp_cmp_op(o)) shadow[d][ids[got]] = r[0];
+          else grp_set(d, 32, ids[got], r);
+          got = got + 1;
+        end
+        fref_valid = (sent < ids.size());
+        if (sent < ids.size()) begin
+          fref_op = o;
+          fref_rm = rm;
+          fref_a = av[sent];
+          fref_b = bv[sent];
+          fref_c = cv[sent];
+          sent = sent + 1;
+        end
+      end
+      fref_valid = 1'b0;
+      if (got != ids.size()) $fatal(1, "TB REFERENCE LANE STALLED");
+    end
+  endtask
+
+  // Run one float op
+  task automatic run_fp(input vec_fop_e o, input int form, input logic [4:0] s1,
+                        input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                        input logic [2:0] lmul, input logic [VlW-1:0] len, input logic [2:0] rm);
+    logic [ 4:0] want;
+    logic [31:0] fsc;
+    int          regs;
+    int          phases;
+    logic        hit;
+    begin
+      regs   = lmul[2] ? 1 : (1 << lmul[1:0]);
+      phases = 0;
+      for (int p = 0; p < regs; p++) begin
+        hit = 1'b0;
+        for (int e = 0; e < 4; e++)
+        if (((p * 4 + e) < int'(len)) && (vmb || shadow[0][p*4+e])) hit = 1'b1;
+        if (hit) phases = phases + 1;
+      end
+      fsc   = fp_pick();
+      vsew  = 3'd2;
+      vlmul = lmul;
+      vl    = len;
+      frm   = rm;
+      fdata = fsc;
+      xdata = $urandom;
+      model_fp(o, form, s1, s2, d, vmb, fsc, regs, len, rm, want);
+      flags_seen = '0;
+      wb_writes  = 0;
+      issue(fp_encode(o, form, s1, s2, d, vmb));
+      frm   = 3'($urandom_range(4));
+      fdata = $urandom;
+      drain();
+      check_regs($sformatf("float %0s form %0d lmul %0d", o.name(), form, lmul));
+      note($sformatf("fflags after %0s", o.name()), 32'(flags_seen), 32'(want));
+      note($sformatf("writes by %0s", o.name()), 32'(wb_writes), 32'(phases));
+    end
+  endtask
+
+  // Every float op
+  task automatic check_fp_ops();
+    vec_fop_e o;
+    begin
+      note("no flags from integer work", 32'(flags_seen), 32'd0);
+      seed_fp();
+      for (int k = 0; k < 23; k++) begin
+        case (k)
+          0: o = VEC_FADD;
+          1: o = VEC_FSUB;
+          2: o = VEC_FRSUB;
+          3: o = VEC_FMUL;
+          4: o = VEC_FMACC;
+          5: o = VEC_FNMACC;
+          6: o = VEC_FMSAC;
+          7: o = VEC_FNMSAC;
+          8: o = VEC_FMADD;
+          9: o = VEC_FNMADD;
+          10: o = VEC_FMSUB;
+          11: o = VEC_FNMSUB;
+          12: o = VEC_FMIN;
+          13: o = VEC_FMAX;
+          14: o = VEC_FSGNJ;
+          15: o = VEC_FSGNJN;
+          16: o = VEC_FSGNJX;
+          17: o = VEC_MFEQ;
+          18: o = VEC_MFNE;
+          19: o = VEC_MFLT;
+          20: o = VEC_MFLE;
+          21: o = VEC_MFGT;
+          default: o = VEC_MFGE;
+        endcase
+        for (int f = 0; f < 2; f++) begin
+          if ((f == 0) && fp_vf_only(o)) continue;
+          for (int rm = 0; rm < 5; rm++)
+          run_fp(o, f, 5'd4, 5'd8, 5'd12, 1'($urandom), 3'd0, 8'(1 + $urandom_range(3)), 3'(rm));
+        end
+      end
+    end
+  endtask
+
+  // Random float traffic
+  task automatic soak_fp(input int n);
+    vec_fop_e       o;
+    int             form;
+    logic     [2:0] lmul;
+    int             regs;
+    begin
+      seed_fp();
+      for (int i = 0; i < n; i++) begin
+        o = vec_fop_e'($urandom_range(32'(VEC_MFGE)));
+        if ((o == VEC_FDIV) || (o == VEC_FRDIV) || (o == VEC_FSQRT) || (o == VEC_FRSQRT7) ||
+            (o == VEC_FREC7))
+          o = VEC_FMACC;
+        form = int'($urandom_range(1));
+        if (fp_vf_only(o)) form = 1;
+        lmul = 3'($urandom_range(3));
+        regs = 1 << lmul[1:0];
+        run_fp(o, form, 5'd8, 5'd16, 5'd24, 1'($urandom), lmul, 8'($urandom_range(4 * regs)),
+               3'($urandom_range(4)));
+        if ($urandom_range(9) == 0) seed_fp();
+      end
+    end
+  endtask
+
+  // Float mixed in flight
+  task automatic check_fp_stream();
+    logic [4:0] want;
+    logic [4:0] f;
+    logic [2:0] rm[6];
+    logic [31:0] fsc[6];
+    logic sat;
+    begin
+      for (int r = 0; r < 6; r++) begin
+        seed_fp();
+        vlmul = 3'd0;
+        vl    = 8'd4;
+        vsew  = 3'd2;
+        want  = '0;
+        for (int k = 0; k < 6; k++) begin
+          rm[k]  = 3'($urandom_range(4));
+          fsc[k] = fp_pick();
+        end
+        model_fp(VEC_FMUL, 0, 5'd1, 5'd2, 5'd10, 1'b1, '0, 1, 8'd4, rm[0], f);
+        want = want | f;
+        ref_apply(VEC_ADD, 0, 5'd3, 5'd4, 5'd11, 1'b1, '0, 5'd0, 32, 1, 4);
+        model_fp(VEC_FMACC, 1, 5'd0, 5'd5, 5'd12, 1'b1, fsc[2], 1, 8'd4, rm[2], f);
+        want = want | f;
+        model_lane(VEC_MUL, 0, 5'd6, 5'd7, 5'd13, 1'b1, '0, 5'd0, 32, 1, 8'd4, 2'd0, sat);
+        model_fp(VEC_MFLT, 0, 5'd10, 5'd12, 5'd14, 1'b1, '0, 1, 8'd4, rm[4], f);
+        want = want | f;
+        model_fp(VEC_FADD, 1, 5'd0, 5'd13, 5'd15, 1'b1, fsc[5], 1, 8'd4, rm[5], f);
+        want = want | f;
+        flags_seen = '0;
+        frm = rm[0];
+        issue(fp_encode(VEC_FMUL, 0, 5'd1, 5'd2, 5'd10, 1'b1));
+        issue(enc(6'b000000, 1'b1, 5'd4, 5'd3, 3'b000, 5'd11));
+        frm   = rm[2];
+        fdata = fsc[2];
+        issue(fp_encode(VEC_FMACC, 1, 5'd0, 5'd5, 5'd12, 1'b1));
+        issue(lane_instr(VEC_MUL, 0, 5'd6, 5'd7, 5'd13, 1'b1, 5'd0));
+        frm = rm[4];
+        issue(fp_encode(VEC_MFLT, 0, 5'd10, 5'd12, 5'd14, 1'b1));
+        frm   = rm[5];
+        fdata = fsc[5];
+        issue(fp_encode(VEC_FADD, 1, 5'd0, 5'd13, 5'd15, 1'b1));
+        frm = 3'd0;
+        drain();
+        check_regs($sformatf("float stream %0d", r));
+        note($sformatf("fflags after float stream %0d", r), 32'(flags_seen), 32'(want));
+      end
+    end
+  endtask
+
+  // Group then short ops
+  task automatic check_fp_group_stream();
+    logic [4:0] want;
+    logic       sat;
+    begin
+      for (int r = 0; r < 4; r++) begin
+        seed_fp();
+        vsew  = 3'd2;
+        vlmul = 3'd3;
+        vl    = 8'd32;
+        frm   = 3'(r);
+        model_fp(VEC_FADD, 0, 5'd16, 5'd24, 5'd8, 1'b1, '0, 8, 8'd32, 3'(r), want);
+        ref_apply(VEC_ADD, 0, 5'd1, 5'd2, 5'd3, 1'b1, '0, 5'd0, 32, 1, 4);
+        model_lane(VEC_MUL, 0, 5'd4, 5'd5, 5'd6, 1'b1, '0, 5'd0, 32, 1, 8'd4, 2'd0, sat);
+        ref_apply(VEC_XOR, 0, 5'd1, 5'd2, 5'd7, 1'b1, '0, 5'd0, 32, 1, 4);
+        flags_seen = '0;
+        issue(fp_encode(VEC_FADD, 0, 5'd16, 5'd24, 5'd8, 1'b1));
+        vlmul = 3'd0;
+        vl    = 8'd4;
+        issue(enc(6'b000000, 1'b1, 5'd2, 5'd1, 3'b000, 5'd3));
+        issue(lane_instr(VEC_MUL, 0, 5'd4, 5'd5, 5'd6, 1'b1, 5'd0));
+        issue(enc(6'b001011, 1'b1, 5'd2, 5'd1, 3'b000, 5'd7));
+        drain();
+        check_regs($sformatf("float group stream %0d", r));
+        note($sformatf("fflags after float group stream %0d", r), 32'(flags_seen), 32'(want));
+      end
+    end
+  endtask
+
+  // Float forms legal
+  task automatic check_fp_rules();
+    begin
+      vill  = 1'b0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      vsew  = 3'd2;
+      frm   = 3'd0;
+      instr = fp_encode(VEC_FADD, 0, 5'd4, 5'd8, 5'd12, 1'b1);
+      for (int s = 0; s < 3; s++) begin
+        vsew = 3'(s);
+        @(negedge clk);
+        note($sformatf("float add at sew %0d", 8 << s), 32'(is_vector), 32'(s == 2));
+      end
+      for (int m = 0; m < 8; m++) begin
+        frm = 3'(m);
+        @(negedge clk);
+        note($sformatf("float add at frm %0d", m), 32'(is_vector), 32'(m < 5));
+      end
+      frm   = 3'd0;
+      instr = fp_encode(VEC_MFGT, 1, 5'd4, 5'd8, 5'd12, 1'b1);
+      @(negedge clk);
+      note("greater than scalar", 32'(is_vector), 32'd1);
+      instr = enc(6'b011101, 1'b1, 5'd8, 5'd4, 3'b001, 5'd12);
+      @(negedge clk);
+      note("greater than vector", 32'(is_vector), 32'd0);
+      instr = enc(6'b100000, 1'b1, 5'd8, 5'd4, 3'b001, 5'd12);
+      @(negedge clk);
+      note("float divide", 32'(is_vector), 32'd0);
+      instr = enc(6'b010011, 1'b1, 5'd8, 5'b10000, 3'b001, 5'd12);
+      @(negedge clk);
+      note("float classify", 32'(is_vector), 32'd0);
+      instr = fp_encode(VEC_FMACC, 0, 5'd4, 5'd8, 5'd3, 1'b1);
+      vlmul = 3'd1;
+      @(negedge clk);
+      note("misaligned group", 32'(is_vector), 32'd0);
+      instr = 32'd0;
+      vlmul = 3'd0;
+    end
+  endtask
+
   task automatic verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
@@ -2447,6 +2839,13 @@ module vec_unit_tb
     check_divide_overlap();
     check_lane_stream();
     soak_lanes(200);
+
+    // Float lanes
+    check_fp_rules();
+    check_fp_ops();
+    check_fp_stream();
+    check_fp_group_stream();
+    soak_fp(200);
 
     verdict();
   end
