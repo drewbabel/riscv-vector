@@ -371,6 +371,8 @@ module datapath
   logic vec_dec_id_reads_xreg;
   logic vec_dec_id_writes_xreg;
   logic vec_dec_id_writes_mask;
+  vec_pkg::vec_fop_e vec_dec_id_fop;
+  logic vec_dec_id_reads_freg;
   logic [1:0] vec_dec_id_mem_width;
   logic vec_dec_id_mem_whole;
   logic [2:0] vec_dec_id_mem_nf;
@@ -393,6 +395,8 @@ module datapath
       .reads_xreg(vec_dec_id_reads_xreg),
       .writes_xreg(vec_dec_id_writes_xreg),
       .writes_mask(vec_dec_id_writes_mask),
+      .fop(vec_dec_id_fop),
+      .reads_freg(vec_dec_id_reads_freg),
       .mem_width(vec_dec_id_mem_width),
       .mem_whole(vec_dec_id_mem_whole),
       .mem_nf(vec_dec_id_mem_nf),
@@ -414,6 +418,8 @@ module datapath
     vec_dec_id.reads_xreg = vec_dec_id_reads_xreg;
     vec_dec_id.writes_xreg = vec_dec_id_writes_xreg;
     vec_dec_id.writes_mask = vec_dec_id_writes_mask;
+    vec_dec_id.fop = vec_dec_id_fop;
+    vec_dec_id.reads_freg = vec_dec_id_reads_freg;
     vec_dec_id.mem_width = vec_dec_id_mem_width;
     vec_dec_id.mem_whole = vec_dec_id_mem_whole;
     vec_dec_id.mem_nf = vec_dec_id_mem_nf;

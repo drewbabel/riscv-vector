@@ -132,6 +132,8 @@ package vec_pkg;
     VEC_WMACC,
     VEC_WMACCUS,
     VEC_WMACCSU,
+    VEC_FARITH,
+    VEC_FCMP,
     VEC_LOAD,
     VEC_STORE,
     VEC_ILLEGAL
@@ -337,6 +339,8 @@ package vec_pkg;
     logic reads_xreg;
     logic writes_xreg;
     logic writes_mask;
+    vec_fop_e fop;
+    logic reads_freg;
     logic [1:0] mem_width;
     logic mem_whole;
     logic [2:0] mem_nf;
