@@ -118,6 +118,44 @@ module cosim ();
     end
   end
 
+  // Random interrupt lines
+  integer irq_seed;
+  int     irq_rate;
+  logic   ext_line;
+  logic   timer_line;
+  logic   trap_irq;
+  int     trap_kinds [$];
+
+  assign trap_irq = g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.trap_taken &&
+      !(g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.illegal_any ||
+        g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.exc_ecall ||
+        g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.exc_ebreak ||
+        g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.exc_instr_misaligned ||
+        g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.exc_load_misaligned ||
+        g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.exc_store_misaligned);
+
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      ext_line   <= 1'b0;
+      timer_line <= 1'b0;
+    end else begin
+      if (g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.trap_taken)
+        trap_kinds.push_back(trap_irq ? {29'd0, 1'b1, ext_line, timer_line} : 0);
+      // Enabled line ignored
+      if (dbg_ex_commit && dbg_mstatus[3] &&
+          ((ext_line && dbg_mie[11]) || (timer_line && dbg_mie[7])))
+        $display("IRQ LOST %0t ext %0d timer %0d", $time, ext_line, timer_line);
+      // Taken line drops
+      if (trap_irq) begin
+        if (g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.ext_ready) ext_line <= 1'b0;
+        else timer_line <= 1'b0;
+      end else if (irq_rate != 0) begin
+        if (!ext_line && $urandom(irq_seed) % 1000 < irq_rate) ext_line <= 1'b1;
+        if (!timer_line && $urandom(irq_seed) % 1000 < irq_rate) timer_line <= 1'b1;
+      end
+    end
+  end
+
   if (1) begin : g_dut
     riscv_pipelined #(
         .XLEN(Xlen)
@@ -165,8 +203,8 @@ module cosim ();
         .rst_n         (rst_n),
         .instr         (instr),
         .read_data     (read_data),
-        .timer_irq     (1'b0),
-        .ext_irq       (1'b0),
+        .timer_irq     (timer_line),
+        .ext_irq       (ext_line),
         .imem_ready    (imem_ready),
         .dmem_ready    (dmem_ready),
         .dmem_req      (dmem_req),
@@ -324,6 +362,7 @@ module cosim ();
     logic            stop;
     int              log_traps;
     int              preload;
+    int              kind;
 
     if (!$value$plusargs("hex=%s", hexfile)) $fatal(1, "cosim needs +hex");
     if (!$value$plusargs("n=%d", max_commits)) max_commits = 4000;
@@ -340,6 +379,8 @@ module cosim ();
     if (!$value$plusargs("stall=%d", stall_pct)) stall_pct = 0;
     if (!$value$plusargs("stall_max=%d", stall_max)) stall_max = 4;
     if (!$value$plusargs("stall_seed=%d", stall_seed)) stall_seed = 1;
+    if (!$value$plusargs("irq=%d", irq_rate)) irq_rate = 0;
+    if (!$value$plusargs("irq_seed=%d", irq_seed)) irq_seed = 1;
     if (preload != 0)
       for (int l = 0; l < Depth / 4; l++)
       g_dut.dmem_inst.mem[l] = {
@@ -360,6 +401,14 @@ module cosim ();
       emit_fcommit();
       if ((log_traps != 0) && r_valid && r_trap)
         $display("DTRAP %0t %08x %08x", $time, r_pc, r_insn);
+      // Retired count at interrupt
+      if (r_valid && r_trap) begin
+        if (trap_kinds.size() == 0) $display("HUNG trap retired without a taken trap");
+        else begin
+          kind = trap_kinds.pop_front();
+          if (kind[2]) $display("IRQ %0d %0d %0d", checks, kind[1], kind[0]);
+        end
+      end
       // Spike skips traps
       if (r_valid && !r_trap) begin
         if (have_last && r_pc === last_pc) stop = 1;
