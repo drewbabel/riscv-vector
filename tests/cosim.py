@@ -56,6 +56,12 @@ GEN_CAP = 2_000_000
 GEN_DEPTH = 131072
 SPAN = None
 
+STALL = False
+STALL_PCT = 40  # Chance a transfer waits
+STALL_MAX = 6  # Longest wait in cycles
+STALL_SLOW = 8  # Cycle budget scale
+STALLS = [0, 0]  # Fetch and data waits
+
 
 def march():
     if FP:
@@ -146,6 +152,7 @@ VCOMMIT_RE = re.compile(r"VCOMMIT (\d+) (\d+) ([0-9a-f]+)")
 VMEM_RE = re.compile(r"VMEM ([0-9a-f]+) ([0-9a-f]{4}) ([0-9a-f]+)")
 FCOMMIT_RE = re.compile(r"FCOMMIT (\d+) ([0-9a-f]+)")
 FCSR_RE = re.compile(r"FCSR ([0-9a-f]+)")
+STALLS_RE = re.compile(r"STALLS (\d+) (\d+)")
 SPIKE_F_RE = re.compile(r"(?:^|\s)f(\d+)\s+0x([0-9a-f]+)")
 SPIKE_FCSR_RE = re.compile(r"\bc(1|2|3)_(?:fflags|frm|fcsr)\s+0x([0-9a-f]+)")
 DUT_FWR = []
@@ -166,8 +173,16 @@ DTRAP_RE = re.compile(r"DTRAP (\d+) ([0-9a-f]+) ([0-9a-f]+)")
 VEC_WIDTH = {0: 1, 5: 2, 6: 4}  # width field to byte count
 
 
-def run_dut(dut_hex, vcd=False, n=8000, gen=False):
+def run_dut(dut_hex, vcd=False, n=8000, gen=False, stall_seed=None):
+    if stall_seed is not None:
+        n *= STALL_SLOW
     args = ["vvp", SIM, f"+hex={dut_hex}", f"+n={n}"]
+    if stall_seed is not None:
+        args += [
+            f"+stall={STALL_PCT}",
+            f"+stall_max={STALL_MAX}",
+            f"+stall_seed={stall_seed}",
+        ]
     if gen:
         args += ["+preload_dmem=1", "+log_traps=1"]
     if vcd:
@@ -190,6 +205,11 @@ def run_dut(dut_hex, vcd=False, n=8000, gen=False):
         fw = FCOMMIT_RE.match(line)
         if fw:
             DUT_FWR.append((int(fw.group(1)), int(fw.group(2), 16) & MASK32))
+            continue
+        st = STALLS_RE.match(line)
+        if st:
+            STALLS[0] += int(st.group(1))
+            STALLS[1] += int(st.group(2))
             continue
         fc = FCSR_RE.match(line)
         if fc:
@@ -1090,11 +1110,11 @@ def gen_vec(seed):
 
 
 # Build run compare
-def run_one(src):
+def run_one(src, stall_seed=None):
     dut_hex = os.path.join(BUILD, "prog.hex")
     spike_elf = os.path.join(BUILD, "prog_spike.elf")
     build_images(src, dut_hex, spike_elf)
-    dut = run_dut(dut_hex)
+    dut = run_dut(dut_hex, stall_seed=stall_seed)
     if HUNG:
         return False, HUNG[0]
     spike = run_spike(spike_elf, len(dut))
@@ -1440,7 +1460,7 @@ def gen_main(mode, args):
 
 
 def main():
-    global VECTOR, FP
+    global VECTOR, FP, STALL
     if len(sys.argv) >= 2 and sys.argv[1] in (
         "--gen",
         "--gen-spike",
@@ -1456,6 +1476,9 @@ def main():
     if "--fp" in sys.argv[1:]:
         FP = True
         sys.argv.remove("--fp")
+    if "--stall" in sys.argv[1:]:
+        STALL = True
+        sys.argv.remove("--stall")
 
     if len(sys.argv) >= 2 and sys.argv[1] == "--rand":  # random regression
         count = int(sys.argv[2]) if len(sys.argv) >= 3 else 200
@@ -1467,20 +1490,30 @@ def main():
             src = os.path.join(BUILD, "rand.s")
             with open(src, "w") as f:
                 f.write(asm)
-            ok, detail = run_one(src)
+            ok, detail = run_one(src, seed if STALL else None)
             if not ok:
                 fail = os.path.join(
                     BUILD, f"fail_{seed}.s"
                 )  # reproducible seed
                 with open(fail, "w") as f:
                     f.write(asm)
+                flags = ("--vec " if VECTOR else "") + (
+                    "--stall " if STALL else ""
+                )
                 print(
                     f"FAIL seed={seed} mode={mode}\n{detail}\nprogram saved to {fail}"
+                    f"\nrerun: python3 tests/cosim.py {flags}--rand 1 {seed}"
                 )
                 sys.exit(1)
             total += detail
+        waits = (
+            f", {STALLS[0]} fetch and {STALLS[1]} data wait cycles"
+            if STALL
+            else ""
+        )
         print(
-            f"RANDOM PASS: {count} programs, {total} instructions matched Spike"
+            f"RANDOM PASS: {count} programs from seed {seed0}, "
+            f"{total} instructions matched Spike{waits}"
         )
         return
 
@@ -1489,7 +1522,7 @@ def main():
         sys.argv.remove("--trace")
     if len(sys.argv) != 2:
         sys.exit(
-            "usage: python3 tests/cosim.py [--vec] [--fp] [--trace] <prog>"
+            "usage: python3 tests/cosim.py [--vec] [--fp] [--stall] [--trace] <prog>"
             " | --rand [count] [seed0]"
         )
     prog = sys.argv[1]  # single program, assembly or C
@@ -1499,7 +1532,7 @@ def main():
     dut_hex = os.path.join("tests", f"{prog}.hex")
     spike_elf = os.path.join(BUILD, f"{prog}_spike.elf")
     build_images(src, dut_hex, spike_elf)
-    dut = run_dut(dut_hex, vcd=True)
+    dut = run_dut(dut_hex, vcd=True, stall_seed=1 if STALL else None)
     spike = run_spike(spike_elf, len(dut))
     if want_trace:
         log = os.path.join(BUILD, f"{prog}.trace")
