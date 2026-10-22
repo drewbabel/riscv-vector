@@ -429,7 +429,8 @@ module vec_unit
   assign has_vd = (dec_cls != VEC_CLS_XS) && (dec_cls != VEC_CLS_XM);
   assign dec_ext = (dec_op == VEC_ZEXT2) || (dec_op == VEC_ZEXT4) || (dec_op == VEC_SEXT2) ||
       (dec_op == VEC_SEXT4);
-  assign dec_funary = (dec_cls == VEC_CLS_FP) && (dec.fop == VEC_FCLASS);
+  assign dec_funary = (dec_cls == VEC_CLS_FP) &&
+      ((dec.fop == VEC_FCLASS) || (dec.fop == VEC_FREC7) || (dec.fop == VEC_FRSQRT7));
   assign uses_vs1 = !dec_mem && !dec_ext && !dec_funary && (dec_cls != VEC_CLS_XS) &&
       (dec_cls != VEC_CLS_SX) && (dec_cls != VEC_CLS_XM) && (dec_cls != VEC_CLS_MSET) &&
       (dec_cls != VEC_CLS_IOTA) && (dec_src == VEC_SRC_VV);
