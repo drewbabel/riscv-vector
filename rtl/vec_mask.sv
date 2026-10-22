@@ -13,17 +13,18 @@ module vec_mask
     localparam int VlW      = $clog2(DLEN + 1),
     localparam int BitsW    = $clog2(ELEN) + 1
 ) (
-    input wire vec_op_e             op,
-    input wire vec_src_e            src,
-    input wire           [     2:0] vsew,
-    input wire                      vm,
-    input wire           [DLEN-1:0] vs2_data,
-    input wire           [DLEN-1:0] vs1_data,
-    input wire           [DLEN-1:0] v0_bits,
-    input wire           [XLEN-1:0] xdata,
-    input wire           [     4:0] simm,
-    input wire           [ VlW-1:0] elem_base,
-    input wire           [ VlW-1:0] vl,
+    input wire vec_op_e                 op,
+    input wire vec_src_e                src,
+    input wire           [         2:0] vsew,
+    input wire                          vm,
+    input wire           [    DLEN-1:0] vs2_data,
+    input wire           [    DLEN-1:0] vs1_data,
+    input wire           [    DLEN-1:0] v0_bits,
+    input wire           [MaxElems-1:0] mask_bits,
+    input wire           [    XLEN-1:0] xdata,
+    input wire           [         4:0] simm,
+    input wire           [     VlW-1:0] elem_base,
+    input wire           [     VlW-1:0] vl,
 
     output logic [DLEN-1:0] result,
     output logic [XLEN-1:0] xresult
@@ -46,7 +47,12 @@ module vec_mask
 
   // Compare one pair
   function automatic logic cmp_bit(input vec_op_e kind, input logic [ELEN-1:0] a,
-                                   input logic [ELEN-1:0] b);
+                                   input logic [ELEN-1:0] b, input logic cin,
+                                   input logic [BitsW-1:0] bits);
+    logic [ELEN:0] sum;
+    logic [ELEN:0] diff;
+    sum  = (ELEN + 1)'(a) + (ELEN + 1)'(b) + (ELEN + 1)'(cin);
+    diff = (ELEN + 1)'(a) - (ELEN + 1)'(b) - (ELEN + 1)'(cin);
     case (kind)
       VEC_MSEQ:  cmp_bit = (a == b);
       VEC_MSNE:  cmp_bit = (a != b);
@@ -56,6 +62,8 @@ module vec_mask
       VEC_MSLE:  cmp_bit = ($signed(a) <= $signed(b));
       VEC_MSGTU: cmp_bit = (a > b);
       VEC_MSGT:  cmp_bit = ($signed(a) > $signed(b));
+      VEC_MADC:  cmp_bit = sum[bits];
+      VEC_MSBC:  cmp_bit = diff[bits];
       default:   cmp_bit = 1'b0;
     endcase
   endfunction
@@ -141,6 +149,10 @@ module vec_mask
     endcase
   end
 
+  // Carry and borrow in
+  logic [MaxElems-1:0] cin;
+  assign cin = vm ? '0 : mask_bits;
+
   // Compare results
   logic [MaxElems-1:0] cmp_bits;
   always_comb begin
@@ -154,7 +166,10 @@ module vec_mask
         (src == VEC_SRC_VV) ? sized(
           b_sel[e], ebits, is_signed_cmp(op)
         ) : sized(
-          scalar_b, ebits, is_signed_cmp(op))
+          scalar_b, ebits, is_signed_cmp(op)
+        ),
+        cin[e],
+        ebits
       );
     end
   end
