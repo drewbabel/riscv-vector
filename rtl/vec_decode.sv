@@ -22,6 +22,7 @@ module vec_decode
     // Float forms
     output vec_fop_e fop,
     output logic     reads_freg,
+    output logic     writes_freg,
 
     // Memory forms
     output logic [1:0] mem_width,
@@ -82,6 +83,7 @@ module vec_decode
     reads_vd = 1'b0;
     writes_xreg = 1'b0;
     writes_mask = 1'b0;
+    writes_freg = 1'b0;
     fop = VEC_FADD;
     mem_width = 2'd0;
     mem_whole = 1'b0;
@@ -562,7 +564,17 @@ module vec_decode
           fop         = VEC_MFGE;
           writes_mask = 1'b1;
         end
-        default: ;
+
+        // Float moves
+        6'b010111: if (is_ff && (!vm || (vs2 == 5'b00000))) op = VEC_MERGE;
+        6'b010000: begin
+          if (is_fv && (vs1 == 5'b00000)) begin
+            op          = VEC_MV_X_S;
+            writes_freg = 1'b1;
+          end
+          if (is_ff && (vs2 == 5'b00000)) op = VEC_MV_S_X;
+        end
+        default:   ;
       endcase
     end
   end
