@@ -195,7 +195,8 @@ package vec_pkg;
     VEC_CLS_MSET,
     VEC_CLS_IOTA,
     VEC_CLS_XM,
-    VEC_CLS_SAT
+    VEC_CLS_SAT,
+    VEC_CLS_COMPRESS
   } vec_cls_e;
 
   typedef struct packed {
@@ -256,6 +257,7 @@ package vec_pkg;
       VEC_LOAD, VEC_STORE: vec_class = VEC_CLS_MEM;
       VEC_MV_X_S: vec_class = VEC_CLS_XS;
       VEC_MV_S_X: vec_class = VEC_CLS_SX;
+      VEC_COMPRESS: vec_class = VEC_CLS_COMPRESS;
       default: vec_class = VEC_CLS_NONE;
     endcase
   endfunction

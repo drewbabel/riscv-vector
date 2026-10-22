@@ -132,8 +132,9 @@ module vec_issue
       .any(regs_busy)
   );
 
-  // Loads own write port
-  assign launch = q_valid && !e_valid && regs_ready && !((q_op == VEC_LOAD) && pipe_busy);
+  // Write port owners drain
+  assign launch = q_valid && !e_valid && regs_ready &&
+      !(((q_op == VEC_LOAD) || (q_op == VEC_COMPRESS)) && pipe_busy);
   assign x_wait = (q_valid && q_xreg) || x_pend;
   assign accept = instr_valid && !cancel && !x_wait && !x_spent && (!q_valid || launch);
   assign x_hold = instr_valid && (x_wait || writes_xreg) && !x_spent;
