@@ -643,11 +643,24 @@ module vec_unit
   assign seq_lane = (seq_cls == VEC_CLS_MUL) || (seq_cls == VEC_CLS_SAT);
   assign seq_fp   = (seq_cls == VEC_CLS_FP) || (seq_cls == VEC_CLS_FCMP);
   assign seq_deep = (seq_cls == VEC_CLS_RED) || seq_lane;
-  assign seq_hold = seq_busy && (!slot_free || div_hold);
+
+  // Float sum gap
+  logic seq_fsum;
+  logic sum_gap_q;
+
+  assign seq_fsum = (seq_op == VEC_FRED) &&
+      ((seq_fop == VEC_FREDOSUM) || (seq_fop == VEC_FREDUSUM));
+
+  assign seq_hold = seq_busy && (!slot_free || div_hold || sum_gap_q);
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) sum_gap_q <= 1'b0;
+    else if (core_en) sum_gap_q <= seq_busy && !seq_hold && seq_fsum;
+  end
 
   always_comb begin
     if (seq_fp) seq_depth = SlotW'(FpWb);
-    else if (seq_lane) seq_depth = SlotW'(LaneWb);
+    else if (seq_lane || seq_fsum) seq_depth = SlotW'(LaneWb);
     else if (seq_deep) seq_depth = SlotW'(DeepWb);
     else seq_depth = SlotW'(ShallowWb);
   end
@@ -691,7 +704,7 @@ module vec_unit
       .mask_dest(seq_geom_s.mask_dest),
       .mask_whole(seq_geom_s.mask_whole),
       .mask_src(seq_geom_s.mask_src),
-      .serial(1'b0),
+      .serial(seq_fsum),
       .raddr1(raddr1),
       .raddr2(raddr2),
       .raddr3(raddr3),
@@ -719,6 +732,7 @@ module vec_unit
   ) u_mem (
 `ifdef RISCV_FORMAL
       .dbg_elem(),
+      .dbg_n_ok(),
 `endif
       .clk(clk),
       .rst_n(rst_n),
@@ -885,6 +899,16 @@ module vec_unit
   logic [VLEN-1:0] fred_result;
   logic [     4:0] fred_flags;
   logic [     4:0] fred_flags_wb;
+  logic [ FpW-1:0] fred_sum;
+  logic [VLEN-1:0] red_pick;
+  logic            fsum_ex;
+  logic            fsum_x2;
+  logic            fsum_x3;
+  logic            fsum_x4;
+
+  assign fsum_ex = (op_ex == VEC_FRED) && ((fop_ex == VEC_FREDOSUM) || (fop_ex == VEC_FREDUSUM));
+  assign red_pick = (valid_x4 && fsum_x4) ? VLEN'(fred_sum) :
+      ((op_x2 == VEC_FRED) ? fred_result : red_result);
 
   vec_fp_reduce #(
       .DLEN(VLEN)
@@ -900,7 +924,7 @@ module vec_unit
       .elem_active(elem_active_ex[VLEN/FpW-1:0]),
       .rm(frm_ex),
       .result(fred_result),
-      .sum_result(),
+      .sum_result(fred_sum),
       .fflags(fred_flags)
   );
 
@@ -960,7 +984,7 @@ module vec_unit
 
   assign fp_ex = (cls_ex == VEC_CLS_FP) || (cls_ex == VEC_CLS_FCMP);
   assign lane_x2 = (cls_x2 == VEC_CLS_MUL) || (cls_x2 == VEC_CLS_SAT) || (cls_x2 == VEC_CLS_FP) ||
-      (cls_x2 == VEC_CLS_FCMP);
+      (cls_x2 == VEC_CLS_FCMP) || fsum_x2;
 
   for (genvar l = 0; l < MUL_LANES; l++) begin : g_lane
     logic [  ELEN-1:0] a_w     [Widths];
@@ -1164,6 +1188,7 @@ module vec_unit
       vsew_x2     <= vsew_ex;
       vxrm_x2     <= vxrm_ex;
       active_x2   <= elem_active_ex[MUL_LANES-1:0];
+      fsum_x2     <= fsum_ex;
       d_off_x2    <= d_off_ex;
       waddr_x2    <= waddr_ex;
       wstrb_x2    <= wstrb_ex;
@@ -1187,6 +1212,7 @@ module vec_unit
       vsew_x3     <= vsew_x2;
       vxrm_x3     <= vxrm_x2;
       active_x3   <= active_x2;
+      fsum_x3     <= fsum_x2;
       d_off_x3    <= d_off_x2;
       waddr_x3    <= waddr_x2;
       wstrb_x3    <= wstrb_x2;
@@ -1209,6 +1235,7 @@ module vec_unit
       op_x4       <= op_x3;
       vsew_x4     <= vsew_x3;
       active_x4   <= active_x3;
+      fsum_x4     <= fsum_x3;
       d_off_x4    <= d_off_x3;
       waddr_x4    <= waddr_x3;
       wstrb_x4    <= wstrb_x3;
@@ -1292,7 +1319,7 @@ module vec_unit
       xdata_wb        <= xdata_ex;
       alu_result_wb   <= alu_result;
       mixed_result_wb <= mixed_result;
-      red_result_wb   <= (op_x2 == VEC_FRED) ? fred_result : red_result;
+      red_result_wb   <= red_pick;
       mask_result_wb  <= mask_result;
       lane_result_wb  <= lane_result;
       active_wb       <= active_x5;
