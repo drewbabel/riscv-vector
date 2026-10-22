@@ -175,6 +175,7 @@ module vec_decode_tb
         6'b011101, 6'b011111: return funct3 == Fff;
         6'b010111: return (funct3 == Fff) && (!vmb || (rs2 == 5'b00000));
         6'b010000: return (funct3 == Ffv) ? (rs1 == 5'b00000) : (rs2 == 5'b00000);
+        6'b000101, 6'b000111: return funct3 == Ffv;
         default: return 1'b0;
       endcase
     end
@@ -188,6 +189,8 @@ module vec_decode_tb
       6'b000010: return VEC_FSUB;
       6'b000100: return VEC_FMIN;
       6'b000110: return VEC_FMAX;
+      6'b000101: return VEC_FMIN;
+      6'b000111: return VEC_FMAX;
       6'b001000: return VEC_FSGNJ;
       6'b001001: return VEC_FSGNJN;
       6'b001010: return VEC_FSGNJX;
@@ -264,12 +267,14 @@ module vec_decode_tb
 
   // Every float encoding
   task automatic sweep_float();
-    logic [2:0] f3;
-    logic       legal;
-    logic       cmp;
-    logic       fma;
-    logic [6:0] got;
-    logic [6:0] exp;
+    logic    [2:0] f3;
+    logic          legal;
+    logic          cmp;
+    logic          fma;
+    logic          red;
+    vec_op_e       want_op;
+    logic    [6:0] got;
+    logic    [6:0] exp;
     for (int f = 0; f < 2; f++) begin
       f3 = (f != 0) ? Fff : Ffv;
       for (int c = 0; c < 64; c++) begin
@@ -279,10 +284,14 @@ module vec_decode_tb
         legal = ref_valid(f3, 6'(c), instr[19:15], instr[24:20], instr[25]);
         cmp   = (c[5:3] == 3'b011);
         fma   = (c[5:3] == 3'b101);
-        got   = {valid, reads_vd, reads_xreg, writes_xreg, writes_mask, reads_freg, writes_freg};
-        exp   = {legal, legal && fma, 1'b0, 1'b0, legal && cmp, legal && f3 == Fff, 1'b0};
+        red   = (c[5:3] == 3'b000) && c[0];
+        if (red) want_op = VEC_FRED;
+        else if (cmp) want_op = VEC_FCMP;
+        else want_op = VEC_FARITH;
+        got = {valid, reads_vd, reads_xreg, writes_xreg, writes_mask, reads_freg, writes_freg};
+        exp = {legal, legal && fma, 1'b0, 1'b0, legal && cmp, legal && f3 == Fff, 1'b0};
         checks++;
-        if (got !== exp || (legal && (op !== (cmp ? VEC_FCMP : VEC_FARITH) || fop !== ref_fop(
+        if (got !== exp || (legal && (op !== want_op || fop !== ref_fop(
                 6'(c)
             ) || src !== ((f != 0) ? VEC_SRC_VX : VEC_SRC_VV) || eew !== VEC_EEW_SAME))) begin
           errors++;
