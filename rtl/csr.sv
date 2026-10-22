@@ -87,6 +87,7 @@ module csr
     input  wire  [4:0] fp_flags,
     input  wire        fp_wb_flags_we,
     input  wire  [4:0] fp_wb_flags,
+    input  wire  [4:0] vec_fflags,
     output logic [2:0] frm_q
 );
 
@@ -237,6 +238,7 @@ module csr
       vstart     <= '0;
       frm        <= '0;
     end else if (core_en) begin
+      if (vec_fflags != '0) mstatus[MstatusFsLo+1:MstatusFsLo] <= FsDirty;  // Late vector flags
       if (!trap_taken) begin  // retired only
         minstret  <= minstret + 1;
         minstreth <= (minstret == '1) ? minstreth + 1 : minstreth;
@@ -313,6 +315,8 @@ module csr
           default:       ;
         endcase
       end
+    end else if (cycle_en && (vec_fflags != '0)) begin
+      mstatus[MstatusFsLo+1:MstatusFsLo] <= FsDirty;
     end
   end
 
@@ -323,7 +327,7 @@ module csr
       if (core_en && csr_write_en && ((csr_addr == FflagsAddr) || (csr_addr == FcsrAddr))) begin
         fflags <= csr_wdata[4:0];
       end else begin
-        fflags <= fflags | (fp_wb_flags_we ? fp_wb_flags : '0) |
+        fflags <= fflags | (fp_wb_flags_we ? fp_wb_flags : '0) | vec_fflags |
             ((core_en && !trap_taken && fp_flags_we) ? fp_flags : '0);
       end
     end

@@ -183,7 +183,7 @@ package vec_pkg;
   localparam int VecFpLatency = VecFpUnitLatency + 2;
 
   // Datapath class
-  typedef enum logic [3:0] {
+  typedef enum logic [4:0] {
     VEC_CLS_NONE,
     VEC_CLS_ALU,
     VEC_CLS_MIXED,
@@ -197,7 +197,9 @@ package vec_pkg;
     VEC_CLS_MSET,
     VEC_CLS_IOTA,
     VEC_CLS_XM,
-    VEC_CLS_SAT
+    VEC_CLS_SAT,
+    VEC_CLS_FP,
+    VEC_CLS_FCMP
   } vec_cls_e;
 
   typedef struct packed {
@@ -259,6 +261,8 @@ package vec_pkg;
       VEC_LOAD, VEC_STORE: vec_class = VEC_CLS_MEM;
       VEC_MV_X_S: vec_class = VEC_CLS_XS;
       VEC_MV_S_X: vec_class = VEC_CLS_SX;
+      VEC_FARITH: vec_class = VEC_CLS_FP;
+      VEC_FCMP: vec_class = VEC_CLS_FCMP;
       default: vec_class = VEC_CLS_NONE;
     endcase
   endfunction
@@ -310,6 +314,11 @@ package vec_pkg;
       end
       VEC_CLS_XS, VEC_CLS_SX: vec_geom.single_write = 1'b1;
       VEC_CLS_CMP:            vec_geom.mask_dest = 1'b1;
+      VEC_CLS_FP:             vec_geom.mul_rate = 1'b1;
+      VEC_CLS_FCMP: begin
+        vec_geom.mul_rate  = 1'b1;
+        vec_geom.mask_dest = 1'b1;
+      end
       VEC_CLS_MLOG, VEC_CLS_MSET: begin
         vec_geom.mask_dest  = 1'b1;
         vec_geom.mask_whole = 1'b1;
