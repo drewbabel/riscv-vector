@@ -467,6 +467,18 @@ module vec_decode
           op  = VEC_FARITH;
           fop = VEC_FMAX;
         end
+
+        // Float reductions
+        6'b000101:
+        if (is_fv) begin
+          op  = VEC_FRED;
+          fop = VEC_FMIN;
+        end
+        6'b000111:
+        if (is_fv) begin
+          op  = VEC_FRED;
+          fop = VEC_FMAX;
+        end
         6'b001000: begin
           op  = VEC_FARITH;
           fop = VEC_FSGNJ;
