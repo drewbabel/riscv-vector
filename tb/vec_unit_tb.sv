@@ -2439,6 +2439,7 @@ module vec_unit_tb
       VEC_MFLT:   return 6'b011011;
       VEC_MFNE:   return 6'b011100;
       VEC_MFGT:   return 6'b011101;
+      VEC_FCLASS: return 6'b010011;
       default:    return 6'b011111;
     endcase
   endfunction
@@ -2476,8 +2477,10 @@ module vec_unit_tb
   function automatic logic [31:0] fp_encode(input vec_fop_e o, input int form, input logic [4:0] s1,
                                             input logic [4:0] s2, input logic [4:0] d,
                                             input logic vmb);
-    return enc(fp_funct6(o), vmb, s2, (form != 0) ? 5'($urandom) : s1,
-               (form != 0) ? 3'b101 : 3'b001, d);
+    logic [4:0] rs1;
+    if (o == VEC_FCLASS) rs1 = 5'b10000;
+    else rs1 = (form != 0) ? 5'($urandom) : s1;
+    return enc(fp_funct6(o), vmb, s2, rs1, (form != 0) ? 3'b101 : 3'b001, d);
   endfunction
 
   // Float op model
@@ -2575,7 +2578,7 @@ module vec_unit_tb
     begin
       note("no flags from integer work", 32'(flags_seen), 32'd0);
       seed_fp();
-      for (int k = 0; k < 23; k++) begin
+      for (int k = 0; k < 24; k++) begin
         case (k)
           0: o = VEC_FADD;
           1: o = VEC_FSUB;
@@ -2599,10 +2602,12 @@ module vec_unit_tb
           19: o = VEC_MFLT;
           20: o = VEC_MFLE;
           21: o = VEC_MFGT;
-          default: o = VEC_MFGE;
+          22: o = VEC_MFGE;
+          default: o = VEC_FCLASS;
         endcase
         for (int f = 0; f < 2; f++) begin
           if ((f == 0) && fp_vf_only(o)) continue;
+          if ((f != 0) && (o == VEC_FCLASS)) continue;
           for (int rm = 0; rm < 5; rm++)
           run_fp(o, f, 5'd4, 5'd8, 5'd12, 1'($urandom), 3'd0, 8'(1 + $urandom_range(3)), 3'(rm));
         end
@@ -2619,12 +2624,13 @@ module vec_unit_tb
     begin
       seed_fp();
       for (int i = 0; i < n; i++) begin
-        o = vec_fop_e'($urandom_range(32'(VEC_MFGE)));
+        o = vec_fop_e'($urandom_range(32'(VEC_FCLASS)));
         if ((o == VEC_FDIV) || (o == VEC_FRDIV) || (o == VEC_FSQRT) || (o == VEC_FRSQRT7) ||
             (o == VEC_FREC7))
           o = VEC_FMACC;
         form = int'($urandom_range(1));
         if (fp_vf_only(o)) form = 1;
+        if (o == VEC_FCLASS) form = 0;
         lmul = 3'($urandom_range(3));
         regs = 1 << lmul[1:0];
         run_fp(o, form, 5'd8, 5'd16, 5'd24, 1'($urandom), lmul, 8'($urandom_range(4 * regs)),
@@ -2754,7 +2760,19 @@ module vec_unit_tb
       note("float divide", 32'(is_vector), 32'd0);
       instr = enc(6'b010011, 1'b1, 5'd8, 5'b10000, 3'b001, 5'd12);
       @(negedge clk);
-      note("float classify", 32'(is_vector), 32'd0);
+      note("float classify", 32'(is_vector), 32'd1);
+      note("classify reads no vs1", 32'(dut.rd1_regs), 32'd0);
+      frm = 3'd5;
+      @(negedge clk);
+      note("float classify at frm 5", 32'(is_vector), 32'd0);
+      frm  = 3'd0;
+      vsew = 3'd1;
+      @(negedge clk);
+      note("float classify at sew 16", 32'(is_vector), 32'd0);
+      vsew  = 3'd2;
+      instr = enc(6'b010011, 1'b1, 5'd8, 5'b10000, 3'b101, 5'd12);
+      @(negedge clk);
+      note("float classify scalar", 32'(is_vector), 32'd0);
       instr = fp_encode(VEC_FMACC, 0, 5'd4, 5'd8, 5'd3, 1'b1);
       vlmul = 3'd1;
       @(negedge clk);
