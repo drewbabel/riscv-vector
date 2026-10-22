@@ -15,6 +15,7 @@ module vec_issue
     // Execute stage
     input wire                        instr_valid,
     input wire                        cancel,
+    input wire                        ex_advance,
     input wire vec_op_e               op,
     input wire vec_src_e              src,
     input wire vec_eew_e              eew,
@@ -159,7 +160,7 @@ module vec_issue
       x_pend    <= 1'b0;
     end else if (core_en) begin
       seq_start <= 1'b0;
-      x_spent   <= x_done && x_pend;
+      x_spent   <= (x_done && x_pend) || (x_spent && !ex_advance);
 
       // Scalar result pending
       if (launch && q_xreg) x_pend <= 1'b1;
