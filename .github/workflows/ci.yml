@@ -253,6 +253,10 @@ jobs:
         run: python3 tests/cosim.py --fp cosim_f
       - name: Vector float co-sim
         run: python3 tests/cosim.py --vec --fp vecfp
+      - name: Vector float move co-sim
+        run: python3 tests/cosim.py --vec --fp vecfmv
+      - name: Vector float move behind divide co-sim
+        run: python3 tests/cosim.py --vec --fp vecfmvdiv
       - name: Draw the random co-sim seed
         run: |
           seed=$(( $(od -An -N4 -tu4 /dev/urandom) % 1000000000 ))
