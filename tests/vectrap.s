@@ -94,6 +94,27 @@ R19:    vmseq.vv   v8, v8, v4
         vsetvli t0, a0, e8, m1, tu, mu
         lw      t2, 12(s0)
 
+        # Unmasked carry forms
+        jal     ra, T20
+        j       R20
+T20:    .insn r 0x57, 0, 0x21, x3, x2, x1
+R20:    jal     ra, T21
+        j       R21
+T21:    .insn r 0x57, 4, 0x21, x3, x6, x1
+R21:    jal     ra, T22
+        j       R22
+T22:    .insn r 0x57, 3, 0x21, x3, x5, x1
+R22:    jal     ra, T23
+        j       R23
+T23:    .insn r 0x57, 0, 0x25, x3, x2, x1
+R23:    jal     ra, T24
+        j       R24
+T24:    .insn r 0x57, 4, 0x25, x3, x6, x1
+R24:    vadc.vvm   v3, v1, v2, v0
+        vsbc.vxm   v5, v1, t1, v0
+        vmadc.vv   v6, v1, v2
+        lw      t2, 0(s0)
+
         # Vector state off
         li      t0, 0x600
         csrc    mstatus, t0
