@@ -1353,6 +1353,124 @@ module vec_unit_tb
     end
   endtask
 
+  // Carry or borrow out
+  function automatic logic ref_carry_bit(input vec_op_e o, input logic [ELEN-1:0] a,
+                                         input logic [ELEN-1:0] b, input logic cin, input int w);
+    logic [ELEN-1:0] ma;
+    logic [ELEN-1:0] mb;
+    longint ua;
+    longint ub;
+    begin
+      ma = a & mask_w(w);
+      mb = b & mask_w(w);
+      ua = longint'(ma);
+      ub = longint'(mb);
+      if (o == VEC_MADC) ref_carry_bit = (ua + ub + longint'(cin)) >= (longint'(1) << w);
+      else ref_carry_bit = ua < (ub + longint'(cin));
+    end
+  endfunction
+
+  // Run one carry compare
+  task automatic run_carry(input vec_op_e o, input int form, input logic [4:0] s1,
+                           input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                           input logic [XLEN-1:0] xd, input logic [4:0] im, input logic [2:0] sew,
+                           input logic [2:0] lmul, input logic [VlW-1:0] len);
+    int w;
+    logic [ELEN-1:0] b;
+    logic [VLEN-1:0] cin;
+    logic [2:0] f3;
+    logic [4:0] f2;
+    begin
+      vsew  = sew;
+      vlmul = lmul;
+      vl    = len;
+      xdata = xd;
+      w     = 8 << sew;
+      cin   = vmb ? '0 : shadow[0];
+      for (int i = 0; i < int'(len); i++) begin
+        if (form == 0) b = grp_get(s1, w, i);
+        else if (form == 2) b = ELEN'($signed(im));
+        else b = xd;
+        shadow[d][i] = ref_carry_bit(o, grp_get(s2, w, i), b, cin[i], w);
+      end
+      case (form)
+        0:       f3 = 3'b000;
+        1:       f3 = 3'b100;
+        default: f3 = 3'b011;
+      endcase
+      case (form)
+        0:       f2 = s1;
+        1:       f2 = 5'd1;
+        default: f2 = im;
+      endcase
+      issue(enc((o == VEC_MADC) ? 6'b010001 : 6'b010011, vmb, s2, f2, f3, d));
+      drain();
+      check_regs(
+          $sformatf(
+          "carry op=%0d form=%0d sew=%0d lmul=%0d len=%0d vm=%0b", o, form, sew, lmul, len, vmb));
+    end
+  endtask
+
+  // Every carry shape
+  task automatic check_carry();
+    vec_op_e o;
+    int form;
+    logic [2:0] sew;
+    logic [2:0] lmul;
+    logic [VlW-1:0] len;
+    logic [4:0] d;
+    begin
+      seed_all();
+      for (int k = 0; k < 2; k++) begin
+        o = vec_op_e'((k == 0) ? VEC_MADC : VEC_MSBC);
+        for (int f = 0; f < 3; f++) begin
+          if ((o == VEC_MSBC) && (f == 2)) continue;
+          for (int s = 0; s < 3; s++) begin
+            for (int m = 0; m < 2; m++) begin
+              run_carry(o, f, 5'd4, 5'd8, 5'd20, 1'(m), $urandom, 5'($urandom), 3'(s), 3'd0,
+                        VlW'(VLEN >> (3 + s)));
+            end
+          end
+        end
+      end
+      for (int k = 0; k < 40; k++) begin
+        o    = vec_op_e'((k % 2 == 0) ? VEC_MADC : VEC_MSBC);
+        form = (o == VEC_MADC) ? int'($urandom % 3) : int'($urandom % 2);
+        sew  = 3'($urandom % 3);
+        lmul = 3'($urandom % 4);
+        len  = VlW'($urandom % (((VLEN >> (3 + sew)) << lmul) + 1));
+        run_carry(o, form, 5'd8, 5'd16, 5'd24, 1'($urandom), $urandom, 5'($urandom), sew, lmul,
+                  len);
+      end
+
+      // Carry ripples out
+      seed_reg(5'd0, '1);
+      seed_reg(5'd4, '1);
+      seed_reg(5'd8, '0);
+      for (int s = 0; s < 3; s++) begin
+        run_carry(VEC_MADC, 0, 5'd4, 5'd8, 5'd20, 1'b0, '0, 5'd0, 3'(s), 3'd0, 8'd4);
+        run_carry(VEC_MADC, 0, 5'd4, 5'd8, 5'd21, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'd4);
+        run_carry(VEC_MSBC, 0, 5'd8, 5'd8, 5'd22, 1'b0, '0, 5'd0, 3'(s), 3'd0, 8'd4);
+        run_carry(VEC_MSBC, 0, 5'd8, 5'd8, 5'd23, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'd4);
+        run_carry(VEC_MADC, 2, 5'd0, 5'd4, 5'd24, 1'b1, '0, 5'd1, 3'(s), 3'd0, 8'd4);
+      end
+
+      // Destination is v0
+      seed_all();
+      for (int s = 0; s < 3; s++) begin
+        d = 5'd0;
+        run_carry(VEC_MADC, 0, 5'd4, 5'd8, d, 1'b0, '0, 5'd0, 3'(s), 3'd1,
+                  VlW'((VLEN >> (3 + s)) << 1));
+        run_carry(VEC_MSBC, 1, 5'd4, 5'd8, d, 1'b0, $urandom, 5'd0, 3'(s), 3'd0, 8'd3);
+      end
+
+      // Destination is a source
+      run_carry(VEC_MADC, 0, 5'd4, 5'd8, 5'd8, 1'b0, '0, 5'd0, 3'd2, 3'd1, 8'd8);
+      run_carry(VEC_MSBC, 0, 5'd4, 5'd8, 5'd4, 1'b0, '0, 5'd0, 3'd0, 3'd0, 8'd16);
+      run_carry(VEC_MADC, 1, 5'd4, 5'd8, 5'd20, 1'b0, '0, 5'd0, 3'd0, 3'd0, 8'd0);
+    end
+  endtask
+
   // One logic form
   task automatic run_mlogic(input logic [5:0] f6, input logic [4:0] s1, input logic [4:0] s2,
                             input logic [4:0] d, input logic [VlW-1:0] len);
@@ -2130,6 +2248,7 @@ module vec_unit_tb
     check_group_rules();
     check_fixed_point();
     check_compares();
+    check_carry();
     check_mask_logic();
     check_mask_set();
     check_mask_index();
