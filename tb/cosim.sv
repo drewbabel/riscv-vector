@@ -317,6 +317,17 @@ module cosim ();
       $display("FENCE BUSY %0t", $time);
   end
 
+  // One accept each
+  logic v_accepted = 1'b0;
+  always @(posedge clk) begin
+    if (rst_n && g_dut.riscv_pipelined_inst.datapath_inst.vec_unit_inst.u_issue.accept &&
+        v_accepted)
+      $display("VEC REISSUE %0t", $time);
+    if (!rst_n || g_dut.riscv_pipelined_inst.datapath_inst.idex_en) v_accepted <= 1'b0;
+    else if (g_dut.riscv_pipelined_inst.datapath_inst.vec_unit_inst.u_issue.accept)
+      v_accepted <= 1'b1;
+  end
+
   logic        r_fwe;
   logic [ 4:0] r_frd;
   logic [31:0] r_fdata;
