@@ -82,6 +82,7 @@ module vec_unit_tb
   logic dec_writes_mask;
   logic [1:0] dec_mem_width;
   logic dec_mem_whole;
+  logic [2:0] dec_mem_nf;
   logic dec_mem_mask;
   logic dec_mem_strided;
   vec_dec_t dec;
@@ -103,6 +104,7 @@ module vec_unit_tb
       .writes_mask(dec_writes_mask),
       .mem_width(dec_mem_width),
       .mem_whole(dec_mem_whole),
+      .mem_nf(dec_mem_nf),
       .mem_mask(dec_mem_mask),
       .mem_strided(dec_mem_strided)
   );
@@ -123,6 +125,7 @@ module vec_unit_tb
     dec.writes_mask = dec_writes_mask;
     dec.mem_width = dec_mem_width;
     dec.mem_whole = dec_mem_whole;
+    dec.mem_nf = dec_mem_nf;
     dec.mem_mask = dec_mem_mask;
     dec.mem_strided = dec_mem_strided;
   end
@@ -922,6 +925,118 @@ module vec_unit_tb
     end
   endtask
 
+  // Live state ignored
+  task automatic scramble_cfg();
+    vill  = 1'($urandom);
+    vsew  = 3'($urandom % 3);
+    vlmul = 3'($urandom % 4);
+    vl    = VlW'($urandom % 17);
+  endtask
+
+  // Whole register transfer
+  task automatic run_whole(input logic store, input logic [1:0] w, input logic [2:0] nf,
+                           input logic [4:0] d, input logic [XLEN-1:0] b);
+    begin
+      scramble_cfg();
+      xdata = b;
+      ref_mem(store, int'(w), 1'b1, d, b, 32'd1 << w, (int'(nf) + 1) * (VLEN >> (3 + w)));
+      issue(enc_mem(store, w, 1'b1, 1'b0, 1'b1, d) | {nf, 29'd0});
+      drain();
+      check_regs("run_whole");
+      check_mem("run_whole");
+      vill = 1'b0;
+    end
+  endtask
+
+  // Whole register move
+  task automatic run_mvnr(input logic [2:0] nf, input logic [4:0] s2, input logic [4:0] d);
+    logic [VLEN-1:0] src[8];
+    begin
+      scramble_cfg();
+      for (int r = 0; r <= int'(nf); r++) src[r] = shadow[(32'(s2)+r)%Depth];
+      for (int r = 0; r <= int'(nf); r++) shadow[(32'(d)+r)%Depth] = src[r];
+      issue(enc(6'b100111, 1'b1, s2, 5'(nf), 3'b011, d));
+      drain();
+      check_regs("run_mvnr");
+      vill = 1'b0;
+    end
+  endtask
+
+  // Whole register rules
+  task automatic check_whole_rules();
+    begin
+      vill  = 1'b1;
+      vsew  = 3'd2;
+      vlmul = 3'd0;
+      vl    = 8'd0;
+      instr = enc(6'b100111, 1'b1, 5'd8, 5'd3, 3'b011, 5'd4);
+      #1 note("move under vill", 32'(is_vector), 32'd1);
+      instr = enc_mem(1'b0, 2'd2, 1'b1, 1'b0, 1'b1, 5'd8) | {3'd7, 29'd0};
+      #1 note("eight loads under vill", 32'(is_vector), 32'd1);
+      vill  = 1'b0;
+      instr = enc(6'b100111, 1'b1, 5'd8, 5'd1, 3'b011, 5'd3);
+      #1 note("move dest off two", 32'(is_vector), 32'd0);
+      instr = enc(6'b100111, 1'b1, 5'd6, 5'd3, 3'b011, 5'd8);
+      #1 note("move source off four", 32'(is_vector), 32'd0);
+      instr = enc(6'b100111, 1'b1, 5'd8, 5'd7, 3'b011, 5'd0);
+      #1 note("eight onto v0", 32'(is_vector), 32'd1);
+      instr = enc(6'b100111, 1'b1, 5'd8, 5'd2, 3'b011, 5'd0);
+      #1 note("three registers", 32'(is_vector), 32'd0);
+      instr = enc(6'b100111, 1'b1, 5'd20, 5'd3, 3'b011, 5'd20);
+      #1 note("copy onto itself", 32'(is_vector), 32'd1);
+      note("self copy is empty", 32'(dut.issue_vl), 32'd0);
+      instr = enc(6'b100111, 1'b1, 5'd20, 5'd3, 3'b011, 5'd24);
+      #1 note("four copied bytes", 32'(dut.issue_vl), 32'd64);
+      instr = enc_mem(1'b0, 2'd0, 1'b1, 1'b0, 1'b1, 5'd5) | {3'd1, 29'd0};
+      #1 note("load pair off two", 32'(is_vector), 32'd0);
+      instr = enc_mem(1'b1, 2'd0, 1'b1, 1'b0, 1'b1, 5'd12) | {3'd3, 29'd0};
+      #1 note("store four on four", 32'(is_vector), 32'd1);
+      instr = enc_mem(1'b1, 2'd0, 1'b1, 1'b0, 1'b1, 5'd12) | {3'd7, 29'd0};
+      #1 note("store eight off eight", 32'(is_vector), 32'd0);
+      xdata = 32'h0000_0102;
+      instr = enc_mem(1'b0, 2'd2, 1'b1, 1'b0, 1'b1, 5'd8) | {3'd1, 29'd0};
+      #1 note("pair word misaligned", 32'(mem_misaligned), 32'd1);
+      xdata = '0;
+      vl    = 8'd4;
+      instr = 32'd0;
+    end
+  endtask
+
+  // Whole register groups
+  task automatic check_whole();
+    logic [2:0] nf;
+    logic [1:0] w;
+    logic store;
+    begin
+      seed_all();
+      run_whole(1'b0, 2'd0, 3'd1, 5'd2, 32'd5);
+      run_whole(1'b0, 2'd1, 3'd3, 5'd4, 32'd34);
+      run_whole(1'b0, 2'd2, 3'd7, 5'd8, 32'd100);
+      run_whole(1'b1, 2'd0, 3'd1, 5'd6, 32'd3);
+      run_whole(1'b1, 2'd0, 3'd7, 5'd16, 32'd64);
+      run_mvnr(3'd0, 5'd3, 5'd9);
+      run_mvnr(3'd1, 5'd10, 5'd12);
+      run_mvnr(3'd3, 5'd16, 5'd4);
+      run_mvnr(3'd7, 5'd8, 5'd24);
+      run_mvnr(3'd3, 5'd20, 5'd20);
+      for (int i = 0; i < 60; i++) begin
+        case ($urandom % 4)
+          0: nf = 3'd0;
+          1: nf = 3'd1;
+          2: nf = 3'd3;
+          default: nf = 3'd7;
+        endcase
+        store = 1'($urandom);
+        w = store ? 2'd0 : 2'($urandom % 3);
+        ready_pct = (($urandom % 2) == 0) ? 100 : 40;
+        if (($urandom % 3) == 0) run_mvnr(nf, 5'($urandom) & ~5'(nf), 5'($urandom) & ~5'(nf));
+        else
+          run_whole(store, w, nf, 5'($urandom) & ~5'(nf),
+                    32'($urandom % Bytes) & ~((32'd1 << w) - 1));
+      end
+      ready_pct = 100;
+    end
+  endtask
 
   // Group element access
   function automatic logic [ELEN-1:0] grp_get(input logic [4:0] base, input int w, input int i);
@@ -2304,6 +2419,10 @@ module vec_unit_tb
 
     // Random moves
     soak_mem(300);
+
+    // Whole register groups
+    check_whole_rules();
+    check_whole();
 
     // Widening forms
     check_widening();
