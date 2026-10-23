@@ -24,10 +24,23 @@ module vec_mul_lane
 
   function automatic logic mul_op(input vec_op_e o);
     case (o)
-      VEC_MUL, VEC_MULH, VEC_MULHU, VEC_MULHSU, VEC_MACC, VEC_NMSAC, VEC_MADD, VEC_NMSUB:
+      VEC_MUL, VEC_MULH, VEC_MULHU, VEC_MULHSU, VEC_MACC, VEC_NMSAC, VEC_MADD, VEC_NMSUB, VEC_WMUL,
+          VEC_WMULU, VEC_WMULSU, VEC_WMACC, VEC_WMACCU, VEC_WMACCSU, VEC_WMACCUS:
       mul_op = 1'b1;
       default: mul_op = 1'b0;
     endcase
+  endfunction
+
+  function automatic logic widen_op(input vec_op_e o);
+    case (o)
+      VEC_WMUL, VEC_WMULU, VEC_WMULSU, VEC_WMACC, VEC_WMACCU, VEC_WMACCSU, VEC_WMACCUS:
+      widen_op = 1'b1;
+      default: widen_op = 1'b0;
+    endcase
+  endfunction
+
+  function automatic logic lane_valid(input vec_op_e o, input int unsigned w);
+    lane_valid = mul_op(o) && (!widen_op(o) || (2 * w <= ELEN));
   endfunction
 
   // Product stage
@@ -39,9 +52,11 @@ module vec_mul_lane
   logic mul_valid;
 
   assign width = sew_width(vsew);
-  assign mul_valid = mul_op(op);
-  assign a_signed = (op == VEC_MUL) || (op == VEC_MULH) || (op == VEC_MULHSU);
-  assign b_signed = (op == VEC_MUL) || (op == VEC_MULH);
+  assign mul_valid = lane_valid(op, width);
+  assign a_signed = (op == VEC_MUL) || (op == VEC_MULH) || (op == VEC_MULHSU) || (op == VEC_WMUL) ||
+      (op == VEC_WMULSU) || (op == VEC_WMACC) || (op == VEC_WMACCUS);
+  assign b_signed = (op == VEC_MUL) || (op == VEC_MULH) || (op == VEC_WMUL) || (op == VEC_WMACC) ||
+      (op == VEC_WMACCSU);
 
   always_comb begin
     mult_a = '0;
@@ -88,7 +103,7 @@ module vec_mul_lane
   logic [2*ELEN-1:0] product_mask;
 
   assign width_q = sew_width(vsew_q);
-  assign mul_valid_q = mul_op(op_q);
+  assign mul_valid_q = lane_valid(op_q, width_q);
 
   always_comb begin
     result = '0;
@@ -117,6 +132,14 @@ module vec_mul_lane
 
         VEC_NMSAC, VEC_NMSUB: begin
           result = (c_q - product_q[ELEN-1:0]) & result_mask;
+        end
+
+        VEC_WMUL, VEC_WMULU, VEC_WMULSU: begin
+          result = product[ELEN-1:0];
+        end
+
+        VEC_WMACC, VEC_WMACCU, VEC_WMACCSU, VEC_WMACCUS: begin
+          result = (product[ELEN-1:0] + c_q) & product_mask[ELEN-1:0];
         end
 
         default: begin
