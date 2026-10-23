@@ -186,6 +186,23 @@ module vec_unit
   logic                     m_busy;
   logic                     m_done;
 
+  // Compress unit
+  logic                     seq_compress;
+  logic      [  AWIDTH-1:0] c_raddr_mask;
+  logic      [  AWIDTH-1:0] c_raddr_src;
+  logic                     c_wen;
+  logic      [  AWIDTH-1:0] c_waddr;
+  logic      [    VLEN-1:0] c_wstrb;
+  logic      [    VLEN-1:0] c_wdata;
+  logic                     c_busy;
+  logic                     c_done;
+
+  // Side write port
+  logic                     side_wen;
+  logic      [  AWIDTH-1:0] side_waddr;
+  logic      [    VLEN-1:0] side_wstrb;
+  logic      [    VLEN-1:0] side_wdata;
+
   logic      [MaxElems-1:0] mask_bits;
   logic                     issue_hold;
   logic                     x_done;
@@ -404,8 +421,15 @@ module vec_unit
     end
   endfunction
 
+  // Groups share a register
+  function automatic logic groups_meet(input logic [GrpW-1:0] ba, input logic [GrpW-1:0] na,
+                                       input logic [GrpW-1:0] bb, input logic [GrpW-1:0] nb);
+    groups_meet = (ba < (bb + nb)) && (bb < (ba + na));
+  endfunction
+
   // Group legality
   logic                   dec_store;
+  logic                   dec_compress;
   logic                   dec_ext;
   logic                   dec_funary;
   logic                   has_vd;
@@ -426,9 +450,11 @@ module vec_unit
   logic        [     2:0] dest_lw;
   logic                   overlap_ok;
   logic                   mask_ok;
+  logic                   compress_ok;
   logic                   group_legal;
 
   assign dec_store = (dec_op == VEC_STORE);
+  assign dec_compress = (dec_cls == VEC_CLS_COMPRESS);
   assign has_vd = (dec_cls != VEC_CLS_XS) && (dec_cls != VEC_CLS_XM);
   assign dec_ext = (dec_op == VEC_ZEXT2) || (dec_op == VEC_ZEXT4) || (dec_op == VEC_SEXT2) ||
       (dec_op == VEC_SEXT4);
@@ -446,8 +472,8 @@ module vec_unit
 
   assign d_emul = dec_full ? full_emul : (dec_mem ? (dec_mask_ls ? 4'sd0 : emul_log2) :
       ((dec_geom_s.single_write || dec_geom_s.mask_dest) ? 4'sd0 : (lmul_log2 + d_delta)));
-  assign
-      s1_emul = (dec_geom_s.single_write || dec_geom_s.mask_src) ? 4'sd0 : (lmul_log2 + s1_delta);
+  assign s1_emul = (dec_geom_s.single_write || dec_geom_s.mask_src || dec_compress) ?
+      4'sd0 : (lmul_log2 + s1_delta);
   assign s2_emul = dec_mvnr ? full_emul :
       (((dec_cls == VEC_CLS_XS) || dec_geom_s.mask_src) ? 4'sd0 : (lmul_log2 + s2_delta));
 
@@ -480,7 +506,14 @@ module vec_unit
   assign mask_ok = dec_vm || dec_store || !has_vd || dec_geom_s.single_write || dec_writes_mask ||
       (GrpW'(dec_vd) >= d_regs);
 
-  assign group_legal = emul_legal && align_ok && overlap_ok && mask_ok;
+  // Compress rules
+  assign compress_ok = !dec_compress || (dec_vm && !groups_meet(
+      GrpW'(dec_vd), d_regs, GrpW'(dec_vs1), s1_regs
+  ) && !groups_meet(
+      GrpW'(dec_vd), d_regs, GrpW'(dec_vs2), s2_regs
+  ));
+
+  assign group_legal = emul_legal && align_ok && overlap_ok && mask_ok && compress_ok;
 
   // Busy groups
   logic [GrpW-1:0] load_regs;
@@ -490,7 +523,8 @@ module vec_unit
   logic            seq_clear;
 
   assign load_regs = GrpW'(((SumW'(issue_vl) << dec_width) + SumW'(RegBytes - 1)) >> RegByteW);
-  assign wr_regs = (!has_vd || dec_store || (issue_vl == '0)) ? '0 : (dec_mem ? load_regs : d_regs);
+  assign wr_regs = (!has_vd || dec_store || dec_compress || (issue_vl == '0)) ?
+      '0 : (dec_mem ? load_regs : d_regs);
   assign rd1_regs = dec_store ? d_regs : (uses_vs1 ? s1_regs : '0);
   assign rd2_regs = uses_vs2 ? s2_regs : '0;
   assign seq_clear = seq_reg_done && (seq_cls != VEC_CLS_XS) && (seq_cls != VEC_CLS_XM);
@@ -602,8 +636,8 @@ module vec_unit
       .vlmul(issue_vlmul),
       .vxrm(vxrm_q),
       .frm(frm),
-      .seq_busy(seq_busy || m_busy),
-      .seq_done(seq_done || m_done),
+      .seq_busy(seq_busy || m_busy || c_busy),
+      .seq_done(seq_done || m_done || c_done),
       .pipe_busy(valid_ex || valid_x2 || valid_x3 || valid_x4 || valid_x5 || valid_wb),
       .x_done(x_done),
       .seq_start(seq_start),
@@ -694,7 +728,7 @@ module vec_unit
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en && !seq_hold),
-      .start(seq_start && !seq_mem),
+      .start(seq_start && !seq_mem && !seq_compress),
       .vs1(seq_vs1),
       .vs2(seq_vs2),
       .vd(seq_vd),
@@ -733,6 +767,7 @@ module vec_unit
   );
 
   assign seq_mem = (seq_cls == VEC_CLS_MEM);
+  assign seq_compress = (seq_cls == VEC_CLS_COMPRESS);
 
   vec_mem #(
       .XLEN  (XLEN),
@@ -770,6 +805,36 @@ module vec_unit
       .done(m_done)
   );
 
+  vec_compress #(
+      .AWIDTH(AWIDTH),
+      .VLEN  (VLEN)
+  ) u_compress (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(core_en),
+      .start(seq_start && seq_compress),
+      .vs1(seq_vs1),
+      .vs2(seq_vs2),
+      .vd(seq_vd),
+      .vl(seq_vl),
+      .vsew(seq_vsew),
+      .rdata_mask(rdata1),
+      .rdata_src(rdata2),
+      .raddr_mask(c_raddr_mask),
+      .raddr_src(c_raddr_src),
+      .wen(c_wen),
+      .waddr(c_waddr),
+      .wstrb(c_wstrb),
+      .wdata(c_wdata),
+      .busy(c_busy),
+      .done(c_done)
+  );
+
+  assign side_wen   = m_wen || c_wen;
+  assign side_waddr = c_wen ? c_waddr : m_raddr;
+  assign side_wstrb = c_wen ? c_wstrb : m_wstrb;
+  assign side_wdata = c_wen ? c_wdata : m_wdata;
+
   // No vector write
   logic vreg_write;
   assign vreg_write = wen && (seq_cls != VEC_CLS_XS) && (seq_cls != VEC_CLS_XM);
@@ -780,12 +845,12 @@ module vec_unit
   ) u_regfile (
       .clk(clk),
       .core_en(core_en),
-      .we(wen_wb || m_wen),
-      .wstrb(wen_wb ? wstrb_wb : m_wstrb),
-      .waddr(wen_wb ? waddr_wb : m_raddr),
-      .wdata(wen_wb ? wdata : m_wdata),
-      .raddr1(seq_mem ? m_raddr : raddr1),
-      .raddr2(raddr2),
+      .we(wen_wb || side_wen),
+      .wstrb(wen_wb ? wstrb_wb : side_wstrb),
+      .waddr(wen_wb ? waddr_wb : side_waddr),
+      .wdata(wen_wb ? wdata : side_wdata),
+      .raddr1(seq_mem ? m_raddr : (seq_compress ? c_raddr_mask : raddr1)),
+      .raddr2(seq_compress ? c_raddr_src : raddr2),
       .raddr3(raddr3),
       .rdata1(rdata1),
       .rdata2(rdata2),
@@ -804,7 +869,7 @@ module vec_unit
   logic slot_first;
   always_ff @(posedge clk) begin
     if (!rst_n) slot_first <= 1'b0;
-    else if (core_en) slot_first <= seq_start && !seq_mem;
+    else if (core_en) slot_first <= seq_start && !seq_mem && !seq_compress;
   end
 
   // RD/EX
@@ -1400,6 +1465,7 @@ module vec_unit
   // Retire after last write
   logic       retire_wb_q;
   logic       zero_q;
+  logic       c_done_q;
   logic       retire;
   logic [7:0] tag_q;
 
@@ -1407,13 +1473,15 @@ module vec_unit
     if (!rst_n) begin
       retire_wb_q <= 1'b0;
       zero_q      <= 1'b0;
+      c_done_q    <= 1'b0;
     end else if (core_en) begin
       retire_wb_q <= last_wb;
-      zero_q      <= seq_start && !seq_mem && (seq_vl == '0);
+      zero_q      <= seq_start && !seq_mem && !seq_compress && (seq_vl == '0);
+      c_done_q    <= c_done;
     end
   end
 
-  assign retire = retire_wb_q || m_done || zero_q;
+  assign retire = retire_wb_q || m_done || c_done_q || zero_q;
 
   always_ff @(posedge clk) begin
     if (!rst_n) tag_q <= 8'd0;
@@ -1425,8 +1493,8 @@ module vec_unit
   logic              wr_en;
   logic [AWIDTH-1:0] wr_addr;
 
-  assign wr_en   = wen_wb || m_wen;
-  assign wr_addr = wen_wb ? waddr_wb : m_raddr;
+  assign wr_en   = wen_wb || side_wen;
+  assign wr_addr = wen_wb ? waddr_wb : side_waddr;
 
   always_ff @(posedge clk) begin
     if (!rst_n) wr_mask_q <= '0;
