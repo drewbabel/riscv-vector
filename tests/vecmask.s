@@ -106,4 +106,43 @@ Lfill:  sw      t1, 0(t3)
         addi    t3, s0, 112
         vlm.v   v13, (t3)
         vsm.v   v13, (t3)
+
+        li      a0, 16
+        vsetvli t0, a0, e8, m1, tu, mu
+        vle8.v  v1, (s0)
+        addi    t3, s0, 16
+        vle8.v  v2, (t3)
+        addi    t3, s0, 32
+        vle8.v  v0, (t3)
+        li      t1, 0xc3
+        vmadc.vvm  v3, v1, v2, v0
+        vmadc.vv   v4, v1, v2
+        vmadc.vxm  v5, v1, t1, v0
+        vmadc.vx   v6, v1, t1
+        vmadc.vim  v7, v1, 7, v0
+        vmadc.vi   v8, v1, -1
+        vmadc.vim  v9, v1, -1, v0
+        vmsbc.vvm  v10, v1, v2, v0
+        vmsbc.vv   v11, v1, v2
+        vmsbc.vxm  v12, v1, t1, v0
+        vmsbc.vx   v13, v1, t1
+        vmsbc.vvm  v14, v1, v1, v0
+
+        li      a0, 7
+        vsetvli t0, a0, e16, m1, tu, mu
+        vmadc.vvm  v15, v1, v2, v0
+        vmsbc.vxm  v16, v1, t1, v0
+        li      a0, 11
+        vsetvli t0, a0, e32, m4, tu, mu
+        vle32.v v20, (s0)
+        addi    t3, s0, 64
+        vle32.v v24, (t3)
+        li      t1, -1
+        vmadc.vvm  v17, v20, v24, v0
+        vmadc.vxm  v18, v20, t1, v0
+        vmsbc.vvm  v19, v20, v24, v0
+        vmsbc.vx   v28, v20, t1
+        vmadc.vvm  v20, v20, v24, v0
+        vmadc.vvm  v0, v24, v24, v0
+        vmsbc.vvm  v0, v24, v28, v0
 Ldone:  beq     x0, x0, Ldone

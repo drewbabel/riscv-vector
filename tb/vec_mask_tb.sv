@@ -11,24 +11,25 @@ module vec_mask_tb
   localparam int VlW = $clog2(DLEN + 1);
   localparam int Words = DLEN / 32;
 
-  int                  checks = 0;
-  int                  errors = 0;
-  int                  max_errors = 0;
+  int                      checks = 0;
+  int                      errors = 0;
+  int                      max_errors = 0;
 
-  vec_op_e             op;
-  vec_src_e            src;
-  logic     [     2:0] vsew;
-  logic                vm;
-  logic     [DLEN-1:0] vs2_data;
-  logic     [DLEN-1:0] vs1_data;
-  logic     [DLEN-1:0] v0_bits;
-  logic     [XLEN-1:0] xdata;
-  logic     [     4:0] simm;
-  logic     [ VlW-1:0] elem_base;
-  logic     [ VlW-1:0] vl;
+  vec_op_e                 op;
+  vec_src_e                src;
+  logic     [         2:0] vsew;
+  logic                    vm;
+  logic     [    DLEN-1:0] vs2_data;
+  logic     [    DLEN-1:0] vs1_data;
+  logic     [    DLEN-1:0] v0_bits;
+  logic     [MaxElems-1:0] mask_bits;
+  logic     [    XLEN-1:0] xdata;
+  logic     [         4:0] simm;
+  logic     [     VlW-1:0] elem_base;
+  logic     [     VlW-1:0] vl;
 
-  logic     [DLEN-1:0] result;
-  logic     [XLEN-1:0] xresult;
+  logic     [    DLEN-1:0] result;
+  logic     [    XLEN-1:0] xresult;
 
   vec_mask #(
       .DLEN(DLEN),
@@ -42,6 +43,7 @@ module vec_mask_tb
       .vs2_data (vs2_data),
       .vs1_data (vs1_data),
       .v0_bits  (v0_bits),
+      .mask_bits(mask_bits),
       .xdata    (xdata),
       .simm     (simm),
       .elem_base(elem_base),
@@ -74,6 +76,7 @@ module vec_mask_tb
     vs2_data  = '0;
     vs1_data  = '0;
     v0_bits   = '0;
+    mask_bits = '0;
     xdata     = '0;
     simm      = '0;
     elem_base = '0;
@@ -229,6 +232,61 @@ module vec_mask_tb
     end
   endtask
 
+  // Carry or borrow out
+  task automatic run_carry(input vec_op_e o, input vec_src_e s, input logic [2:0] sew,
+                           input string tag);
+    int bits;
+    int n;
+    longint a;
+    longint b;
+    longint c;
+    logic [MaxElems-1:0] want;
+    begin
+      op   = o;
+      src  = s;
+      vsew = sew;
+      bits = 8 << sew;
+      n    = DLEN / bits;
+      #1;
+      want = '0;
+      for (int e = 0; e < n; e++) begin
+        a = longint'(pick(vs2_data, bits, e, 1'b0));
+        if (s == VEC_SRC_VV) b = longint'(pick(vs1_data, bits, e, 1'b0));
+        else if (s == VEC_SRC_VI)
+          b = longint'(pick_scalar({{(ELEN - 5) {simm[4]}}, simm}, bits, 1'b0));
+        else b = longint'(pick_scalar(ELEN'(xdata), bits, 1'b0));
+        c = (!vm && mask_bits[e]) ? 1 : 0;
+        if (o == VEC_MADC) want[e] = (a + b + c) >= (longint'(1) << bits);
+        else want[e] = a < (b + c);
+      end
+      for (int e = 0; e < n; e++) note(tag, DLEN'(result[e]), DLEN'(want[e]));
+    end
+  endtask
+
+  // Every carry form
+  task automatic check_carry();
+    begin
+      for (int r = 0; r < 60; r++) begin
+        vs2_data  = rand_data();
+        vs1_data  = rand_data();
+        mask_bits = MaxElems'(rand_data());
+        xdata     = $urandom;
+        simm      = 5'($urandom);
+        vm        = 1'(r % 2);
+        if (r % 4 == 0) vs1_data = vs2_data;
+        if (r % 5 == 0) vs1_data = ~vs2_data;
+        for (int sew = 0; sew < 3; sew++) begin
+          run_carry(VEC_MADC, VEC_SRC_VV, 3'(sew), "madc vv");
+          run_carry(VEC_MADC, VEC_SRC_VX, 3'(sew), "madc vx");
+          run_carry(VEC_MADC, VEC_SRC_VI, 3'(sew), "madc vi");
+          run_carry(VEC_MSBC, VEC_SRC_VV, 3'(sew), "msbc vv");
+          run_carry(VEC_MSBC, VEC_SRC_VX, 3'(sew), "msbc vx");
+        end
+      end
+      vm = 1'b1;
+    end
+  endtask
+
   // Every logic form
   task automatic check_logic();
     vec_op_e list[8];
@@ -354,6 +412,7 @@ module vec_mask_tb
     init_signals();
     check_compares();
     check_compare_edges();
+    check_carry();
     check_logic();
     check_set();
     check_index();

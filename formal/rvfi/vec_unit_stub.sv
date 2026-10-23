@@ -25,8 +25,10 @@ module vec_unit_stub
     input wire vec_dec_t            dec,
     input wire                      instr_valid,
     input wire                      cancel,
+    input wire                      ex_advance,
     input wire           [XLEN-1:0] xdata,
     input wire           [XLEN-1:0] xstride,
+    input wire           [XLEN-1:0] fdata,
 
     input wire           vill,
     input wire [VlW-1:0] vl,
@@ -49,6 +51,11 @@ module vec_unit_stub
     input  wire             csr_wait,
     output logic [     1:0] vxrm,
     output logic            vxsat,
+
+    input  wire  [2:0] frm,
+    output logic [4:0] fflags,
+
+    input wire vstart_set,
 
     output logic            xreg_valid,
     output logic [XLEN-1:0] xreg_result,
@@ -74,6 +81,7 @@ module vec_unit_stub
   assign mem_bad_addr   = '0;
   assign vxrm           = '0;
   assign vxsat          = 1'b0;
+  assign fflags         = '0;
   assign xreg_valid     = 1'b0;
   assign xreg_result    = '0;
   assign is_vector      = 1'b0;

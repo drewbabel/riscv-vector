@@ -67,6 +67,54 @@ T13:    .word   0x026120d7
 R13:    vsetvli t0, a0, e8, m1, tu, mu
         lw      t2, 8(s0)
 
+        # Mask destination overlap
+        vsetvli t0, a0, e8, m2, tu, mu
+        li      t1, 0x5a
+        jal     ra, T14
+        j       R14
+T14:    vmseq.vv   v9, v8, v4
+R14:    jal     ra, T15
+        j       R15
+T15:    vmslt.vv   v5, v8, v4
+R15:    jal     ra, T16
+        j       R16
+T16:    vmsgtu.vi  v9, v8, 3
+R16:    jal     ra, T17
+        j       R17
+T17:    vmsne.vx   v9, v8, t1
+R17:    jal     ra, T18
+        j       R18
+T18:    vmadc.vvm  v9, v8, v4, v0
+R18:    jal     ra, T19
+        j       R19
+T19:    vmsbc.vx   v9, v8, t1
+R19:    vmseq.vv   v8, v8, v4
+        vmadc.vv   v4, v8, v4
+        vmsltu.vx  v12, v8, t1
+        vsetvli t0, a0, e8, m1, tu, mu
+        lw      t2, 12(s0)
+
+        # Unmasked carry forms
+        jal     ra, T20
+        j       R20
+T20:    .insn r 0x57, 0, 0x21, x3, x2, x1
+R20:    jal     ra, T21
+        j       R21
+T21:    .insn r 0x57, 4, 0x21, x3, x6, x1
+R21:    jal     ra, T22
+        j       R22
+T22:    .insn r 0x57, 3, 0x21, x3, x5, x1
+R22:    jal     ra, T23
+        j       R23
+T23:    .insn r 0x57, 0, 0x25, x3, x2, x1
+R23:    jal     ra, T24
+        j       R24
+T24:    .insn r 0x57, 4, 0x25, x3, x6, x1
+R24:    vadc.vvm   v3, v1, v2, v0
+        vsbc.vxm   v5, v1, t1, v0
+        vmadc.vv   v6, v1, v2
+        lw      t2, 0(s0)
+
         # Vector state off
         li      t0, 0x600
         csrc    mstatus, t0

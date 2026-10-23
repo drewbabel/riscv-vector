@@ -16,7 +16,7 @@ module vec_unit_tb
   localparam int Depth = 2 ** AWIDTH;
   localparam int Bytes = 256;
   localparam int LineB = VLEN / 8;
-  localparam int Timeout = 100000;
+  localparam int Timeout = 200000;
   localparam int MinChecks = 140000;
 
   int               checks = 0;
@@ -31,6 +31,11 @@ module vec_unit_tb
   logic             cancel;
   logic [ XLEN-1:0] xdata;
   logic [ XLEN-1:0] xstride;
+  logic [ XLEN-1:0] fdata;
+  logic [      2:0] frm;
+  logic [      4:0] fflags;
+  logic             vstart_set;
+  logic [      4:0] flags_seen;
   logic             vill;
   logic [  VlW-1:0] vl;
   logic [      2:0] vsew;
@@ -80,8 +85,12 @@ module vec_unit_tb
   logic dec_reads_xreg;
   logic dec_writes_xreg;
   logic dec_writes_mask;
+  vec_fop_e dec_fop;
+  logic dec_reads_freg;
+  logic dec_writes_freg;
   logic [1:0] dec_mem_width;
   logic dec_mem_whole;
+  logic [2:0] dec_mem_nf;
   logic dec_mem_mask;
   logic dec_mem_strided;
   vec_dec_t dec;
@@ -101,8 +110,12 @@ module vec_unit_tb
       .reads_xreg(dec_reads_xreg),
       .writes_xreg(dec_writes_xreg),
       .writes_mask(dec_writes_mask),
+      .fop(dec_fop),
+      .reads_freg(dec_reads_freg),
+      .writes_freg(dec_writes_freg),
       .mem_width(dec_mem_width),
       .mem_whole(dec_mem_whole),
+      .mem_nf(dec_mem_nf),
       .mem_mask(dec_mem_mask),
       .mem_strided(dec_mem_strided)
   );
@@ -121,8 +134,12 @@ module vec_unit_tb
     dec.reads_xreg = dec_reads_xreg;
     dec.writes_xreg = dec_writes_xreg;
     dec.writes_mask = dec_writes_mask;
+    dec.fop = dec_fop;
+    dec.reads_freg = dec_reads_freg;
+    dec.writes_freg = dec_writes_freg;
     dec.mem_width = dec_mem_width;
     dec.mem_whole = dec_mem_whole;
+    dec.mem_nf = dec_mem_nf;
     dec.mem_mask = dec_mem_mask;
     dec.mem_strided = dec_mem_strided;
   end
@@ -139,8 +156,10 @@ module vec_unit_tb
       .dec(dec),
       .instr_valid(instr_valid),
       .cancel(cancel),
+      .ex_advance(!vec_hold),
       .xdata(xdata),
       .xstride(xstride),
+      .fdata(fdata),
       .vill(vill),
       .vl(vl),
       .vsew(vsew),
@@ -151,6 +170,9 @@ module vec_unit_tb
       .csr_wait(csr_wait),
       .vxrm(vxrm),
       .vxsat(vxsat),
+      .frm(frm),
+      .fflags(fflags),
+      .vstart_set(vstart_set),
       .mem_rdata(mem_rdata),
       .mem_ready(mem_ready),
       .mem_req(mem_req),
@@ -310,6 +332,9 @@ module vec_unit_tb
     cancel      = 1'b0;
     xdata       = '0;
     xstride     = '0;
+    fdata       = '0;
+    frm         = 3'd0;
+    vstart_set  = 1'b0;
     vill        = 1'b0;
     mem_ready   = 1'b1;
     for (int b = 0; b < Bytes; b++) begin
@@ -470,9 +495,9 @@ module vec_unit_tb
       issue(32'h0010_0093);
       drain();
       check_regs("addi");
-      issue(enc(6'b000000, 1'b1, 5'd4, 5'd3, 3'b001, 5'd5));
+      issue(enc(6'b100000, 1'b1, 5'd4, 5'd3, 3'b001, 5'd5));
       drain();
-      check_regs("float form");
+      check_regs("float divide");
       issue(enc(6'b001100, 1'b1, 5'd4, 5'd3, 3'b000, 5'd5));
       drain();
       check_regs("gather");
@@ -777,6 +802,45 @@ module vec_unit_tb
       vlmul = 3'd3;
       instr = enc(6'b110000, 1'b1, 5'd8, 5'd16, 3'b010, 5'd0);
       #1 note("multiplier past eight", 32'(is_vector), 32'd0);
+      vlmul = 3'd1;
+      instr = enc(6'b011000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd9);
+      #1 note("compare over vs2 high", 32'(is_vector), 32'd0);
+      instr = enc(6'b011000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd8);
+      #1 note("compare over vs2 low", 32'(is_vector), 32'd1);
+      instr = enc(6'b011000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd5);
+      #1 note("compare over vs1 high", 32'(is_vector), 32'd0);
+      instr = enc(6'b011000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd4);
+      #1 note("compare over vs1 low", 32'(is_vector), 32'd1);
+      instr = enc(6'b011000, 1'b1, 5'd8, 5'd3, 3'b011, 5'd9);
+      #1 note("immediate over vs2 high", 32'(is_vector), 32'd0);
+      instr = enc(6'b011000, 1'b1, 5'd8, 5'd5, 3'b100, 5'd5);
+      #1 note("scalar ignores vs1 field", 32'(is_vector), 32'd1);
+      instr = enc(6'b010001, 1'b0, 5'd8, 5'd4, 3'b000, 5'd9);
+      #1 note("carry over vs2 high", 32'(is_vector), 32'd0);
+      instr = enc(6'b010011, 1'b1, 5'd8, 5'd4, 3'b000, 5'd8);
+      #1 note("borrow over vs2 low", 32'(is_vector), 32'd1);
+      instr = enc(6'b010001, 1'b0, 5'd8, 5'd4, 3'b000, 5'd0);
+      #1 note("carry onto the mask", 32'(is_vector), 32'd1);
+      instr = enc(6'b011001, 1'b1, 5'd8, 5'd4, 3'b010, 5'd9);
+      #1 note("mask logic over source", 32'(is_vector), 32'd1);
+      vlmul = 3'b111;
+      instr = enc(6'b011000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd8);
+      #1 note("fractional compare over vs2", 32'(is_vector), 32'd1);
+      vlmul = 3'd0;
+      instr = enc(6'b010000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd1);
+      #1 note("unmasked vadc vv", 32'(is_vector), 32'd0);
+      instr = enc(6'b010000, 1'b1, 5'd8, 5'd5, 3'b011, 5'd1);
+      #1 note("unmasked vadc vi", 32'(is_vector), 32'd0);
+      instr = enc(6'b010010, 1'b1, 5'd8, 5'd5, 3'b100, 5'd1);
+      #1 note("unmasked vsbc vx", 32'(is_vector), 32'd0);
+      instr = enc(6'b010000, 1'b0, 5'd8, 5'd4, 3'b000, 5'd1);
+      #1 note("masked vadc vv", 32'(is_vector), 32'd1);
+      instr = enc(6'b010010, 1'b0, 5'd8, 5'd4, 3'b000, 5'd1);
+      #1 note("masked vsbc vv", 32'(is_vector), 32'd1);
+      instr = enc(6'b010001, 1'b1, 5'd8, 5'd4, 3'b000, 5'd1);
+      #1 note("unmasked vmadc vv", 32'(is_vector), 32'd1);
+      instr = enc(6'b010111, 1'b1, 5'd0, 5'd4, 3'b000, 5'd1);
+      #1 note("unmasked merge is a move", 32'(is_vector), 32'd1);
       vlmul = 3'd0;
       instr = 32'd0;
     end
@@ -883,6 +947,118 @@ module vec_unit_tb
     end
   endtask
 
+  // Live state ignored
+  task automatic scramble_cfg();
+    vill  = 1'($urandom);
+    vsew  = 3'($urandom % 3);
+    vlmul = 3'($urandom % 4);
+    vl    = VlW'($urandom % 17);
+  endtask
+
+  // Whole register transfer
+  task automatic run_whole(input logic store, input logic [1:0] w, input logic [2:0] nf,
+                           input logic [4:0] d, input logic [XLEN-1:0] b);
+    begin
+      scramble_cfg();
+      xdata = b;
+      ref_mem(store, int'(w), 1'b1, d, b, 32'd1 << w, (int'(nf) + 1) * (VLEN >> (3 + w)));
+      issue(enc_mem(store, w, 1'b1, 1'b0, 1'b1, d) | {nf, 29'd0});
+      drain();
+      check_regs("run_whole");
+      check_mem("run_whole");
+      vill = 1'b0;
+    end
+  endtask
+
+  // Whole register move
+  task automatic run_mvnr(input logic [2:0] nf, input logic [4:0] s2, input logic [4:0] d);
+    logic [VLEN-1:0] src[8];
+    begin
+      scramble_cfg();
+      for (int r = 0; r <= int'(nf); r++) src[r] = shadow[(32'(s2)+r)%Depth];
+      for (int r = 0; r <= int'(nf); r++) shadow[(32'(d)+r)%Depth] = src[r];
+      issue(enc(6'b100111, 1'b1, s2, 5'(nf), 3'b011, d));
+      drain();
+      check_regs("run_mvnr");
+      vill = 1'b0;
+    end
+  endtask
+
+  // Whole register rules
+  task automatic check_whole_rules();
+    begin
+      vill  = 1'b1;
+      vsew  = 3'd2;
+      vlmul = 3'd0;
+      vl    = 8'd0;
+      instr = enc(6'b100111, 1'b1, 5'd8, 5'd3, 3'b011, 5'd4);
+      #1 note("move under vill", 32'(is_vector), 32'd1);
+      instr = enc_mem(1'b0, 2'd2, 1'b1, 1'b0, 1'b1, 5'd8) | {3'd7, 29'd0};
+      #1 note("eight loads under vill", 32'(is_vector), 32'd1);
+      vill  = 1'b0;
+      instr = enc(6'b100111, 1'b1, 5'd8, 5'd1, 3'b011, 5'd3);
+      #1 note("move dest off two", 32'(is_vector), 32'd0);
+      instr = enc(6'b100111, 1'b1, 5'd6, 5'd3, 3'b011, 5'd8);
+      #1 note("move source off four", 32'(is_vector), 32'd0);
+      instr = enc(6'b100111, 1'b1, 5'd8, 5'd7, 3'b011, 5'd0);
+      #1 note("eight onto v0", 32'(is_vector), 32'd1);
+      instr = enc(6'b100111, 1'b1, 5'd8, 5'd2, 3'b011, 5'd0);
+      #1 note("three registers", 32'(is_vector), 32'd0);
+      instr = enc(6'b100111, 1'b1, 5'd20, 5'd3, 3'b011, 5'd20);
+      #1 note("copy onto itself", 32'(is_vector), 32'd1);
+      note("self copy is empty", 32'(dut.issue_vl), 32'd0);
+      instr = enc(6'b100111, 1'b1, 5'd20, 5'd3, 3'b011, 5'd24);
+      #1 note("four copied bytes", 32'(dut.issue_vl), 32'd64);
+      instr = enc_mem(1'b0, 2'd0, 1'b1, 1'b0, 1'b1, 5'd5) | {3'd1, 29'd0};
+      #1 note("load pair off two", 32'(is_vector), 32'd0);
+      instr = enc_mem(1'b1, 2'd0, 1'b1, 1'b0, 1'b1, 5'd12) | {3'd3, 29'd0};
+      #1 note("store four on four", 32'(is_vector), 32'd1);
+      instr = enc_mem(1'b1, 2'd0, 1'b1, 1'b0, 1'b1, 5'd12) | {3'd7, 29'd0};
+      #1 note("store eight off eight", 32'(is_vector), 32'd0);
+      xdata = 32'h0000_0102;
+      instr = enc_mem(1'b0, 2'd2, 1'b1, 1'b0, 1'b1, 5'd8) | {3'd1, 29'd0};
+      #1 note("pair word misaligned", 32'(mem_misaligned), 32'd1);
+      xdata = '0;
+      vl    = 8'd4;
+      instr = 32'd0;
+    end
+  endtask
+
+  // Whole register groups
+  task automatic check_whole();
+    logic [2:0] nf;
+    logic [1:0] w;
+    logic store;
+    begin
+      seed_all();
+      run_whole(1'b0, 2'd0, 3'd1, 5'd2, 32'd5);
+      run_whole(1'b0, 2'd1, 3'd3, 5'd4, 32'd34);
+      run_whole(1'b0, 2'd2, 3'd7, 5'd8, 32'd100);
+      run_whole(1'b1, 2'd0, 3'd1, 5'd6, 32'd3);
+      run_whole(1'b1, 2'd0, 3'd7, 5'd16, 32'd64);
+      run_mvnr(3'd0, 5'd3, 5'd9);
+      run_mvnr(3'd1, 5'd10, 5'd12);
+      run_mvnr(3'd3, 5'd16, 5'd4);
+      run_mvnr(3'd7, 5'd8, 5'd24);
+      run_mvnr(3'd3, 5'd20, 5'd20);
+      for (int i = 0; i < 60; i++) begin
+        case ($urandom % 4)
+          0: nf = 3'd0;
+          1: nf = 3'd1;
+          2: nf = 3'd3;
+          default: nf = 3'd7;
+        endcase
+        store = 1'($urandom);
+        w = store ? 2'd0 : 2'($urandom % 3);
+        ready_pct = (($urandom % 2) == 0) ? 100 : 40;
+        if (($urandom % 3) == 0) run_mvnr(nf, 5'($urandom) & ~5'(nf), 5'($urandom) & ~5'(nf));
+        else
+          run_whole(store, w, nf, 5'($urandom) & ~5'(nf),
+                    32'($urandom % Bytes) & ~((32'd1 << w) - 1));
+      end
+      ready_pct = 100;
+    end
+  endtask
 
   // Group element access
   function automatic logic [ELEN-1:0] grp_get(input logic [4:0] base, input int w, input int i);
@@ -1353,6 +1529,124 @@ module vec_unit_tb
     end
   endtask
 
+  // Carry or borrow out
+  function automatic logic ref_carry_bit(input vec_op_e o, input logic [ELEN-1:0] a,
+                                         input logic [ELEN-1:0] b, input logic cin, input int w);
+    logic [ELEN-1:0] ma;
+    logic [ELEN-1:0] mb;
+    longint ua;
+    longint ub;
+    begin
+      ma = a & mask_w(w);
+      mb = b & mask_w(w);
+      ua = longint'(ma);
+      ub = longint'(mb);
+      if (o == VEC_MADC) ref_carry_bit = (ua + ub + longint'(cin)) >= (longint'(1) << w);
+      else ref_carry_bit = ua < (ub + longint'(cin));
+    end
+  endfunction
+
+  // Run one carry compare
+  task automatic run_carry(input vec_op_e o, input int form, input logic [4:0] s1,
+                           input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                           input logic [XLEN-1:0] xd, input logic [4:0] im, input logic [2:0] sew,
+                           input logic [2:0] lmul, input logic [VlW-1:0] len);
+    int w;
+    logic [ELEN-1:0] b;
+    logic [VLEN-1:0] cin;
+    logic [2:0] f3;
+    logic [4:0] f2;
+    begin
+      vsew  = sew;
+      vlmul = lmul;
+      vl    = len;
+      xdata = xd;
+      w     = 8 << sew;
+      cin   = vmb ? '0 : shadow[0];
+      for (int i = 0; i < int'(len); i++) begin
+        if (form == 0) b = grp_get(s1, w, i);
+        else if (form == 2) b = ELEN'($signed(im));
+        else b = xd;
+        shadow[d][i] = ref_carry_bit(o, grp_get(s2, w, i), b, cin[i], w);
+      end
+      case (form)
+        0:       f3 = 3'b000;
+        1:       f3 = 3'b100;
+        default: f3 = 3'b011;
+      endcase
+      case (form)
+        0:       f2 = s1;
+        1:       f2 = 5'd1;
+        default: f2 = im;
+      endcase
+      issue(enc((o == VEC_MADC) ? 6'b010001 : 6'b010011, vmb, s2, f2, f3, d));
+      drain();
+      check_regs(
+          $sformatf(
+          "carry op=%0d form=%0d sew=%0d lmul=%0d len=%0d vm=%0b", o, form, sew, lmul, len, vmb));
+    end
+  endtask
+
+  // Every carry shape
+  task automatic check_carry();
+    vec_op_e o;
+    int form;
+    logic [2:0] sew;
+    logic [2:0] lmul;
+    logic [VlW-1:0] len;
+    logic [4:0] d;
+    begin
+      seed_all();
+      for (int k = 0; k < 2; k++) begin
+        o = vec_op_e'((k == 0) ? VEC_MADC : VEC_MSBC);
+        for (int f = 0; f < 3; f++) begin
+          if ((o == VEC_MSBC) && (f == 2)) continue;
+          for (int s = 0; s < 3; s++) begin
+            for (int m = 0; m < 2; m++) begin
+              run_carry(o, f, 5'd4, 5'd8, 5'd20, 1'(m), $urandom, 5'($urandom), 3'(s), 3'd0,
+                        VlW'(VLEN >> (3 + s)));
+            end
+          end
+        end
+      end
+      for (int k = 0; k < 40; k++) begin
+        o    = vec_op_e'((k % 2 == 0) ? VEC_MADC : VEC_MSBC);
+        form = (o == VEC_MADC) ? int'($urandom % 3) : int'($urandom % 2);
+        sew  = 3'($urandom % 3);
+        lmul = 3'($urandom % 4);
+        len  = VlW'($urandom % (((VLEN >> (3 + sew)) << lmul) + 1));
+        run_carry(o, form, 5'd8, 5'd16, 5'd24, 1'($urandom), $urandom, 5'($urandom), sew, lmul,
+                  len);
+      end
+
+      // Carry ripples out
+      seed_reg(5'd0, '1);
+      seed_reg(5'd4, '1);
+      seed_reg(5'd8, '0);
+      for (int s = 0; s < 3; s++) begin
+        run_carry(VEC_MADC, 0, 5'd4, 5'd8, 5'd20, 1'b0, '0, 5'd0, 3'(s), 3'd0, 8'd4);
+        run_carry(VEC_MADC, 0, 5'd4, 5'd8, 5'd21, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'd4);
+        run_carry(VEC_MSBC, 0, 5'd8, 5'd8, 5'd22, 1'b0, '0, 5'd0, 3'(s), 3'd0, 8'd4);
+        run_carry(VEC_MSBC, 0, 5'd8, 5'd8, 5'd23, 1'b1, '0, 5'd0, 3'(s), 3'd0, 8'd4);
+        run_carry(VEC_MADC, 2, 5'd0, 5'd4, 5'd24, 1'b1, '0, 5'd1, 3'(s), 3'd0, 8'd4);
+      end
+
+      // Destination is v0
+      seed_all();
+      for (int s = 0; s < 3; s++) begin
+        d = 5'd0;
+        run_carry(VEC_MADC, 0, 5'd4, 5'd8, d, 1'b0, '0, 5'd0, 3'(s), 3'd1,
+                  VlW'((VLEN >> (3 + s)) << 1));
+        run_carry(VEC_MSBC, 1, 5'd4, 5'd8, d, 1'b0, $urandom, 5'd0, 3'(s), 3'd0, 8'd3);
+      end
+
+      // Destination is a source
+      run_carry(VEC_MADC, 0, 5'd4, 5'd8, 5'd8, 1'b0, '0, 5'd0, 3'd2, 3'd1, 8'd8);
+      run_carry(VEC_MSBC, 0, 5'd4, 5'd8, 5'd4, 1'b0, '0, 5'd0, 3'd0, 3'd0, 8'd16);
+      run_carry(VEC_MADC, 1, 5'd4, 5'd8, 5'd20, 1'b0, '0, 5'd0, 3'd0, 3'd0, 8'd0);
+    end
+  endtask
+
   // One logic form
   task automatic run_mlogic(input logic [5:0] f6, input logic [4:0] s1, input logic [4:0] s2,
                             input logic [4:0] d, input logic [VlW-1:0] len);
@@ -1768,6 +2062,109 @@ module vec_unit_tb
     for (int e = 0; e < VLEN / w; e++) min_vec[e*w+w-1] = 1'b1;
   endfunction
 
+  // Widening multiply model
+  function automatic logic [ELEN-1:0] ref_wmul(input vec_op_e o, input int w,
+                                               input logic [ELEN-1:0] a, input logic [ELEN-1:0] b,
+                                               input logic [ELEN-1:0] c);
+    longint m, ua, ub, sa, sb, v;
+    begin
+      m  = (64'sd1 <<< w) - 1;
+      ua = longint'(a) & m;
+      ub = longint'(b) & m;
+      sa = ua[w-1] ? (ua - (64'sd1 <<< w)) : ua;
+      sb = ub[w-1] ? (ub - (64'sd1 <<< w)) : ub;
+      case (o)
+        VEC_WMULU:   v = ua * ub;
+        VEC_WMULSU:  v = sa * ub;
+        VEC_WMUL:    v = sa * sb;
+        VEC_WMACCU:  v = (ua * ub) + longint'(c);
+        VEC_WMACC:   v = (sa * sb) + longint'(c);
+        VEC_WMACCSU: v = (ua * sb) + longint'(c);
+        VEC_WMACCUS: v = (sa * ub) + longint'(c);
+        default:     v = 0;
+      endcase
+      return ELEN'(v & ((64'sd1 <<< (2 * w)) - 1));
+    end
+  endfunction
+
+  function automatic logic [5:0] wmul_funct6(input vec_op_e o);
+    case (o)
+      VEC_WMULU:   return 6'b111000;
+      VEC_WMULSU:  return 6'b111010;
+      VEC_WMUL:    return 6'b111011;
+      VEC_WMACCU:  return 6'b111100;
+      VEC_WMACC:   return 6'b111101;
+      VEC_WMACCUS: return 6'b111110;
+      default:     return 6'b111111;
+    endcase
+  endfunction
+
+  task automatic run_wmul(input vec_op_e o, input int form, input logic [4:0] s1,
+                          input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                          input logic [XLEN-1:0] xd, input logic [2:0] sew, input logic [2:0] lmul,
+                          input logic [VlW-1:0] len);
+    int w;
+    int regs;
+    logic [ELEN-1:0] b;
+    begin
+      w = 8 << sew;
+      regs = lmul[2] ? 1 : (1 << lmul[1:0]);
+      vsew = sew;
+      vlmul = lmul;
+      vl = len;
+      xdata = xd;
+      for (int i = 0; i < group_elems(w, regs); i++) begin
+        if ((i < int'(len)) && (vmb || shadow[0][i])) begin
+          b = (form == 0) ? grp_get(s1, w, i) : xd;
+          grp_set(d, 2 * w, i, ref_wmul(o, w, grp_get(s2, w, i), b, grp_get(d, 2 * w, i)));
+        end
+      end
+      issue(enc(wmul_funct6(o), vmb, s2, (form == 0) ? s1 : 5'd1, (form == 0) ? 3'b010 : 3'b110, d
+            ));
+      drain();
+      check_regs($sformatf("wmul %0s sew %0d form %0d", o.name(), w, form));
+    end
+  endtask
+
+  task automatic check_widening_muls();
+    vec_op_e ops[7] = '{
+        VEC_WMULU,
+        VEC_WMULSU,
+        VEC_WMUL,
+        VEC_WMACCU,
+        VEC_WMACC,
+        VEC_WMACCSU,
+        VEC_WMACCUS
+    };
+    seed_all();
+    for (int k = 0; k < 7; k++) begin
+      for (int s = 0; s < 2; s++) begin
+        if (ops[k] != VEC_WMACCUS)
+          run_wmul(ops[k], 0, 5'd4, 5'd8, 5'd16, 1'b1, '0, 3'(s), 3'd0, 8'(VLEN / (8 << s)));
+        run_wmul(ops[k], 1, 5'd0, 5'd8, 5'd18, 1'b1, $urandom, 3'(s), 3'd0, 8'(VLEN / (8 << s)));
+        run_wmul(ops[k], 1, 5'd0, 5'd8, 5'd20, 1'b0, $urandom, 3'(s), 3'd1,
+                 8'(2 * VLEN / (8 << s)));
+      end
+      if (ops[k] != VEC_WMACCUS) begin
+        run_wmul(ops[k], 0, 5'd4, 5'd8, 5'd24, 1'b1, '0, 3'd0, 3'd1, 8'd32);
+        run_wmul(ops[k], 0, 5'd4, 5'd8, 5'd16, 1'b0, '0, 3'd1, 3'd0, 8'd8);
+        run_wmul(ops[k], 0, 5'd4, 5'd8, 5'd16, 1'b1, '0, 3'd0, 3'd0, 8'd5);
+      end
+    end
+    // Accumulate carries past SEW
+    seed_reg(5'd4, '1);
+    seed_reg(5'd8, '1);
+    seed_reg(5'd16, {(VLEN / 16) {16'h00ff}});
+    seed_reg(5'd17, {(VLEN / 16) {16'h00ff}});
+    run_wmul(VEC_WMACCU, 0, 5'd4, 5'd8, 5'd16, 1'b1, '0, 3'd0, 3'd0, 8'd16);
+    run_wmul(VEC_WMACCU, 1, 5'd0, 5'd8, 5'd16, 1'b1, 32'hff, 3'd0, 3'd0, 8'd16);
+    seed_reg(5'd16, {(VLEN / 32) {32'h0000_ffff}});
+    seed_reg(5'd17, {(VLEN / 32) {32'h0000_ffff}});
+    run_wmul(VEC_WMACCU, 0, 5'd4, 5'd8, 5'd16, 1'b1, '0, 3'd1, 3'd0, 8'd8);
+    run_wmul(VEC_WMACC, 1, 5'd0, 5'd8, 5'd16, 1'b1, 32'h8000, 3'd1, 3'd0, 8'd8);
+    seed_all();
+  endtask
+
   task automatic check_multiplies();
     vec_op_e ops[8] = '{
         VEC_MUL,
@@ -2065,7 +2462,11 @@ module vec_unit_tb
       note("multiply add", 32'(is_vector), 32'd1);
       instr = enc(6'b111000, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
       @(negedge clk);
-      note("widening multiply", 32'(is_vector), 32'd0);
+      note("widening multiply", 32'(is_vector), 32'd1);
+      vsew = 3'd2;
+      @(negedge clk);
+      note("widening multiply at e32", 32'(is_vector), 32'd0);
+      vsew  = 3'd1;
       instr = enc(6'b001000, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12);
       @(negedge clk);
       note("averaging add", 32'(is_vector), 32'd1);
@@ -2079,6 +2480,1059 @@ module vec_unit_tb
       @(negedge clk);
       note("fractional multiply", 32'(is_vector), 32'd1);
       instr = 32'd0;
+    end
+  endtask
+
+  // Reference float lane
+  logic            fref_valid = 1'b0;
+  vec_fop_e        fref_op = VEC_FADD;
+  logic     [ 2:0] fref_rm = 3'd0;
+  logic     [31:0] fref_a = '0;
+  logic     [31:0] fref_b = '0;
+  logic     [31:0] fref_c = '0;
+  logic     [31:0] fref_res;
+  logic     [ 4:0] fref_flags;
+  logic            fref_rvalid;
+
+  vec_fp_lane u_ref (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(1'b1),
+      .valid(fref_valid),
+      .op(fref_op),
+      .rm(fref_rm),
+      .a(fref_a),
+      .b(fref_b),
+      .c(fref_c),
+      .result(fref_res),
+      .fflags(fref_flags),
+      .result_valid(fref_rvalid)
+  );
+
+  // Flags reaching fflags
+  initial flags_seen = '0;
+  always @(negedge clk) if (rst_n && core_en) flags_seen = flags_seen | fflags;
+
+  // Write port uses
+  int wb_writes = 0;
+  always @(negedge clk) if (rst_n && core_en && dut.wen_wb) wb_writes = wb_writes + 1;
+
+  function automatic logic fp_cmp_op(input vec_fop_e o);
+    return (o == VEC_MFEQ) || (o == VEC_MFNE) || (o == VEC_MFLT) || (o == VEC_MFLE) ||
+        (o == VEC_MFGT) || (o == VEC_MFGE);
+  endfunction
+
+  function automatic logic [5:0] fp_funct6(input vec_fop_e o);
+    case (o)
+      VEC_FADD:   return 6'b000000;
+      VEC_FSUB:   return 6'b000010;
+      VEC_FMIN:   return 6'b000100;
+      VEC_FMAX:   return 6'b000110;
+      VEC_FSGNJ:  return 6'b001000;
+      VEC_FSGNJN: return 6'b001001;
+      VEC_FSGNJX: return 6'b001010;
+      VEC_FMUL:   return 6'b100100;
+      VEC_FRSUB:  return 6'b100111;
+      VEC_FMADD:  return 6'b101000;
+      VEC_FNMADD: return 6'b101001;
+      VEC_FMSUB:  return 6'b101010;
+      VEC_FNMSUB: return 6'b101011;
+      VEC_FMACC:  return 6'b101100;
+      VEC_FNMACC: return 6'b101101;
+      VEC_FMSAC:  return 6'b101110;
+      VEC_FNMSAC: return 6'b101111;
+      VEC_MFEQ:   return 6'b011000;
+      VEC_MFLE:   return 6'b011001;
+      VEC_MFLT:   return 6'b011011;
+      VEC_MFNE:   return 6'b011100;
+      VEC_MFGT:   return 6'b011101;
+      VEC_FCLASS, VEC_FREC7, VEC_FRSQRT7: return 6'b010011;
+      default:    return 6'b011111;
+    endcase
+  endfunction
+
+  // Scalar only forms
+  function automatic logic fp_vf_only(input vec_fop_e o);
+    return (o == VEC_FRSUB) || (o == VEC_MFGT) || (o == VEC_MFGE);
+  endfunction
+
+  // Vector only forms
+  function automatic logic fp_vv_only(input vec_fop_e o);
+    return (o == VEC_FCLASS) || (o == VEC_FREC7) || (o == VEC_FRSQRT7);
+  endfunction
+
+  // Float operand values
+  function automatic logic [31:0] fp_pick();
+    logic [31:0] x;
+    x = $urandom;
+    case ($urandom_range(
+        7
+    ))
+      0: x[30:23] = 8'hFF;
+      1: x[30:23] = 8'h00;
+      2: x[30:23] = 8'(250 + $urandom_range(4));
+      3: x[30:23] = 8'($urandom_range(3));
+      4: x = ($urandom_range(1) != 0) ? 32'h3F80_0000 : 32'h7F7F_FFFF;
+      default: x[30:23] = 8'(120 + $urandom_range(14));
+    endcase
+    return x;
+  endfunction
+
+  function automatic logic [VLEN-1:0] fp_vec();
+    for (int e = 0; e < VLEN / 32; e++) fp_vec[e*32+:32] = fp_pick();
+  endfunction
+
+  task automatic seed_fp();
+    for (int r = 0; r < Depth; r++) seed_reg(AWIDTH'(r), fp_vec());
+  endtask
+
+  function automatic logic [31:0] fp_encode(input vec_fop_e o, input int form, input logic [4:0] s1,
+                                            input logic [4:0] s2, input logic [4:0] d,
+                                            input logic vmb);
+    logic [4:0] rs1;
+    case (o)
+      VEC_FCLASS:  rs1 = 5'b10000;
+      VEC_FREC7:   rs1 = 5'b00101;
+      VEC_FRSQRT7: rs1 = 5'b00100;
+      default:     rs1 = (form != 0) ? 5'($urandom) : s1;
+    endcase
+    return enc(fp_funct6(o), vmb, s2, rs1, (form != 0) ? 3'b101 : 3'b001, d);
+  endfunction
+
+  // Float op model
+  task automatic model_fp(input vec_fop_e o, input int form, input logic [4:0] s1,
+                          input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                          input logic [31:0] fsc, input int regs, input logic [VlW-1:0] len,
+                          input logic [2:0] rm, output logic [4:0] want_flags);
+    int          ids   [$];
+    logic [31:0] av    [$];
+    logic [31:0] bv    [$];
+    logic [31:0] cv    [$];
+    int          sent;
+    int          got;
+    int          guard;
+    logic [31:0] r;
+    begin
+      want_flags = '0;
+      for (int i = 0; i < group_elems(32, regs); i++) begin
+        if ((i < len) && (vmb || shadow[0][i])) begin
+          ids.push_back(i);
+          av.push_back(grp_get(s2, 32, i));
+          bv.push_back((form != 0) ? fsc : grp_get(s1, 32, i));
+          cv.push_back(grp_get(d, 32, i));
+        end
+      end
+      sent  = 0;
+      got   = 0;
+      guard = 0;
+      while ((got < ids.size()) && (guard < 200)) begin
+        @(negedge clk);
+        guard = guard + 1;
+        if (fref_rvalid) begin
+          r = fref_res;
+          want_flags = want_flags | fref_flags;
+          if (fp_cmp_op(o)) shadow[d][ids[got]] = r[0];
+          else grp_set(d, 32, ids[got], r);
+          got = got + 1;
+        end
+        fref_valid = (sent < ids.size());
+        if (sent < ids.size()) begin
+          fref_op = o;
+          fref_rm = rm;
+          fref_a = av[sent];
+          fref_b = bv[sent];
+          fref_c = cv[sent];
+          sent = sent + 1;
+        end
+      end
+      fref_valid = 1'b0;
+      if (got != ids.size()) $fatal(1, "TB REFERENCE LANE STALLED");
+    end
+  endtask
+
+  // Run one float op
+  task automatic run_fp(input vec_fop_e o, input int form, input logic [4:0] s1,
+                        input logic [4:0] s2, input logic [4:0] d, input logic vmb,
+                        input logic [2:0] lmul, input logic [VlW-1:0] len, input logic [2:0] rm);
+    logic [ 4:0] want;
+    logic [31:0] fsc;
+    int          regs;
+    int          phases;
+    logic        hit;
+    begin
+      regs   = lmul[2] ? 1 : (1 << lmul[1:0]);
+      phases = 0;
+      for (int p = 0; p < regs; p++) begin
+        hit = 1'b0;
+        for (int e = 0; e < 4; e++)
+        if (((p * 4 + e) < int'(len)) && (vmb || shadow[0][p*4+e])) hit = 1'b1;
+        if (hit) phases = phases + 1;
+      end
+      fsc   = fp_pick();
+      vsew  = 3'd2;
+      vlmul = lmul;
+      vl    = len;
+      frm   = rm;
+      fdata = fsc;
+      xdata = $urandom;
+      model_fp(o, form, s1, s2, d, vmb, fsc, regs, len, rm, want);
+      flags_seen = '0;
+      wb_writes  = 0;
+      issue(fp_encode(o, form, s1, s2, d, vmb));
+      frm   = 3'($urandom_range(4));
+      fdata = $urandom;
+      drain();
+      check_regs($sformatf("float %0s form %0d lmul %0d", o.name(), form, lmul));
+      note($sformatf("fflags after %0s", o.name()), 32'(flags_seen), 32'(want));
+      note($sformatf("writes by %0s", o.name()), 32'(wb_writes), 32'(phases));
+    end
+  endtask
+
+  // Every float op
+  task automatic check_fp_ops();
+    vec_fop_e o;
+    begin
+      note("no flags from integer work", 32'(flags_seen), 32'd0);
+      seed_fp();
+      for (int k = 0; k < 26; k++) begin
+        case (k)
+          0: o = VEC_FADD;
+          1: o = VEC_FSUB;
+          2: o = VEC_FRSUB;
+          3: o = VEC_FMUL;
+          4: o = VEC_FMACC;
+          5: o = VEC_FNMACC;
+          6: o = VEC_FMSAC;
+          7: o = VEC_FNMSAC;
+          8: o = VEC_FMADD;
+          9: o = VEC_FNMADD;
+          10: o = VEC_FMSUB;
+          11: o = VEC_FNMSUB;
+          12: o = VEC_FMIN;
+          13: o = VEC_FMAX;
+          14: o = VEC_FSGNJ;
+          15: o = VEC_FSGNJN;
+          16: o = VEC_FSGNJX;
+          17: o = VEC_MFEQ;
+          18: o = VEC_MFNE;
+          19: o = VEC_MFLT;
+          20: o = VEC_MFLE;
+          21: o = VEC_MFGT;
+          22: o = VEC_MFGE;
+          23: o = VEC_FCLASS;
+          24: o = VEC_FREC7;
+          default: o = VEC_FRSQRT7;
+        endcase
+        for (int f = 0; f < 2; f++) begin
+          if ((f == 0) && fp_vf_only(o)) continue;
+          if ((f != 0) && fp_vv_only(o)) continue;
+          for (int rm = 0; rm < 5; rm++)
+          run_fp(o, f, 5'd4, 5'd8, 5'd12, 1'($urandom), 3'd0, 8'(1 + $urandom_range(3)), 3'(rm));
+        end
+      end
+    end
+  endtask
+
+  // Random float traffic
+  task automatic soak_fp(input int n);
+    vec_fop_e       o;
+    int             form;
+    logic     [2:0] lmul;
+    int             regs;
+    begin
+      seed_fp();
+      for (int i = 0; i < n; i++) begin
+        o = vec_fop_e'($urandom_range(32'(VEC_FCLASS)));
+        if ((o == VEC_FDIV) || (o == VEC_FRDIV) || (o == VEC_FSQRT)) o = VEC_FMACC;
+        form = int'($urandom_range(1));
+        if (fp_vf_only(o)) form = 1;
+        if (fp_vv_only(o)) form = 0;
+        lmul = 3'($urandom_range(3));
+        regs = 1 << lmul[1:0];
+        run_fp(o, form, 5'd8, 5'd16, 5'd24, 1'($urandom), lmul, 8'($urandom_range(4 * regs)),
+               3'($urandom_range(4)));
+        if ($urandom_range(9) == 0) seed_fp();
+      end
+    end
+  endtask
+
+  // Float mixed in flight
+  task automatic check_fp_stream();
+    logic [4:0] want;
+    logic [4:0] f;
+    logic [2:0] rm[6];
+    logic [31:0] fsc[6];
+    logic sat;
+    begin
+      for (int r = 0; r < 6; r++) begin
+        seed_fp();
+        vlmul = 3'd0;
+        vl    = 8'd4;
+        vsew  = 3'd2;
+        want  = '0;
+        for (int k = 0; k < 6; k++) begin
+          rm[k]  = 3'($urandom_range(4));
+          fsc[k] = fp_pick();
+        end
+        model_fp(VEC_FMUL, 0, 5'd1, 5'd2, 5'd10, 1'b1, '0, 1, 8'd4, rm[0], f);
+        want = want | f;
+        ref_apply(VEC_ADD, 0, 5'd3, 5'd4, 5'd11, 1'b1, '0, 5'd0, 32, 1, 4);
+        model_fp(VEC_FMACC, 1, 5'd0, 5'd5, 5'd12, 1'b1, fsc[2], 1, 8'd4, rm[2], f);
+        want = want | f;
+        model_lane(VEC_MUL, 0, 5'd6, 5'd7, 5'd13, 1'b1, '0, 5'd0, 32, 1, 8'd4, 2'd0, sat);
+        model_fp(VEC_MFLT, 0, 5'd10, 5'd12, 5'd14, 1'b1, '0, 1, 8'd4, rm[4], f);
+        want = want | f;
+        model_fp(VEC_FADD, 1, 5'd0, 5'd13, 5'd15, 1'b1, fsc[5], 1, 8'd4, rm[5], f);
+        want = want | f;
+        flags_seen = '0;
+        frm = rm[0];
+        issue(fp_encode(VEC_FMUL, 0, 5'd1, 5'd2, 5'd10, 1'b1));
+        issue(enc(6'b000000, 1'b1, 5'd4, 5'd3, 3'b000, 5'd11));
+        frm   = rm[2];
+        fdata = fsc[2];
+        issue(fp_encode(VEC_FMACC, 1, 5'd0, 5'd5, 5'd12, 1'b1));
+        issue(lane_instr(VEC_MUL, 0, 5'd6, 5'd7, 5'd13, 1'b1, 5'd0));
+        frm = rm[4];
+        issue(fp_encode(VEC_MFLT, 0, 5'd10, 5'd12, 5'd14, 1'b1));
+        frm   = rm[5];
+        fdata = fsc[5];
+        issue(fp_encode(VEC_FADD, 1, 5'd0, 5'd13, 5'd15, 1'b1));
+        frm = 3'd0;
+        drain();
+        check_regs($sformatf("float stream %0d", r));
+        note($sformatf("fflags after float stream %0d", r), 32'(flags_seen), 32'(want));
+      end
+    end
+  endtask
+
+  // Group then short ops
+  task automatic check_fp_group_stream();
+    logic [4:0] want;
+    logic       sat;
+    begin
+      for (int r = 0; r < 4; r++) begin
+        seed_fp();
+        vsew  = 3'd2;
+        vlmul = 3'd3;
+        vl    = 8'd32;
+        frm   = 3'(r);
+        model_fp(VEC_FADD, 0, 5'd16, 5'd24, 5'd8, 1'b1, '0, 8, 8'd32, 3'(r), want);
+        ref_apply(VEC_ADD, 0, 5'd1, 5'd2, 5'd3, 1'b1, '0, 5'd0, 32, 1, 4);
+        model_lane(VEC_MUL, 0, 5'd4, 5'd5, 5'd6, 1'b1, '0, 5'd0, 32, 1, 8'd4, 2'd0, sat);
+        ref_apply(VEC_XOR, 0, 5'd1, 5'd2, 5'd7, 1'b1, '0, 5'd0, 32, 1, 4);
+        flags_seen = '0;
+        issue(fp_encode(VEC_FADD, 0, 5'd16, 5'd24, 5'd8, 1'b1));
+        vlmul = 3'd0;
+        vl    = 8'd4;
+        issue(enc(6'b000000, 1'b1, 5'd2, 5'd1, 3'b000, 5'd3));
+        issue(lane_instr(VEC_MUL, 0, 5'd4, 5'd5, 5'd6, 1'b1, 5'd0));
+        issue(enc(6'b001011, 1'b1, 5'd2, 5'd1, 3'b000, 5'd7));
+        drain();
+        check_regs($sformatf("float group stream %0d", r));
+        note($sformatf("fflags after float group stream %0d", r), 32'(flags_seen), 32'(want));
+      end
+    end
+  endtask
+
+  // Float forms legal
+  task automatic check_fp_rules();
+    begin
+      vill  = 1'b0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      vsew  = 3'd2;
+      frm   = 3'd0;
+      instr = fp_encode(VEC_FADD, 0, 5'd4, 5'd8, 5'd12, 1'b1);
+      for (int s = 0; s < 3; s++) begin
+        vsew = 3'(s);
+        @(negedge clk);
+        note($sformatf("float add at sew %0d", 8 << s), 32'(is_vector), 32'(s == 2));
+      end
+      for (int m = 0; m < 8; m++) begin
+        frm = 3'(m);
+        @(negedge clk);
+        note($sformatf("float add at frm %0d", m), 32'(is_vector), 32'(m < 5));
+      end
+      instr = fp_encode(VEC_MFLT, 0, 5'd4, 5'd8, 5'd12, 1'b1);
+      for (int s = 0; s < 3; s++) begin
+        vsew = 3'(s);
+        for (int m = 0; m < 8; m++) begin
+          frm = 3'(m);
+          @(negedge clk);
+          note($sformatf("float compare at sew %0d frm %0d", 8 << s, m), 32'(is_vector),
+               32'((s == 2) && (m < 5)));
+        end
+      end
+      vsew  = 3'd2;
+      frm   = 3'd0;
+      instr = fp_encode(VEC_MFGT, 1, 5'd4, 5'd8, 5'd12, 1'b1);
+      @(negedge clk);
+      note("greater than scalar", 32'(is_vector), 32'd1);
+      instr = enc(6'b011101, 1'b1, 5'd8, 5'd4, 3'b001, 5'd12);
+      @(negedge clk);
+      note("greater than vector", 32'(is_vector), 32'd0);
+      instr = enc(6'b100000, 1'b1, 5'd8, 5'd4, 3'b001, 5'd12);
+      @(negedge clk);
+      note("float divide", 32'(is_vector), 32'd0);
+      instr = enc(6'b010011, 1'b1, 5'd8, 5'b10000, 3'b001, 5'd12);
+      @(negedge clk);
+      note("float classify", 32'(is_vector), 32'd1);
+      note("classify reads no vs1", 32'(dut.rd1_regs), 32'd0);
+      frm = 3'd5;
+      @(negedge clk);
+      note("float classify at frm 5", 32'(is_vector), 32'd0);
+      frm  = 3'd0;
+      vsew = 3'd1;
+      @(negedge clk);
+      note("float classify at sew 16", 32'(is_vector), 32'd0);
+      vsew  = 3'd2;
+      instr = enc(6'b010011, 1'b1, 5'd8, 5'b10000, 3'b101, 5'd12);
+      @(negedge clk);
+      note("float classify scalar", 32'(is_vector), 32'd0);
+      for (int u = 4; u < 6; u++) begin
+        instr = enc(6'b010011, 1'b1, 5'd8, 5'(u), 3'b001, 5'd12);
+        vlmul = 3'd1;
+        @(negedge clk);
+        note($sformatf("float estimate %0d at lmul 2", u), 32'(is_vector), 32'd1);
+        note($sformatf("float estimate %0d reads no vs1", u), 32'(dut.rd1_regs), 32'd0);
+        vlmul = 3'd0;
+        frm   = 3'd5;
+        @(negedge clk);
+        note($sformatf("float estimate %0d at frm 5", u), 32'(is_vector), 32'd0);
+        frm   = 3'd0;
+        instr = enc(6'b010011, 1'b1, 5'd8, 5'(u), 3'b101, 5'd12);
+        @(negedge clk);
+        note($sformatf("float estimate %0d scalar", u), 32'(is_vector), 32'd0);
+      end
+      instr = fp_encode(VEC_FMACC, 0, 5'd4, 5'd8, 5'd3, 1'b1);
+      vlmul = 3'd1;
+      @(negedge clk);
+      note("misaligned group", 32'(is_vector), 32'd0);
+      instr = 32'd0;
+      vlmul = 3'd0;
+    end
+  endtask
+
+  // Float merge model
+  task automatic run_fmerge(input logic vmb, input logic [4:0] s2, input logic [4:0] d,
+                            input logic [2:0] lmul, input logic [VlW-1:0] len);
+    logic [31:0] fsc;
+    logic [31:0] e;
+    begin
+      fsc   = fp_pick();
+      vsew  = 3'd2;
+      vlmul = lmul;
+      vl    = len;
+      frm   = 3'($urandom_range(4));
+      fdata = fsc;
+      xdata = 32'($urandom);
+      for (int i = 0; i < int'(len); i++) begin
+        e = (vmb || shadow[0][i]) ? fsc : 32'(grp_get(s2, 32, i));
+        grp_set(d, 32, i, e);
+      end
+      flags_seen = '0;
+      issue(enc(6'b010111, vmb, vmb ? 5'd0 : s2, 5'($urandom), 3'b101, d));
+      fdata = 32'($urandom);
+      xdata = 32'($urandom);
+      frm   = 3'($urandom);
+      drain();
+      check_regs($sformatf("%0s lmul %0d vl %0d", vmb ? "vfmv.v.f" : "vfmerge", lmul, len));
+      note("float merge flags", 32'(flags_seen), 32'd0);
+      frm = 3'd0;
+    end
+  endtask
+
+  // Float to element
+  task automatic run_fmv_sf(input logic [4:0] d, input logic [2:0] lmul, input logic [VlW-1:0] len);
+    logic [31:0] fsc;
+    begin
+      fsc   = fp_pick();
+      vsew  = 3'd2;
+      vlmul = lmul;
+      vl    = len;
+      fdata = fsc;
+      xdata = 32'($urandom);
+      if (len != '0) shadow[d][31:0] = fsc;
+      flags_seen = '0;
+      issue(enc(6'b010000, 1'b1, 5'd0, 5'($urandom), 3'b101, d));
+      fdata = 32'($urandom);
+      xdata = 32'($urandom);
+      drain();
+      check_regs($sformatf("vfmv.s.f v%0d lmul %0d vl %0d", d, lmul, len));
+      note("vfmv.s.f flags", 32'(flags_seen), 32'd0);
+    end
+  endtask
+
+  // Element to float
+  task automatic run_fmv_fs(input logic [4:0] s2, input logic [2:0] lmul,
+                            input logic [VlW-1:0] len);
+    logic [31:0] want;
+    logic [31:0] got;
+    begin
+      vsew  = 3'd2;
+      vlmul = lmul;
+      vl    = len;
+      want  = shadow[s2][31:0];
+      flags_seen = '0;
+      @(negedge clk);
+      instr       = enc(6'b010000, 1'b1, s2, 5'd0, 3'b001, 5'($urandom));
+      instr_valid = 1'b1;
+      #1;
+      note("vfmv.f.s holds", 32'(vec_hold), 32'd1);
+      note("vfmv.f.s not integer", 32'(xreg_valid), 32'd0);
+      while (vec_hold) @(negedge clk);
+      got = xreg_result;
+      @(posedge clk);
+      #1 instr_valid = 1'b0;
+      drain();
+      check_regs($sformatf("vfmv.f.s v%0d lmul %0d vl %0d", s2, lmul, len));
+      note($sformatf("vfmv.f.s v%0d lmul %0d vl %0d", s2, lmul, len), got, want);
+      note("vfmv.f.s flags", 32'(flags_seen), 32'd0);
+    end
+  endtask
+
+  // Float move legality
+  task automatic check_fp_move_rules();
+    logic [31:0] forms[4];
+    begin
+      forms[0] = enc(6'b010111, 1'b0, 5'd8, 5'd1, 3'b101, 5'd12);
+      forms[1] = enc(6'b010111, 1'b1, 5'd0, 5'd1, 3'b101, 5'd12);
+      forms[2] = enc(6'b010000, 1'b1, 5'd0, 5'd1, 3'b101, 5'd12);
+      forms[3] = enc(6'b010000, 1'b1, 5'd8, 5'd0, 3'b001, 5'd12);
+      vill  = 1'b0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      for (int k = 0; k < 4; k++) begin
+        instr = forms[k];
+        for (int sw = 0; sw < 3; sw++) begin
+          vsew = 3'(sw);
+          for (int m = 0; m < 8; m++) begin
+            frm = 3'(m);
+            @(negedge clk);
+            note($sformatf("float move %0d sew %0d frm %0d", k, 8 << sw, m), 32'(is_vector),
+                 32'((sw == 2) && (m < 5)));
+          end
+        end
+        vsew = 3'd2;
+        frm  = 3'd0;
+        vill = 1'b1;
+        @(negedge clk);
+        note($sformatf("float move %0d vill", k), 32'(is_vector), 32'd0);
+        vill = 1'b0;
+      end
+      instr = enc(6'b010000, 1'b0, 5'd0, 5'd1, 3'b101, 5'd12);
+      @(negedge clk);
+      note("vfmv.s.f masked", 32'(is_vector), 32'd0);
+      instr = enc(6'b010000, 1'b0, 5'd8, 5'd0, 3'b001, 5'd12);
+      @(negedge clk);
+      note("vfmv.f.s masked", 32'(is_vector), 32'd0);
+      instr = enc(6'b010111, 1'b0, 5'd8, 5'd1, 3'b101, 5'd0);
+      @(negedge clk);
+      note("vfmerge onto v0", 32'(is_vector), 32'd0);
+      instr = enc(6'b010111, 1'b1, 5'd0, 5'd1, 3'b101, 5'd0);
+      @(negedge clk);
+      note("vfmv.v.f onto v0", 32'(is_vector), 32'd1);
+      vlmul = 3'd2;
+      instr = enc(6'b010111, 1'b0, 5'd8, 5'd1, 3'b101, 5'd6);
+      @(negedge clk);
+      note("vfmerge misaligned vd", 32'(is_vector), 32'd0);
+      instr = enc(6'b010111, 1'b0, 5'd6, 5'd1, 3'b101, 5'd8);
+      @(negedge clk);
+      note("vfmerge misaligned vs2", 32'(is_vector), 32'd0);
+      instr = enc(6'b010000, 1'b1, 5'd0, 5'd1, 3'b101, 5'd3);
+      @(negedge clk);
+      note("vfmv.s.f ignores lmul", 32'(is_vector), 32'd1);
+      instr = enc(6'b010000, 1'b1, 5'd3, 5'd0, 3'b001, 5'd12);
+      @(negedge clk);
+      note("vfmv.f.s ignores lmul", 32'(is_vector), 32'd1);
+      instr = 32'd0;
+      vlmul = 3'd0;
+    end
+  endtask
+
+  function automatic logic fred_snan(input logic [31:0] x);
+    return (x[30:23] == 8'hFF) && (x[22:0] != '0) && !x[22];
+  endfunction
+
+  // Numeric order key
+  function automatic logic signed [32:0] fred_key(input logic [31:0] x);
+    return x[31] ? -33'(x[30:0]) : 33'(x[30:0]);
+  endfunction
+
+  // Minimum number pair
+  function automatic logic [31:0] fred_pair(input vec_fop_e o, input logic [31:0] x,
+                                            input logic [31:0] y);
+    logic x_nan;
+    logic y_nan;
+    logic x_first;
+    x_nan = (x[30:23] == 8'hFF) && (x[22:0] != '0);
+    y_nan = (y[30:23] == 8'hFF) && (y[22:0] != '0);
+    if (x_nan && y_nan) return 32'h7FC0_0000;
+    if (x_nan) return y;
+    if (y_nan) return x;
+    if (fred_key(x) == fred_key(y)) x_first = (o == VEC_FMAX) ? !x[31] : x[31];
+    else x_first = (o == VEC_FMAX) ? (fred_key(x) > fred_key(y)) : (fred_key(x) < fred_key(y));
+    return x_first ? x : y;
+  endfunction
+
+  // Element order fold
+  // Exact sum then round
+  function automatic logic [36:0] ref_add(input logic [31:0] a, input logic [31:0] b,
+                                          input logic [2:0] rm);
+    logic signed [299:0] xa;
+    logic signed [299:0] xb;
+    logic signed [299:0] sum;
+    logic        [299:0] mag;
+    logic        [299:0] rem;
+    logic        [299:0] half;
+    logic        [299:0] q;
+    logic                a_nan;
+    logic                b_nan;
+    logic                sign;
+    logic                up;
+    int                  p;
+    int                  shift;
+    int                  e;
+    a_nan = (a[30:23] == 8'hFF) && (a[22:0] != '0);
+    b_nan = (b[30:23] == 8'hFF) && (b[22:0] != '0);
+    if (a_nan || b_nan)
+      return {((a_nan && !a[22]) || (b_nan && !b[22])) ? 5'b10000 : 5'b0, 32'h7FC0_0000};
+    if ((a[30:0] == 31'h7F80_0000) && (b[30:0] == 31'h7F80_0000))
+      return (a[31] != b[31]) ? {5'b10000, 32'h7FC0_0000} : {5'b0, a};
+    if (a[30:0] == 31'h7F80_0000) return {5'b0, a};
+    if (b[30:0] == 31'h7F80_0000) return {5'b0, b};
+    xa = (a[30:23] == 0) ? 300'(a[22:0]) : (300'({1'b1, a[22:0]}) << (a[30:23] - 1));
+    xb = (b[30:23] == 0) ? 300'(b[22:0]) : (300'({1'b1, b[22:0]}) << (b[30:23] - 1));
+    if (a[31]) xa = -xa;
+    if (b[31]) xb = -xb;
+    sum = xa + xb;
+    if (sum == 0) return {5'b0, (a[31] == b[31]) ? a[31] : (rm == 3'd2), 31'b0};
+    sign = sum < 0;
+    mag = sign ? -sum : sum;
+    p = 0;
+    for (int i = 0; i < 300; i++) if (mag[i]) p = i;
+    shift = (p > 23) ? p - 23 : 0;
+    q = mag >> shift;
+    rem = (shift > 0) ? (mag & ((300'(1) << shift) - 1)) : '0;
+    half = (shift > 0) ? (300'(1) << (shift - 1)) : '0;
+    case (rm)
+      3'd0: up = (rem > half) || ((rem == half) && (rem != 0) && q[0]);
+      3'd1: up = 1'b0;
+      3'd2: up = (rem != 0) && sign;
+      3'd3: up = (rem != 0) && !sign;
+      default: up = (rem != 0) && (rem >= half);
+    endcase
+    q = q + 300'(up);
+    e = shift;
+    if (q[24]) begin
+      q = q >> 1;
+      e = e + 1;
+    end
+    if (!q[23]) return {(rem != 0) ? 5'b00011 : 5'b0, sign, 8'h00, q[22:0]};
+    if (e + 1 >= 255) begin
+      if ((rm == 3'd1) || ((rm == 3'd2) && !sign) || ((rm == 3'd3) && sign))
+        return {5'b00101, sign, 31'h7F7F_FFFF};
+      return {5'b00101, sign, 31'h7F80_0000};
+    end
+    return {(rem != 0) ? 5'b00001 : 5'b0, sign, 8'(e + 1), q[22:0]};
+  endfunction
+
+  function automatic logic fred_is_sum(input vec_fop_e o);
+    return (o == VEC_FREDOSUM) || (o == VEC_FREDUSUM);
+  endfunction
+
+  task automatic ref_fred(input vec_fop_e o, input logic [4:0] s1, input logic [4:0] s2,
+                          input logic [4:0] d, input logic vmb, input int regs, input int len,
+                          input logic [2:0] rm, output logic [4:0] want_flags);
+    logic [31:0] acc;
+    logic [31:0] v;
+    logic [36:0] r;
+    logic        seen;
+    want_flags = '0;
+    seen       = 1'b0;
+    if (len == 0) return;
+    acc = grp_get(s1, 32, 0);
+    for (int i = 0; i < group_elems(32, regs); i++) begin
+      if ((i < len) && (vmb || shadow[0][i])) begin
+        v    = grp_get(s2, 32, i);
+        seen = 1'b1;
+        if (fred_is_sum(o)) begin
+          r          = ref_add(acc, v, rm);
+          acc        = r[31:0];
+          want_flags = want_flags | r[36:32];
+        end else begin
+          if (fred_snan(acc) || fred_snan(v)) want_flags = 5'b10000;
+          acc = fred_pair(o, acc, v);
+        end
+      end
+    end
+    if (!seen && (o == VEC_FREDUSUM) && (acc[30:23] == 8'hFF) && (acc[22:0] != '0)) begin
+      if (fred_snan(acc)) want_flags = 5'b10000;
+      acc = 32'h7FC0_0000;
+    end
+    grp_set(d, 32, 0, acc);
+  endtask
+
+  function automatic logic [31:0] fred_encode(input vec_fop_e o, input logic [4:0] s1,
+                                              input logic [4:0] s2, input logic [4:0] d,
+                                              input logic vmb);
+    logic [5:0] f6;
+    case (o)
+      VEC_FREDUSUM: f6 = 6'b000001;
+      VEC_FREDOSUM: f6 = 6'b000011;
+      VEC_FMAX:     f6 = 6'b000111;
+      default:      f6 = 6'b000101;
+    endcase
+    return enc(f6, vmb, s2, s1, 3'b001, d);
+  endfunction
+
+  task automatic run_fred(input vec_fop_e o, input logic [4:0] s1, input logic [4:0] s2,
+                          input logic [4:0] d, input logic vmb, input logic [2:0] lmul,
+                          input logic [VlW-1:0] len, input logic [2:0] rm);
+    logic [4:0] want;
+    int         regs;
+    begin
+      regs  = lmul[2] ? 1 : (1 << lmul[1:0]);
+      vsew  = 3'd2;
+      vlmul = lmul;
+      vl    = len;
+      frm   = rm;
+      ref_fred(o, s1, s2, d, vmb, regs, int'(len), rm, want);
+      flags_seen = '0;
+      wb_writes  = 0;
+      issue(fred_encode(o, s1, s2, d, vmb));
+      frm = 3'($urandom_range(4));
+      drain();
+      check_regs($sformatf("%0s reduction lmul %0d vl %0d", o.name(), lmul, len));
+      note($sformatf("fflags after %0s reduction", o.name()), 32'(flags_seen), 32'(want));
+      note($sformatf("writes by %0s reduction", o.name()), 32'(wb_writes), 32'(len != 0));
+    end
+  endtask
+
+  // Signed zeros and NaNs
+  function automatic logic [31:0] fred_pick();
+    case ($urandom_range(
+        7
+    ))
+      0: return ($urandom_range(1) != 0) ? 32'h0000_0000 : 32'h8000_0000;
+      1: return ($urandom_range(1) != 0) ? 32'h7F80_0001 : 32'hFFA0_0000;
+      2: return ($urandom_range(1) != 0) ? 32'h7FC0_0000 : 32'hFFC0_1234;
+      default: return fp_pick();
+    endcase
+  endfunction
+
+  task automatic seed_fred();
+    logic [VLEN-1:0] v;
+    for (int r = 0; r < Depth; r++) begin
+      for (int e = 0; e < VLEN / 32; e++) v[e*32+:32] = fred_pick();
+      seed_reg(AWIDTH'(r), v);
+    end
+  endtask
+
+  task automatic check_fred_ops();
+    vec_fop_e o;
+    int       regs;
+    begin
+      for (int k = 0; k < 4; k++) begin
+        case (k)
+          0: o = VEC_FMIN;
+          1: o = VEC_FMAX;
+          2: o = VEC_FREDOSUM;
+          default: o = VEC_FREDUSUM;
+        endcase
+        for (int lmul = 0; lmul < 4; lmul++) begin
+          regs = 1 << lmul;
+          for (int m = 0; m < 2; m++) begin
+            seed_fred();
+            run_fred(o, 5'd4, 5'd16, 5'd5, 1'(m), 3'(lmul), 8'd0, 3'd0);
+            run_fred(o, 5'd4, 5'd16, 5'd5, 1'(m), 3'(lmul), 8'd1, 3'd1);
+            run_fred(o, 5'd4, 5'd16, 5'd4, 1'(m), 3'(lmul), 8'($urandom_range(4 * regs, 1)), 3'd2);
+            run_fred(o, 5'd4, 5'd16, 5'd16, 1'(m), 3'(lmul), 8'(4 * regs), 3'd3);
+            run_fred(o, 5'd4, 5'd16, 5'd0, 1'(m), 3'(lmul), 8'(4 * regs), 3'd4);
+          end
+        end
+      end
+      seed_fred();
+      seed_reg(5'd16, {32'hCB80_0000, 32'h3F80_0000, 32'h3F80_0000, 32'h4B80_0000});
+      seed_reg(5'd4, '0);
+      for (int rm = 0; rm < 5; rm++) begin
+        run_fred(VEC_FREDOSUM, 5'd4, 5'd16, 5'd5, 1'b1, 3'd0, 8'd4, 3'(rm));
+        run_fred(VEC_FREDUSUM, 5'd4, 5'd16, 5'd5, 1'b1, 3'd0, 8'd4, 3'(rm));
+      end
+      seed_reg(5'd4, {(VLEN / 32) {32'h7F80_0001}});
+      seed_reg(5'd0, '0);
+      run_fred(VEC_FREDOSUM, 5'd4, 5'd16, 5'd5, 1'b0, 3'd0, 8'd4, 3'd0);
+      run_fred(VEC_FREDUSUM, 5'd4, 5'd16, 5'd5, 1'b0, 3'd0, 8'd4, 3'd0);
+      seed_reg(5'd16, {(VLEN / 32) {32'h8000_0000}});
+      seed_reg(5'd4, {(VLEN / 32) {32'h0000_0000}});
+      run_fred(VEC_FMIN, 5'd4, 5'd16, 5'd5, 1'b1, 3'd0, 8'd4, 3'd0);
+      run_fred(VEC_FMAX, 5'd4, 5'd16, 5'd5, 1'b1, 3'd0, 8'd4, 3'd0);
+      seed_reg(5'd4, {(VLEN / 32) {32'h7F80_0001}});
+      seed_reg(5'd0, '0);
+      run_fred(VEC_FMIN, 5'd4, 5'd16, 5'd5, 1'b0, 3'd1, 8'd8, 3'd0);
+      run_fred(VEC_FMAX, 5'd4, 5'd16, 5'd6, 1'b1, 3'd1, 8'd8, 3'd0);
+    end
+  endtask
+
+  // Reductions among traffic
+  task automatic check_fred_stream();
+    logic [4:0] want;
+    logic [4:0] f;
+    logic       sat;
+    begin
+      for (int r = 0; r < 6; r++) begin
+        seed_fred();
+        vsew  = 3'd2;
+        vlmul = 3'd0;
+        vl    = 8'd4;
+        frm   = 3'(r % 5);
+        want  = '0;
+        model_fp(VEC_FMUL, 0, 5'd1, 5'd2, 5'd10, 1'b1, '0, 1, 8'd4, 3'(r % 5), f);
+        want = want | f;
+        ref_fred(VEC_FREDOSUM, 5'd3, 5'd10, 5'd11, 1'b1, 1, 4, frm, f);
+        want = want | f;
+        ref_apply(VEC_ADD, 0, 5'd4, 5'd5, 5'd12, 1'b1, '0, 5'd0, 32, 1, 4);
+        ref_fred(VEC_FMAX, 5'd11, 5'd6, 5'd13, 1'b0, 1, 4, frm, f);
+        want = want | f;
+        model_lane(VEC_MUL, 0, 5'd7, 5'd8, 5'd14, 1'b1, '0, 5'd0, 32, 1, 8'd4, 2'd0, sat);
+        ref_fred(VEC_FREDUSUM, 5'd13, 5'd14, 5'd15, 1'b1, 1, 4, frm, f);
+        want = want | f;
+        ref_fred(VEC_FREDOSUM, 5'd15, 5'd10, 5'd16, 1'b0, 1, 4, frm, f);
+        want = want | f;
+        ref_fred(VEC_FMIN, 5'd3, 5'd2, 5'd17, 1'b1, 1, 4, frm, f);
+        want = want | f;
+        ref_reduce(VEC_REDSUM, 5'd1, 5'd2, 5'd18, 1'b1, 32, 1, 4, 1'b0);
+        flags_seen = '0;
+        issue(fp_encode(VEC_FMUL, 0, 5'd1, 5'd2, 5'd10, 1'b1));
+        issue(fred_encode(VEC_FREDOSUM, 5'd3, 5'd10, 5'd11, 1'b1));
+        issue(enc(6'b000000, 1'b1, 5'd5, 5'd4, 3'b000, 5'd12));
+        issue(fred_encode(VEC_FMAX, 5'd11, 5'd6, 5'd13, 1'b0));
+        issue(lane_instr(VEC_MUL, 0, 5'd7, 5'd8, 5'd14, 1'b1, 5'd0));
+        issue(fred_encode(VEC_FREDUSUM, 5'd13, 5'd14, 5'd15, 1'b1));
+        issue(fred_encode(VEC_FREDOSUM, 5'd15, 5'd10, 5'd16, 1'b0));
+        issue(fred_encode(VEC_FMIN, 5'd3, 5'd2, 5'd17, 1'b1));
+        issue(enc(6'b000000, 1'b1, 5'd2, 5'd1, 3'b010, 5'd18));
+        frm = 3'd0;
+        drain();
+        check_regs($sformatf("reduction stream %0d", r));
+        note($sformatf("fflags after reduction stream %0d", r), 32'(flags_seen), 32'(want));
+      end
+    end
+  endtask
+
+  task automatic soak_fred(input int n);
+    vec_fop_e       o;
+    logic     [2:0] lmul;
+    int             regs;
+    begin
+      seed_fred();
+      for (int i = 0; i < n; i++) begin
+        lmul = 3'($urandom_range(3));
+        regs = 1 << lmul[1:0];
+        case ($urandom_range(
+            3
+        ))
+          0: o = VEC_FMIN;
+          1: o = VEC_FMAX;
+          2: o = VEC_FREDOSUM;
+          default: o = VEC_FREDUSUM;
+        endcase
+        run_fred(o, 5'($urandom_range(31)), 5'(8 * $urandom_range(3)), 5'($urandom_range(31)),
+                 1'($urandom), lmul, 8'($urandom_range(4 * regs)), 3'($urandom_range(4)));
+        if ($urandom_range(7) == 0) seed_fred();
+      end
+    end
+  endtask
+
+  task automatic check_fred_rules();
+    begin
+      vill  = 1'b0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      vsew  = 3'd2;
+      frm   = 3'd0;
+      instr = fred_encode(VEC_FMIN, 5'd4, 5'd8, 5'd12, 1'b1);
+      for (int s = 0; s < 3; s++) begin
+        vsew = 3'(s);
+        @(negedge clk);
+        note($sformatf("float reduction at sew %0d", 8 << s), 32'(is_vector), 32'(s == 2));
+      end
+      for (int m = 0; m < 8; m++) begin
+        frm = 3'(m);
+        @(negedge clk);
+        note($sformatf("float reduction at frm %0d", m), 32'(is_vector), 32'(m < 5));
+      end
+      for (int k = 0; k < 2; k++) begin
+        if (k == 0) instr = fred_encode(VEC_FREDOSUM, 5'd4, 5'd8, 5'd12, 1'b1);
+        else instr = fred_encode(VEC_FREDUSUM, 5'd4, 5'd8, 5'd12, 1'b0);
+        for (int s = 0; s < 3; s++) begin
+          for (int m = 4; m < 7; m++) begin
+            vsew = 3'(s);
+            frm  = 3'(m);
+            @(negedge clk);
+            note($sformatf("float sum %0d at sew %0d frm %0d", k, 8 << s, m), 32'(is_vector),
+                 32'((s == 2) && (m < 5)));
+          end
+        end
+      end
+      vsew  = 3'd2;
+      frm   = 3'd0;
+      instr = enc(6'b000001, 1'b1, 5'd8, 5'd4, 3'b101, 5'd12);
+      @(negedge clk);
+      note("float sum scalar form", 32'(is_vector), 32'd0);
+      instr = enc(6'b000111, 1'b1, 5'd8, 5'd4, 3'b101, 5'd12);
+      @(negedge clk);
+      note("float reduction scalar form", 32'(is_vector), 32'd0);
+      instr = fred_encode(VEC_FMAX, 5'd4, 5'd9, 5'd12, 1'b1);
+      vlmul = 3'd1;
+      @(negedge clk);
+      note("misaligned reduction source", 32'(is_vector), 32'd0);
+      instr = fred_encode(VEC_FMAX, 5'd5, 5'd8, 5'd13, 1'b0);
+      @(negedge clk);
+      note("reduction scalar and dest any", 32'(is_vector), 32'd1);
+      instr = 32'd0;
+      vlmul = 3'd0;
+    end
+  endtask
+
+  // Every float move
+  task automatic check_fp_moves();
+    logic [2:0] lmul;
+    int regs;
+    begin
+      seed_fp();
+      for (int g = 0; g < 4; g++) begin
+        lmul = 3'(g);
+        regs = 1 << g;
+        run_fmerge(1'b0, 5'd16, 5'd8, lmul, 8'(4 * regs));
+        run_fmerge(1'b0, 5'd24, 5'd16, lmul, 8'(1 + $urandom_range(4 * regs - 1)));
+        run_fmerge(1'b1, 5'd0, 5'd8, lmul, 8'(4 * regs));
+        run_fmerge(1'b1, 5'd0, 5'd24, lmul, 8'(1 + $urandom_range(4 * regs - 1)));
+        run_fmerge(1'b0, 5'd8, 5'd8, lmul, 8'(4 * regs));
+        run_fmerge(1'b0, 5'd16, 5'd8, lmul, 8'd0);
+        run_fmerge(1'b1, 5'd0, 5'd8, lmul, 8'd0);
+        run_fmv_sf(5'(8 + g), lmul, 8'(1 + $urandom_range(4 * regs - 1)));
+        run_fmv_sf(5'd9, lmul, 8'd0);
+        run_fmv_fs(5'(16 + g), lmul, 8'(1 + $urandom_range(4 * regs - 1)));
+        run_fmv_fs(5'd17, lmul, 8'd0);
+        seed_fp();
+      end
+      run_fmerge(1'b1, 5'd0, 5'd0, 3'd0, 8'd4);
+    end
+  endtask
+
+  // Moves behind float
+  task automatic check_fp_move_stream();
+    logic [ 4:0] f;
+    logic [31:0] fsc;
+    logic [31:0] want;
+    logic [31:0] got;
+    begin
+      for (int r = 0; r < 6; r++) begin
+        seed_fp();
+        vsew  = 3'd2;
+        vlmul = 3'(r % 4);
+        vl    = 8'(4 << (r % 4));
+        frm   = 3'($urandom_range(4));
+        fsc   = fp_pick();
+        model_fp(VEC_FMUL, 0, 5'd16, 5'd24, 5'd8, 1'b1, '0, 1 << (r % 4), vl, frm, f);
+        for (int i = 0; i < int'(vl); i++)
+        grp_set(5'd16, 32, i, shadow[0][i] ? fsc : 32'(grp_get(5'd8, 32, i)));
+        want = shadow[16][31:0];
+        issue(fp_encode(VEC_FMUL, 0, 5'd16, 5'd24, 5'd8, 1'b1));
+        fdata = fsc;
+        issue(enc(6'b010111, 1'b0, 5'd8, 5'd1, 3'b101, 5'd16));
+        fdata = 32'($urandom);
+        @(negedge clk);
+        instr       = enc(6'b010000, 1'b1, 5'd16, 5'd0, 3'b001, 5'd3);
+        instr_valid = 1'b1;
+        #1;
+        while (vec_hold) @(negedge clk);
+        got = xreg_result;
+        @(posedge clk);
+        #1 instr_valid = 1'b0;
+        drain();
+        check_regs($sformatf("float move stream %0d", r));
+        note($sformatf("vfmv.f.s after merge %0d", r), got, want);
+        frm = 3'd0;
+      end
+    end
+  endtask
+
+  // Nonzero vstart traps
+  task automatic check_vstart_rules();
+    logic [5:0] f6;
+    logic [2:0] f3;
+    begin
+      vill  = 1'b0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      frm   = 3'd0;
+      for (int k = 0; k < 16; k++) begin
+        f3 = 3'b010;
+        case (k)
+          8: begin
+            f6 = 6'b110000;
+            f3 = 3'b000;
+          end
+          9: begin
+            f6 = 6'b110001;
+            f3 = 3'b000;
+          end
+          10, 11, 12, 13: begin
+            f6 = {3'b000, 2'(k - 10), 1'b1};
+            f3 = 3'b001;
+          end
+          14: begin
+            f6 = 6'b000000;
+            f3 = 3'b000;
+          end
+          15: begin
+            f6 = 6'b000000;
+            f3 = 3'b001;
+          end
+          default: f6 = 6'(k);
+        endcase
+        vsew  = (f3 == 3'b001) ? 3'd2 : 3'd1;
+        instr = enc(f6, 1'b1, 5'd8, 5'd4, f3, 5'd12);
+        for (int v = 0; v < 2; v++) begin
+          vstart_set = 1'(v);
+          @(negedge clk);
+          note($sformatf("form %0d with vstart set %0d", k, v), 32'(is_vector),
+               32'((k >= 14) || (v == 0)));
+        end
+      end
+      vstart_set = 1'b0;
+      instr      = 32'd0;
+      vsew       = 3'd2;
+    end
+  endtask
+
+  int busy_cycles = 0;
+  always @(negedge clk) if (rst_n && core_en && dut.seq_busy) busy_cycles = busy_cycles + 1;
+
+  // Group step cadence
+  task automatic check_fred_timing();
+    begin
+      seed_fred();
+      vsew  = 3'd2;
+      vlmul = 3'd3;
+      vl    = 8'd32;
+      frm   = 3'd0;
+      for (int k = 0; k < 4; k++) begin
+        busy_cycles = 0;
+        case (k)
+          0: issue(enc(6'b000000, 1'b1, 5'd8, 5'd16, 3'b000, 5'd24));
+          1: issue(fred_encode(VEC_FMIN, 5'd1, 5'd8, 5'd2, 1'b1));
+          2: issue(fred_encode(VEC_FREDOSUM, 5'd1, 5'd8, 5'd3, 1'b1));
+          default: issue(fred_encode(VEC_FREDUSUM, 5'd1, 5'd8, 5'd4, 1'b1));
+        endcase
+        drain();
+        note($sformatf("busy cycles of form %0d", k), 32'(busy_cycles), (k < 2) ? 32'd8 : 32'd63);
+      end
+      seed_fred();
+      vlmul = 3'd0;
+      vl    = 8'd4;
     end
   endtask
 
@@ -2130,6 +3584,7 @@ module vec_unit_tb
     check_group_rules();
     check_fixed_point();
     check_compares();
+    check_carry();
     check_mask_logic();
     check_mask_set();
     check_mask_index();
@@ -2146,6 +3601,10 @@ module vec_unit_tb
 
     // Random moves
     soak_mem(300);
+
+    // Whole register groups
+    check_whole_rules();
+    check_whole();
 
     // Widening forms
     check_widening();
@@ -2164,12 +3623,31 @@ module vec_unit_tb
 
     check_lane_rules();
     check_multiplies();
+    check_widening_muls();
     check_fixed_ops();
     check_divides();
     check_averaging();
     check_divide_overlap();
     check_lane_stream();
     soak_lanes(200);
+
+    // Float lanes
+    check_fp_rules();
+    check_fp_ops();
+    check_fp_stream();
+    check_fp_group_stream();
+    soak_fp(200);
+    check_fp_move_rules();
+    check_fp_moves();
+    check_fp_move_stream();
+
+    // Float reductions
+    check_fred_rules();
+    check_vstart_rules();
+    check_fred_ops();
+    check_fred_stream();
+    check_fred_timing();
+    soak_fred(150);
 
     verdict();
   end

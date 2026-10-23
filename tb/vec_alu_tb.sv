@@ -90,6 +90,7 @@ module vec_alu_tb
         VEC_ADC:   ref_lane = (a + b + ELEN'(mbit)) & m;
         VEC_SBC:   ref_lane = (a - b - ELEN'(mbit)) & m;
         VEC_MERGE: ref_lane = (vmi || mbit) ? b : a;
+        VEC_MVNRR: ref_lane = a;
         default:   ref_lane = '0;
       endcase
     end
@@ -186,7 +187,7 @@ module vec_alu_tb
     logic [DLEN-1:0] d1;
     begin
       for (int r = 0; r < rounds; r++) begin
-        for (int oi = 0; oi < 16; oi++) begin
+        for (int oi = 0; oi < 17; oi++) begin
           case (oi)
             0: o = VEC_ADD;
             1: o = VEC_SUB;
@@ -203,7 +204,8 @@ module vec_alu_tb
             12: o = VEC_MAX;
             13: o = VEC_ADC;
             14: o = VEC_SBC;
-            default: o = VEC_MERGE;
+            15: o = VEC_MERGE;
+            default: o = VEC_MVNRR;
           endcase
           for (int sw = 0; sw < 3; sw++) begin
             for (int si = 0; si < 3; si++) begin

@@ -18,6 +18,7 @@ module hazard_unit #(
     input wire [4:0] rd_mem,
     input wire [4:0] rd_wb,
 
+    input wire reg_write_ex,
     input wire reg_write_mem,
     input wire reg_write_wb,
     input wire mem_write_ex,
@@ -34,6 +35,7 @@ module hazard_unit #(
     input wire [4:0] rs3_id,
     input wire [NRegs-1:0] fp_busy,
     input wire frd_write_ex,
+    input wire frd_write_mem,
     input wire frm_write_ex,
 
     output logic stall,
@@ -48,13 +50,14 @@ module hazard_unit #(
   logic [NRegs-1:0] fp_need;
   logic [NRegs-1:0] fp_pending;
 
-  assign load_stall = (result_src_ex == ResMem) && (rd_ex != 0) &&
+  assign load_stall = (result_src_ex == ResMem) && reg_write_ex && (rd_ex != 0) &&
       (rd_ex == rs1_id || rd_ex == rs2_id);
 
   assign fp_need = (frs1_read_id ? (NRegs'(1) << rs1_id) : '0) |
       (frs2_read_id ? (NRegs'(1) << rs2_id) : '0) | (frs3_read_id ? (NRegs'(1) << rs3_id) : '0) |
       (frd_write_id ? (NRegs'(1) << rd_id) : '0);
-  assign fp_pending = fp_busy | (frd_write_ex ? (NRegs'(1) << rd_ex) : '0);
+  assign fp_pending = fp_busy | (frd_write_ex ? (NRegs'(1) << rd_ex) : '0) |
+      (frd_write_mem ? (NRegs'(1) << rd_mem) : '0);
   assign fp_stall = fp_op_id && ((|(fp_need & fp_pending)) || frm_write_ex);
 
   assign stall = load_stall || fp_stall;

@@ -20,6 +20,7 @@ module vec_issue_tb
 
   logic instr_valid;
   logic cancel;
+  logic ex_adv = 1'b1;
   vec_op_e op;
   vec_src_e src;
   vec_eew_e eew;
@@ -36,6 +37,8 @@ module vec_issue_tb
   logic [2:0] vsew;
   logic [2:0] vlmul;
   logic [1:0] vxrm;
+  vec_fop_e fop;
+  logic [2:0] frm;
 
   logic seq_busy;
   logic seq_done;
@@ -55,6 +58,8 @@ module vec_issue_tb
   logic [2:0] seq_vsew;
   logic [2:0] seq_vlmul;
   logic [1:0] seq_vxrm;
+  vec_fop_e seq_fop;
+  logic [2:0] seq_frm;
   logic vec_hold;
   logic vec_idle;
   logic load_pending;
@@ -74,6 +79,7 @@ module vec_issue_tb
       .core_en(core_en),
       .instr_valid(instr_valid),
       .cancel(cancel),
+      .ex_advance(ex_adv && !vec_hold),
       .op(op),
       .src(src),
       .eew(eew),
@@ -86,6 +92,7 @@ module vec_issue_tb
       .simm(simm),
       .xdata(xdata),
       .xstride(xstride),
+      .fop(fop),
       .wr_regs('0),
       .rd1('0),
       .rd1_regs('0),
@@ -96,6 +103,7 @@ module vec_issue_tb
       .vsew(vsew),
       .vlmul(vlmul),
       .vxrm(vxrm),
+      .frm(frm),
       .seq_busy(seq_busy),
       .seq_done(seq_done),
       .pipe_busy(1'b0),
@@ -116,6 +124,8 @@ module vec_issue_tb
       .seq_vsew(seq_vsew),
       .seq_vlmul(seq_vlmul),
       .seq_vxrm(seq_vxrm),
+      .seq_fop(seq_fop),
+      .seq_frm(seq_frm),
       .vec_hold(vec_hold),
       .vec_idle(vec_idle),
       .load_pending(load_pending),
@@ -164,6 +174,8 @@ module vec_issue_tb
   logic [2:0] sb_vsew[SbDepth];
   logic [2:0] sb_vlmul[SbDepth];
   logic [1:0] sb_vxrm[SbDepth];
+  vec_fop_e sb_fop[SbDepth];
+  logic [2:0] sb_frm[SbDepth];
   vec_eew_e sb_eew[SbDepth];
 
   int sb_head = 0;
@@ -195,6 +207,8 @@ module vec_issue_tb
     sb_vsew[sb_tail]     = vsew;
     sb_vlmul[sb_tail]    = vlmul;
     sb_vxrm[sb_tail]     = vxrm;
+    sb_fop[sb_tail]      = fop;
+    sb_frm[sb_tail]      = frm;
     sb_eew[sb_tail]      = eew;
     sb_tail              = (sb_tail + 1) % SbDepth;
     accepted             = accepted + 1;
@@ -220,6 +234,8 @@ module vec_issue_tb
       note("vsew", 32'(sb_vsew[sb_head]), 32'(seq_vsew));
       note("vlmul", 32'(sb_vlmul[sb_head]), 32'(seq_vlmul));
       note("vxrm", 32'(sb_vxrm[sb_head]), 32'(seq_vxrm));
+      note("fop", 32'(sb_fop[sb_head]), 32'(seq_fop));
+      note("frm", 32'(sb_frm[sb_head]), 32'(seq_frm));
       note("eew", 32'(sb_eew[sb_head]), 32'(seq_eew));
       sb_head  = (sb_head + 1) % SbDepth;
       launched = launched + 1;
@@ -304,6 +320,8 @@ module vec_issue_tb
     vsew        = 3'd2;
     vlmul       = 3'd0;
     vxrm        = 2'd0;
+    fop         = VEC_FADD;
+    frm         = 3'd0;
     repeat (3) @(negedge clk);
     rst_n = 1'b1;
     @(negedge clk);
@@ -315,6 +333,8 @@ module vec_issue_tb
     vsew  = 3'($urandom % 3);
     vlmul = 3'($urandom);
     vxrm  = 2'($urandom);
+    frm   = 3'($urandom);
+    fop   = vec_fop_e'($urandom_range(32'(VEC_FMV)));
   endtask
 
   // The one primitive
@@ -544,6 +564,44 @@ module vec_issue_tb
     settle();
   endtask
 
+  // Stalled result release
+  task automatic check_xreg_stall();
+    int acc0;
+    settle();
+    @(negedge clk);
+    op = VEC_MV_X_S;
+    src = VEC_SRC_VV;
+    eew = VEC_EEW_SAME;
+    writes_xreg = 1'b1;
+    vs1 = 5'd0;
+    vs2 = 5'd5;
+    vd = 5'd1;
+    vm = 1'b1;
+    reads_vd = 1'b0;
+    vl = 8'd4;
+    instr_valid = 1'b1;
+    #1;
+    acc0 = accepted;
+    while (vec_hold) @(negedge clk);
+    instr_valid = 1'b0;
+    ex_adv = 1'b0;
+    repeat (2) @(negedge clk);
+    instr_valid = 1'b1;
+    for (int c = 0; c < 3; c++) begin
+      #1;
+      note("stalled result no hold", 32'(vec_hold), 32'd0);
+      note("stalled result no accept", 32'(dut.accept), 32'd0);
+      @(negedge clk);
+    end
+    ex_adv = 1'b1;
+    @(posedge clk);
+    #1 instr_valid = 1'b0;
+    writes_xreg = 1'b0;
+    op = VEC_ADD;
+    note("accepts across a stall", 32'(accepted - acc0), 32'd1);
+    settle();
+  endtask
+
   task automatic verdict();
     checks = checks + 1;
     if (accepted != launched) begin
@@ -582,6 +640,7 @@ module vec_issue_tb
 
     // Scalar result waits
     check_xreg_wait();
+    check_xreg_stall();
 
     // Random traffic
     soak(400);
