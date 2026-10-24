@@ -607,6 +607,10 @@ module vec_decode
           writes_mask = 1'b1;
         end
 
+        // Float slides
+        6'b001110: if (is_ff) op = VEC_SLIDE1UP;
+        6'b001111: if (is_ff) op = VEC_SLIDE1DOWN;
+
         // Float moves
         6'b010111: if (is_ff && (!vm || (vs2 == 5'b00000))) op = VEC_MERGE;
         6'b010000: begin
