@@ -3461,8 +3461,9 @@ module vec_unit_tb
 
   // Nonzero vstart traps
   task automatic check_vstart_rules();
-    logic [5:0] f6;
-    logic [2:0] f3;
+    logic [ 5:0] f6;
+    logic [ 2:0] f3;
+    logic [31:0] form[18];
     begin
       vill  = 1'b0;
       vlmul = 3'd0;
@@ -3498,7 +3499,36 @@ module vec_unit_tb
         for (int v = 0; v < 2; v++) begin
           vstart_set = 1'(v);
           @(negedge clk);
-          note($sformatf("form %0d with vstart set %0d", k, v), 32'(is_vector),
+          note($sformatf("form %0d with vstart set %0d", k, v), 32'(is_vector), 32'(v == 0));
+        end
+      end
+      vsew = 3'd2;
+      form = '{
+          enc(6'b010100, 1'b1, 5'd8, 5'b00001, 3'b010, 5'd12),
+          enc(6'b010100, 1'b1, 5'd8, 5'b00011, 3'b010, 5'd12),
+          enc(6'b010100, 1'b1, 5'd8, 5'b00010, 3'b010, 5'd12),
+          enc(6'b010100, 1'b1, 5'd8, 5'b10000, 3'b010, 5'd12),
+          enc(6'b010100, 1'b1, 5'd0, 5'b10001, 3'b010, 5'd12),
+          enc(6'b010000, 1'b1, 5'd8, 5'b10000, 3'b010, 5'd12),
+          enc(6'b010000, 1'b1, 5'd8, 5'b10001, 3'b010, 5'd12),
+          enc(6'b010000, 1'b1, 5'd8, 5'd0, 3'b010, 5'd12),
+          enc(6'b010000, 1'b1, 5'd0, 5'd4, 3'b110, 5'd12),
+          enc(6'b011001, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12),
+          enc(6'b011000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd12),
+          enc(6'b100101, 1'b1, 5'd8, 5'd4, 3'b010, 5'd12),
+          enc(6'b100111, 1'b1, 5'd8, 5'd0, 3'b011, 5'd12),
+          enc(6'b010111, 1'b0, 5'd8, 5'd4, 3'b000, 5'd12),
+          enc_mem(1'b0, 2'd2, 1'b0, 1'b0, 1'b1, 5'd12),
+          enc_mem(1'b1, 2'd2, 1'b0, 1'b0, 1'b1, 5'd12),
+          enc_mem(1'b0, 2'd2, 1'b0, 1'b1, 1'b1, 5'd12),
+          enc_mem(1'b0, 2'd2, 1'b1, 1'b0, 1'b1, 5'd12)
+      };
+      for (int k = 0; k < 18; k++) begin
+        instr = form[k];
+        for (int v = 0; v < 2; v++) begin
+          vstart_set = 1'(v);
+          @(negedge clk);
+          note($sformatf("class %0d with vstart set %0d", k, v), 32'(is_vector),
                32'((k >= 14) || (v == 0)));
         end
       end
