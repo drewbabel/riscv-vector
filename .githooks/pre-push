@@ -1,0 +1,18 @@
+#!/bin/sh
+missing=""
+for tool in reviewdog verible-verilog-lint verible-verilog-format verilator iverilog ruff clang-format; do
+  command -v "$tool" > /dev/null 2>&1 || missing="$missing $tool"
+done
+if [ -n "$missing" ]; then
+  echo "pre-push: review checks skipped, missing:$missing" >&2
+  exit 0
+fi
+out=$(.github/review.sh origin/main local) || {
+  printf '%s\n' "$out"
+  echo "pre-push: review checks failed to run" >&2
+  exit 1
+}
+[ -z "$out" ] && exit 0
+printf '%s\n' "$out"
+echo "pre-push: review findings above, push refused" >&2
+exit 1
