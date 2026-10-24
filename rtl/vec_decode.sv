@@ -505,11 +505,24 @@ module vec_decode
           op  = VEC_FARITH;
           fop = VEC_FMUL;
         end
+        6'b100000: begin
+          op  = VEC_FARITH;
+          fop = VEC_FDIV;
+        end
+        6'b100001:
+        if (is_ff) begin
+          op  = VEC_FARITH;
+          fop = VEC_FRDIV;
+        end
 
         // Float unary
         6'b010011:
         if (is_fv) begin
           case (vs1)
+            5'b00000: begin
+              op  = VEC_FARITH;
+              fop = VEC_FSQRT;
+            end
             5'b00100: begin
               op  = VEC_FARITH;
               fop = VEC_FRSQRT7;
