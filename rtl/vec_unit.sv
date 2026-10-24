@@ -234,6 +234,8 @@ module vec_unit
   logic                     valid_x2;
   vec_cls_e                 cls_x2;
   vec_op_e                  op_x2;
+  vec_fop_e                 fop_x2;
+  logic      [         2:0] frm_x2;
   logic      [         2:0] vsew_x2;
   logic      [         1:0] vxrm_x2;
   logic                     wmul_x2;
@@ -302,6 +304,11 @@ module vec_unit
   // Divide forms
   function automatic logic is_div(input vec_op_e op);
     is_div = (op == VEC_DIVU) || (op == VEC_DIV) || (op == VEC_REMU) || (op == VEC_REM);
+  endfunction
+
+  // Float divide forms
+  function automatic logic is_fdiv(input vec_fop_e fop);
+    is_fdiv = (fop == VEC_FDIV) || (fop == VEC_FRDIV) || (fop == VEC_FSQRT);
   endfunction
 
   assign dec_cls = vec_class(dec_op);
@@ -448,7 +455,8 @@ module vec_unit
   assign dec_ext = (dec_op == VEC_ZEXT2) || (dec_op == VEC_ZEXT4) || (dec_op == VEC_SEXT2) ||
       (dec_op == VEC_SEXT4);
   assign dec_funary = (dec_cls == VEC_CLS_FP) &&
-      ((dec.fop == VEC_FCLASS) || (dec.fop == VEC_FREC7) || (dec.fop == VEC_FRSQRT7));
+      ((dec.fop == VEC_FCLASS) || (dec.fop == VEC_FREC7) || (dec.fop == VEC_FRSQRT7) ||
+       (dec.fop == VEC_FSQRT));
   assign uses_vs1 = !dec_mem && !dec_ext && !dec_funary && (dec_cls != VEC_CLS_XS) &&
       (dec_cls != VEC_CLS_SX) && (dec_cls != VEC_CLS_XM) && (dec_cls != VEC_CLS_MSET) &&
       (dec_cls != VEC_CLS_IOTA) && (dec_src == VEC_SRC_VV);
@@ -670,6 +678,12 @@ module vec_unit
   logic                 div_hold;
   logic [MUL_LANES-1:0] div_pend_q;
   logic [MUL_LANES-1:0] div_done;
+  logic                 fdiv_ex;
+  logic                 fdiv_x2;
+  logic                 fdiv_x3;
+  logic                 fdiv_x4;
+  logic                 fdiv_x5;
+  logic                 fdiv_wb;
 
   // Book the write
   logic                 seq_lane;
@@ -1082,6 +1096,11 @@ module vec_unit
     logic [  ELEN-1:0] res_sel;
     logic [2*ELEN-1:0] product;
     logic              sat;
+    logic              idone;
+    logic              fdone;
+    logic [   FpW-1:0] fdv_res;
+    logic [       4:0] fdv_flg;
+    logic [   FpW+4:0] fdv_q;
 
     for (genvar w = 0; w < Widths; w++) begin : g_w
       localparam int EW = 8 << w;
@@ -1112,6 +1131,7 @@ module vec_unit
         div_x3 <= div_res;
         div_x4 <= div_x3;
         mul_x4 <= mul_res;
+        if (fdone) fdv_q <= {fdv_flg, fdv_res};
       end
     end
 
@@ -1150,15 +1170,32 @@ module vec_unit
         .clk(clk),
         .rst_n(rst_n),
         .core_en(core_en),
-        .start(div_go && active_x2[l]),
+        .start(div_go && active_x2[l] && !fdiv_x2),
         .op(op_x2),
         .vsew(vsew_x2),
         .a(a_x2),
         .b(b_x2),
         .result(div_res),
         .busy(),
-        .done(div_done[l])
+        .done(idone)
     );
+
+    vec_fp_div_lane u_fdiv (
+        .clk(clk),
+        .rst_n(rst_n),
+        .core_en(core_en),
+        .start(div_go && active_x2[l] && fdiv_x2),
+        .op(fop_x2),
+        .rm(frm_x2),
+        .a(FpW'(a_x2)),
+        .b(FpW'(b_x2)),
+        .result(fdv_res),
+        .fflags(fdv_flg),
+        .busy(),
+        .done(fdone)
+    );
+
+    assign div_done[l] = idone || fdone;
 
     always_comb begin
       if (cls_x4 == VEC_CLS_SAT) res_sel = sat_res;
@@ -1173,6 +1210,9 @@ module vec_unit
     logic [FpW-1:0] fp_b_ex;
     assign fp_b_ex = (src_ex == VEC_SRC_VX) ? FpW'(xdata_ex) : vs1_data[l*FpW+:FpW];
 
+    logic [FpW-1:0] fpl_res;
+    logic [    4:0] fpl_flag;
+
     vec_fp_lane u_fp (
         .clk(clk),
         .rst_n(rst_n),
@@ -1183,10 +1223,12 @@ module vec_unit
         .a(vs2_data[l*FpW+:FpW]),
         .b(fp_b_ex),
         .c(vd_data[l*FpW+:FpW]),
-        .result(fp_res[l]),
-        .fflags(fp_flag[l]),
+        .result(fpl_res),
+        .fflags(fpl_flag),
         .result_valid()
     );
+
+    assign {fp_flag[l], fp_res[l]} = fdiv_wb ? fdv_q : {fpl_flag, fpl_res};
 
     assign fp_cmp[l] = fp_res[l][0];
   end
@@ -1221,11 +1263,15 @@ module vec_unit
   assign lane_result = lane_pack[vsew_x4[WSelW-1:0]+WSelW'(wmul_x4)];
 
   // Divide stall
-  assign div_op_x2 = is_div(op_x2);
+  assign fdiv_ex = (cls_ex == VEC_CLS_FP) && is_fdiv(fop_ex);
+  assign fdiv_x2 = (cls_x2 == VEC_CLS_FP) && is_fdiv(fop_x2);
+  assign div_op_x2 = is_div(op_x2) || fdiv_x2;
   assign div_op_x4 = is_div(op_x4);
   assign div_go = valid_x2 && div_op_x2 && !div_run_q;
   assign div_stall = valid_x2 && div_op_x2 && (!div_run_q || ((div_pend_q & ~div_done) != '0));
-  assign div_hold = (valid_ex && is_div(op_ex)) || div_stall || div_run_q || div_tail_q;
+  assign div_hold = (valid_ex && is_div(
+      op_ex
+  )) || (valid_ex && fdiv_ex) || div_stall || div_run_q || div_tail_q || (valid_x4 && fdiv_x4);
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -1259,6 +1305,8 @@ module vec_unit
       last_x2     <= last_ex && deep_ex;
       cls_x2      <= cls_ex;
       op_x2       <= op_ex;
+      fop_x2      <= fop_ex;
+      frm_x2      <= frm_ex;
       vsew_x2     <= vsew_ex;
       vxrm_x2     <= vxrm_ex;
       wmul_x2     <= wmul_ex;
@@ -1284,6 +1332,7 @@ module vec_unit
       last_x3     <= last_x2 && lane_x2 && !div_stall;
       cls_x3      <= cls_x2;
       op_x3       <= op_x2;
+      fdiv_x3     <= fdiv_x2;
       vsew_x3     <= vsew_x2;
       vxrm_x3     <= vxrm_x2;
       wmul_x3     <= wmul_x2;
@@ -1309,6 +1358,7 @@ module vec_unit
       last_x4     <= last_x3;
       cls_x4      <= cls_x3;
       op_x4       <= op_x3;
+      fdiv_x4     <= fdiv_x3;
       vsew_x4     <= vsew_x3;
       wmul_x4     <= wmul_x3;
       active_x4   <= active_x3;
@@ -1339,6 +1389,7 @@ module vec_unit
       reg_done_x5 <= reg_done_x4 && fp_x4;
       last_x5     <= last_x4 && fp_x4;
       cls_x5      <= cls_x4;
+      fdiv_x5     <= fdiv_x4;
       active_x5   <= active_x4;
       d_off_x5    <= d_off_x4;
       waddr_x5    <= waddr_x4;
@@ -1400,6 +1451,7 @@ module vec_unit
       mask_result_wb  <= mask_result;
       lane_result_wb  <= lane_result;
       active_wb       <= active_x5;
+      fdiv_wb         <= fdiv_x5;
     end
   end
 
