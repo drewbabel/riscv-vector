@@ -263,6 +263,10 @@ jobs:
         run: python3 tests/cosim.py --vec --fp vecfsum
       - name: Vector float unary co-sim
         run: python3 tests/cosim.py --vec --fp vecfunary
+      - name: Vector float convert co-sim
+        run: python3 tests/cosim.py --vec --fp vecfcvt
+      - name: Vector float widen and narrow co-sim
+        run: python3 tests/cosim.py --vec --fp vecfcvtw
       - name: Float load and store co-sim
         run: python3 tests/cosim.py --fp --vec cosim_fls
       - name: Draw the random co-sim seed
