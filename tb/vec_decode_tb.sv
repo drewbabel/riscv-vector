@@ -178,15 +178,38 @@ module vec_decode_tb
         6'b000001, 6'b000011, 6'b000101, 6'b000111: return funct3 == Ffv;
         6'b010011:
         return (funct3 == Ffv) && (rs1 == 5'b00100 || rs1 == 5'b00101 || rs1 == 5'b10000);
+        6'b010010: return (funct3 == Ffv) && (ref_cvt(rs1) != VEC_FADD);
         default: return 1'b0;
       endcase
     end
     return 1'b0;
   endfunction
 
+  // Reference conversion forms
+  function automatic vec_fop_e ref_cvt(input logic [4:0] rs1);
+    case (rs1)
+      5'b00000, 5'b10000: return VEC_FCVT_XU_F;
+      5'b00001, 5'b10001: return VEC_FCVT_X_F;
+      5'b00010, 5'b01010: return VEC_FCVT_F_XU;
+      5'b00011, 5'b01011: return VEC_FCVT_F_X;
+      5'b00110, 5'b10110: return VEC_FCVT_RTZ_XU_F;
+      5'b00111, 5'b10111: return VEC_FCVT_RTZ_X_F;
+      default: return VEC_FADD;
+    endcase
+  endfunction
+
+  function automatic vec_eew_e ref_cvt_eew(input logic [4:0] rs1);
+    case (rs1[4:3])
+      2'b01:   return VEC_EEW_WIDEN;
+      2'b10:   return VEC_EEW_NARROW;
+      default: return VEC_EEW_SAME;
+    endcase
+  endfunction
+
   // Reference float forms
   function automatic vec_fop_e ref_fop(input logic [5:0] funct6, input logic [4:0] rs1);
     case (funct6)
+      6'b010010: return ref_cvt(rs1);
       6'b000000: return VEC_FADD;
       6'b000010: return VEC_FSUB;
       6'b000100: return VEC_FMIN;
@@ -248,6 +271,25 @@ module vec_decode_tb
     end
   endtask
 
+  task automatic chk_cvt(input logic [4:0] rs1);
+    logic     legal;
+    vec_fop_e want_fop;
+    vec_eew_e want_eew;
+    instr = enc(6'b010010, 1'b0, 5'd2, rs1, Ffv, 5'd3);
+    #1;
+    want_fop = ref_cvt(rs1);
+    want_eew = ref_cvt_eew(rs1);
+    legal = want_fop != VEC_FADD;
+    checks++;
+    if (valid !== legal || (legal && (op !== VEC_FARITH || fop !== want_fop ||
+        eew !== want_eew || src !== VEC_SRC_VV || vm !== 1'b0 || reads_vd))) begin
+      errors++;
+      $display("FAIL cvt vs1=%b got=%b/%0d/%0d exp=%b/%0d/%0d at %0t", rs1, valid, fop, eew, legal,
+               want_fop, want_eew, $time);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
+  endtask
+
   task automatic chk_flags(input logic [5:0] funct6, input logic [2:0] funct3,
                            input logic [4:0] rs1, input logic [3:0] exp);
     logic [3:0] got;
@@ -288,15 +330,16 @@ module vec_decode_tb
 
   // Every float encoding
   task automatic sweep_float();
-    logic    [2:0] f3;
-    logic          legal;
-    logic          cmp;
-    logic          fma;
-    logic          red;
-    logic    [4:0] rs1;
-    vec_op_e       want_op;
-    logic    [6:0] got;
-    logic    [6:0] exp;
+    logic     [2:0] f3;
+    logic           legal;
+    logic           cmp;
+    logic           fma;
+    logic           red;
+    logic     [4:0] rs1;
+    vec_op_e        want_op;
+    vec_eew_e       want_eew;
+    logic     [6:0] got;
+    logic     [6:0] exp;
     for (int f = 0; f < 2; f++) begin
       f3 = (f != 0) ? Fff : Ffv;
       for (int c = 0; c < 64; c++) begin
@@ -311,6 +354,10 @@ module vec_decode_tb
             default: rs1 = 5'b10000;
           endcase
         end
+        if ((6'(c) == 6'b010010) && ($urandom_range(3) != 0)) begin
+          rs1 = {2'($urandom_range(2)), 3'($urandom_range(3))};
+          if ($urandom_range(1) != 0) rs1[2:1] = 2'b11;
+        end
         instr = enc(6'(c), 1'($urandom), 5'($urandom), rs1, f3, 5'($urandom));
         #1;
         legal = ref_valid(f3, 6'(c), instr[19:15], instr[24:20], instr[25]);
@@ -320,12 +367,13 @@ module vec_decode_tb
         if (red) want_op = VEC_FRED;
         else if (cmp) want_op = VEC_FCMP;
         else want_op = VEC_FARITH;
+        want_eew = (6'(c) == 6'b010010) ? ref_cvt_eew(rs1) : VEC_EEW_SAME;
         got = {valid, reads_vd, reads_xreg, writes_xreg, writes_mask, reads_freg, writes_freg};
         exp = {legal, legal && fma, 1'b0, 1'b0, legal && cmp, legal && f3 == Fff, 1'b0};
         checks++;
         if (got !== exp || (legal && (op !== want_op || fop !== ref_fop(
                 6'(c), rs1
-            ) || src !== ((f != 0) ? VEC_SRC_VX : VEC_SRC_VV) || eew !== VEC_EEW_SAME))) begin
+            ) || src !== ((f != 0) ? VEC_SRC_VX : VEC_SRC_VV) || eew !== want_eew))) begin
           errors++;
           $display("FAIL float f6=%b f3=%b got=%b/%0d/%0d exp=%b/%0d at %0t", 6'(c), f3, got, op,
                    fop, exp, ref_fop(6'(c), rs1), $time);
@@ -611,6 +659,16 @@ module vec_decode_tb
     chk_fop(5'b00100, VEC_FRSQRT7);
     chk_fop(5'b00101, VEC_FREC7);
     chk_fop(5'b10000, VEC_FCLASS);
+    chk_op(6'b010010, Ffv, 5'b00001, VEC_FARITH, VEC_SRC_VV, VEC_EEW_SAME);
+    chk_op(6'b010010, Ffv, 5'b01011, VEC_FARITH, VEC_SRC_VV, VEC_EEW_WIDEN);
+    chk_op(6'b010010, Ffv, 5'b10111, VEC_FARITH, VEC_SRC_VV, VEC_EEW_NARROW);
+    chk_flags(6'b010010, Ffv, 5'b00010, 4'b0000);
+    chk_illegal(6'b010010, Fff, 5'b00000);
+    chk_illegal(6'b010010, Ffv, 5'b01000);
+    chk_illegal(6'b010010, Ffv, 5'b01100);
+    chk_illegal(6'b010010, Ffv, 5'b10010);
+    chk_illegal(6'b010010, Ffv, 5'b10101);
+    for (int u = 0; u < 32; u++) chk_cvt(5'(u));
     repeat (8) sweep_float();
     sweep_float_moves();
     sweep_int_moves();
