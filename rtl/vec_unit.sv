@@ -96,6 +96,7 @@ module vec_unit
   localparam int FpWb = VecFpLatency + 1;
   localparam int SlotW = $clog2(FpWb + 1);
   localparam int FpW = 32;
+  localparam int HalfW = FpW / 2;
 
   // Float stage sized
   if (FpWb != LaneWb + 1) begin : g_fp_depth
@@ -311,6 +312,12 @@ module vec_unit
     is_fdiv = (fop == VEC_FDIV) || (fop == VEC_FRDIV) || (fop == VEC_FSQRT);
   endfunction
 
+  // Conversion forms
+  function automatic logic is_fcvt(input vec_fop_e fop);
+    is_fcvt = (fop == VEC_FCVT_XU_F) || (fop == VEC_FCVT_X_F) || (fop == VEC_FCVT_RTZ_XU_F) ||
+        (fop == VEC_FCVT_RTZ_X_F) || (fop == VEC_FCVT_F_XU) || (fop == VEC_FCVT_F_X);
+  endfunction
+
   assign dec_cls = vec_class(dec_op);
   assign seq_cls = vec_class(seq_op);
   assign dec_geom_s = vec_geom(dec_op, dec_eew);
@@ -430,6 +437,7 @@ module vec_unit
   logic                   dec_store;
   logic                   dec_ext;
   logic                   dec_funary;
+  logic                   dec_fcvt;
   logic                   has_vd;
   logic                   uses_vs1;
   logic                   uses_vs2;
@@ -454,9 +462,10 @@ module vec_unit
   assign has_vd = (dec_cls != VEC_CLS_XS) && (dec_cls != VEC_CLS_XM);
   assign dec_ext = (dec_op == VEC_ZEXT2) || (dec_op == VEC_ZEXT4) || (dec_op == VEC_SEXT2) ||
       (dec_op == VEC_SEXT4);
+  assign dec_fcvt = is_fcvt(dec.fop);
   assign dec_funary = (dec_cls == VEC_CLS_FP) &&
       ((dec.fop == VEC_FCLASS) || (dec.fop == VEC_FREC7) || (dec.fop == VEC_FRSQRT7) ||
-       (dec.fop == VEC_FSQRT));
+       (dec.fop == VEC_FSQRT) || dec_fcvt);
   assign uses_vs1 = !dec_mem && !dec_ext && !dec_funary && (dec_cls != VEC_CLS_XS) &&
       (dec_cls != VEC_CLS_SX) && (dec_cls != VEC_CLS_XM) && (dec_cls != VEC_CLS_MSET) &&
       (dec_cls != VEC_CLS_IOTA) && (dec_src == VEC_SRC_VV);
@@ -574,10 +583,14 @@ module vec_unit
 
   // Float needs e32
   logic dec_fp;
+  logic dec_fcvt_wn;
   logic fp_legal;
   assign dec_fp = (dec_cls == VEC_CLS_FP) || (dec_cls == VEC_CLS_FCMP) || (dec_op == VEC_FRED) ||
       dec.reads_freg || dec_writes_freg;
-  assign fp_legal = !dec_fp || ((vsew == 3'd2) && (frm < 3'd5));
+
+  // Wide conversions e16
+  assign dec_fcvt_wn = (dec_cls == VEC_CLS_FP) && (dec_eew != VEC_EEW_SAME);
+  assign fp_legal = !dec_fp || ((vsew == (dec_fcvt_wn ? 3'd1 : 3'd2)) && (frm < 3'd5));
 
   assign op_ready = (dec_cls != VEC_CLS_NONE) && fp_legal && group_legal && vstart_legal &&
       mset_legal && iota_legal && id_legal &&
@@ -1067,10 +1080,15 @@ module vec_unit
   logic [      FpW-1:0] fp_res    [MUL_LANES];
   logic [          4:0] fp_flag   [MUL_LANES];
   logic [MUL_LANES-1:0] fp_cmp;
+  logic                 fcvt_ex;
+  logic [      FpW-1:0] cvt_res   [MUL_LANES];
+  logic [          4:0] cvt_flag  [MUL_LANES];
+  logic [MUL_LANES-1:0] cvt_vld;
   logic [MUL_LANES-1:0] active_x5;
   logic [MUL_LANES-1:0] active_wb;
 
   assign fp_ex = (cls_ex == VEC_CLS_FP) || (cls_ex == VEC_CLS_FCMP);
+  assign fcvt_ex = (cls_ex == VEC_CLS_FP) && is_fcvt(fop_ex);
   assign lane_x2 = (cls_x2 == VEC_CLS_MUL) || (cls_x2 == VEC_CLS_SAT) || (cls_x2 == VEC_CLS_FP) ||
       (cls_x2 == VEC_CLS_FCMP) || fsum_x2;
 
@@ -1231,6 +1249,34 @@ module vec_unit
     assign {fp_flag[l], fp_res[l]} = fdiv_wb ? fdv_q : {fpl_flag, fpl_res};
 
     assign fp_cmp[l] = fp_res[l][0];
+
+    // Conversion lane
+    logic [FpW-1:0] cvt_a_ex;
+    assign cvt_a_ex = (eew_ex == VEC_EEW_WIDEN) ?
+        FpW'(vs2_data[l*HalfW+:HalfW]) : vs2_data[l*FpW+:FpW];
+
+    vec_fp_cvt_lane u_cvt (
+        .clk(clk),
+        .rst_n(rst_n),
+        .core_en(core_en),
+        .valid(valid_ex && fcvt_ex),
+        .op(fop_ex),
+        .eew(eew_ex),
+        .vsew(vsew_ex),
+        .rm(frm_ex),
+        .a(cvt_a_ex),
+        .result(cvt_res[l]),
+        .fflags(cvt_flag[l]),
+        .result_valid(cvt_vld[l])
+    );
+  end
+
+  // Narrow conversion tail
+  logic [VecFpLatency-1:0] fncvt_q;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) fncvt_q <= '0;
+    else if (core_en) fncvt_q <= {fncvt_q[VecFpLatency-2:0], valid_ex && fcvt_ex && narrow_ex};
   end
 
   // Pack float results
@@ -1241,8 +1287,9 @@ module vec_unit
     fp_pack     = '0;
     fp_flags_or = '0;
     for (int l = 0; l < MUL_LANES; l++) begin
-      fp_pack[l*FpW+:FpW] = fp_res[l];
-      if (active_wb[l]) fp_flags_or = fp_flags_or | fp_flag[l];
+      if (fncvt_q[VecFpLatency-1]) fp_pack[l*HalfW+:HalfW] = cvt_res[l][HalfW-1:0];
+      else fp_pack[l*FpW+:FpW] = cvt_vld[l] ? cvt_res[l] : fp_res[l];
+      if (active_wb[l]) fp_flags_or = fp_flags_or | (cvt_vld[l] ? cvt_flag[l] : fp_flag[l]);
     end
   end
 
