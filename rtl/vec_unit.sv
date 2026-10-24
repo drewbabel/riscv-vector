@@ -186,6 +186,17 @@ module vec_unit
   logic                     m_busy;
   logic                     m_done;
 
+  // Slide lane
+  logic                     seq_slide;
+  logic      [  AWIDTH-1:0] sl_raddr_lo;
+  logic      [  AWIDTH-1:0] sl_raddr_hi;
+  logic                     sl_wen;
+  logic      [  AWIDTH-1:0] sl_waddr;
+  logic      [    VLEN-1:0] sl_wstrb;
+  logic      [    VLEN-1:0] sl_wdata;
+  logic                     sl_busy;
+  logic                     sl_done;
+
   logic      [MaxElems-1:0] mask_bits;
   logic                     issue_hold;
   logic                     x_done;
@@ -331,6 +342,10 @@ module vec_unit
   // Carry forms masked
   logic carry_legal;
   assign carry_legal = ((dec_op != VEC_ADC) && (dec_op != VEC_SBC)) || !dec_vm;
+
+  // Slideup groups apart
+  logic slide_legal;
+  assign slide_legal = ((dec_op != VEC_SLIDEUP) && (dec_op != VEC_SLIDE1UP)) || (dec_vd != dec_vs2);
 
   // Whole register forms
   logic              dec_mvnr;
@@ -558,7 +573,7 @@ module vec_unit
 
   assign op_ready = (dec_cls != VEC_CLS_NONE) && fp_legal && group_legal && vstart_legal &&
       mset_legal && iota_legal && id_legal &&
-      (dec_mem || dec_mvnr || (width_legal && scalar_legal && carry_legal));
+      (dec_mem || dec_mvnr || (width_legal && scalar_legal && carry_legal && slide_legal));
   assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 
@@ -610,15 +625,15 @@ module vec_unit
       .rd1(dec_store ? dec_vd : dec_vs1),
       .rd1_regs(rd1_regs),
       .rd2_regs(rd2_regs),
-      .clear(reg_done_wb || m_reg_done),
-      .clear_addr(reg_done_wb ? waddr_wb : m_raddr),
+      .clear(reg_done_wb || m_reg_done || sl_busy),
+      .clear_addr(reg_done_wb ? waddr_wb : (sl_busy ? sl_waddr : m_raddr)),
       .vl(issue_vl),
       .vsew(issue_vsew),
       .vlmul(issue_vlmul),
       .vxrm(vxrm_q),
       .frm(frm),
-      .seq_busy(seq_busy || m_busy),
-      .seq_done(seq_done || m_done),
+      .seq_busy(seq_busy || m_busy || sl_busy),
+      .seq_done(seq_done || m_done || sl_done),
       .pipe_busy(valid_ex || valid_x2 || valid_x3 || valid_x4 || valid_x5 || valid_wb),
       .x_done(x_done),
       .seq_start(seq_start),
@@ -709,7 +724,7 @@ module vec_unit
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en && !seq_hold),
-      .start(seq_start && !seq_mem),
+      .start(seq_start && !seq_mem && !seq_slide),
       .vs1(seq_vs1),
       .vs2(seq_vs2),
       .vd(seq_vd),
@@ -786,6 +801,39 @@ module vec_unit
       .done(m_done)
   );
 
+  assign seq_slide = (seq_cls == VEC_CLS_SLIDE);
+
+  vec_slide #(
+      .XLEN  (XLEN),
+      .AWIDTH(AWIDTH),
+      .VLEN  (VLEN)
+  ) u_slide (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(core_en),
+      .start(seq_start && seq_slide),
+      .op(seq_op),
+      .vm(seq_vm),
+      .vs2(seq_vs2),
+      .vd(seq_vd),
+      .vl(seq_vl),
+      .vsew(seq_vsew),
+      .vlmul(seq_vlmul),
+      .offset((seq_src == VEC_SRC_VI) ? XLEN'(seq_simm) : seq_xdata),
+      .scalar(seq_xdata),
+      .v0(rdata0),
+      .rdata_lo(rdata1),
+      .rdata_hi(rdata2),
+      .raddr_lo(sl_raddr_lo),
+      .raddr_hi(sl_raddr_hi),
+      .wen(sl_wen),
+      .waddr(sl_waddr),
+      .wstrb(sl_wstrb),
+      .wdata(sl_wdata),
+      .busy(sl_busy),
+      .done(sl_done)
+  );
+
   // No vector write
   logic vreg_write;
   assign vreg_write = wen && (seq_cls != VEC_CLS_XS) && (seq_cls != VEC_CLS_XM);
@@ -796,12 +844,12 @@ module vec_unit
   ) u_regfile (
       .clk(clk),
       .core_en(core_en),
-      .we(wen_wb || m_wen),
-      .wstrb(wen_wb ? wstrb_wb : m_wstrb),
-      .waddr(wen_wb ? waddr_wb : m_raddr),
-      .wdata(wen_wb ? wdata : m_wdata),
-      .raddr1(seq_mem ? m_raddr : raddr1),
-      .raddr2(raddr2),
+      .we(wen_wb || m_wen || sl_wen),
+      .wstrb(wen_wb ? wstrb_wb : (sl_wen ? sl_wstrb : m_wstrb)),
+      .waddr(wen_wb ? waddr_wb : (sl_wen ? sl_waddr : m_raddr)),
+      .wdata(wen_wb ? wdata : (sl_wen ? sl_wdata : m_wdata)),
+      .raddr1(seq_mem ? m_raddr : (seq_slide ? sl_raddr_lo : raddr1)),
+      .raddr2(seq_slide ? sl_raddr_hi : raddr2),
       .raddr3(raddr3),
       .rdata1(rdata1),
       .rdata2(rdata2),
@@ -820,7 +868,7 @@ module vec_unit
   logic slot_first;
   always_ff @(posedge clk) begin
     if (!rst_n) slot_first <= 1'b0;
-    else if (core_en) slot_first <= seq_start && !seq_mem;
+    else if (core_en) slot_first <= seq_start && !seq_mem && !seq_slide;
   end
 
   // RD/EX
@@ -1425,11 +1473,11 @@ module vec_unit
       zero_q      <= 1'b0;
     end else if (core_en) begin
       retire_wb_q <= last_wb;
-      zero_q      <= seq_start && !seq_mem && (seq_vl == '0);
+      zero_q      <= seq_start && !seq_mem && !seq_slide && (seq_vl == '0);
     end
   end
 
-  assign retire = retire_wb_q || m_done || zero_q;
+  assign retire = retire_wb_q || m_done || sl_done || zero_q;
 
   always_ff @(posedge clk) begin
     if (!rst_n) tag_q <= 8'd0;
@@ -1441,8 +1489,8 @@ module vec_unit
   logic              wr_en;
   logic [AWIDTH-1:0] wr_addr;
 
-  assign wr_en   = wen_wb || m_wen;
-  assign wr_addr = wen_wb ? waddr_wb : m_raddr;
+  assign wr_en   = wen_wb || m_wen || sl_wen;
+  assign wr_addr = wen_wb ? waddr_wb : (sl_wen ? sl_waddr : m_raddr);
 
   always_ff @(posedge clk) begin
     if (!rst_n) wr_mask_q <= '0;
