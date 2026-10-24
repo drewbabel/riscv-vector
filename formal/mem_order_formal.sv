@@ -67,6 +67,7 @@ module mem_order_formal ();
       .dbg_minstret(),
       .dbg_mcycleh(),
       .dbg_minstreth(),
+      .dbg_fflags(),
       .dbg_vl(),
       .dbg_vtype_bits(),
       .dbg_vtype_ill(),
