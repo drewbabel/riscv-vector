@@ -535,6 +535,11 @@ module vec_unit
   logic vstart_legal;
   assign vstart_legal = !vstart_set || dec_mem;
 
+  // Mask set overlap
+  logic mset_legal;
+  assign mset_legal = (dec_cls != VEC_CLS_MSET) ||
+      ((dec_vd != dec_vs2) && (dec_vm || (dec_vd != '0)));
+
   // Float needs e32
   logic dec_fp;
   logic fp_legal;
@@ -543,7 +548,7 @@ module vec_unit
   assign fp_legal = !dec_fp || ((vsew == 3'd2) && (frm < 3'd5));
 
   assign op_ready = (dec_cls != VEC_CLS_NONE) && fp_legal && group_legal && vstart_legal &&
-      (dec_mem || dec_mvnr || (width_legal && scalar_legal && carry_legal));
+      mset_legal && (dec_mem || dec_mvnr || (width_legal && scalar_legal && carry_legal));
   assign is_vector = dec_valid && op_ready && (dec_full || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 
