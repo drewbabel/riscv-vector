@@ -975,6 +975,7 @@ module vec_unit_tb
     logic [VLEN-1:0] src[8];
     begin
       scramble_cfg();
+      vill = 1'b0;
       for (int r = 0; r <= int'(nf); r++) src[r] = shadow[(32'(s2)+r)%Depth];
       for (int r = 0; r <= int'(nf); r++) shadow[(32'(d)+r)%Depth] = src[r];
       issue(enc(6'b100111, 1'b1, s2, 5'(nf), 3'b011, d));
@@ -992,7 +993,9 @@ module vec_unit_tb
       vlmul = 3'd0;
       vl    = 8'd0;
       instr = enc(6'b100111, 1'b1, 5'd8, 5'd3, 3'b011, 5'd4);
-      #1 note("move under vill", 32'(is_vector), 32'd1);
+      #1 note("move under vill", 32'(is_vector), 32'd0);
+      instr = enc(6'b100111, 1'b1, 5'd4, 5'd3, 3'b011, 5'd4);
+      #1 note("self move under vill", 32'(is_vector), 32'd0);
       instr = enc_mem(1'b0, 2'd2, 1'b1, 1'b0, 1'b1, 5'd8) | {3'd7, 29'd0};
       #1 note("eight loads under vill", 32'(is_vector), 32'd1);
       vill  = 1'b0;
