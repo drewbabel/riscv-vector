@@ -267,6 +267,10 @@ jobs:
         run: python3 tests/cosim.py --vec --fp vecslide
       - name: Vector float divide co-sim
         run: python3 tests/cosim.py --vec --fp vecfdiv
+      - name: Vector float convert co-sim
+        run: python3 tests/cosim.py --vec --fp vecfcvt
+      - name: Vector float widen and narrow co-sim
+        run: python3 tests/cosim.py --vec --fp vecfcvtw
       - name: Float load and store co-sim
         run: python3 tests/cosim.py --fp --vec cosim_fls
       - name: Fractional group co-sim
