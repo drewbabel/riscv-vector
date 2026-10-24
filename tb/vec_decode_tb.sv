@@ -169,6 +169,7 @@ module vec_decode_tb
         6'b000000, 6'b000010, 6'b000100, 6'b000110: return 1'b1;
         6'b001000, 6'b001001, 6'b001010, 6'b100100: return 1'b1;
         6'b100111: return funct3 == Fff;
+        6'b001110, 6'b001111: return funct3 == Fff;
         6'b101000, 6'b101001, 6'b101010, 6'b101011: return 1'b1;
         6'b101100, 6'b101101, 6'b101110, 6'b101111: return 1'b1;
         6'b011000, 6'b011001, 6'b011011, 6'b011100: return 1'b1;
@@ -293,6 +294,7 @@ module vec_decode_tb
     logic          cmp;
     logic          fma;
     logic          red;
+    logic          slide;
     logic    [4:0] rs1;
     vec_op_e       want_op;
     logic    [6:0] got;
@@ -317,15 +319,17 @@ module vec_decode_tb
         cmp   = (c[5:3] == 3'b011);
         fma   = (c[5:3] == 3'b101);
         red   = (c[5:3] == 3'b000) && c[0];
-        if (red) want_op = VEC_FRED;
+        slide = (c[5:1] == 5'b00111);
+        if (slide) want_op = c[0] ? VEC_SLIDE1DOWN : VEC_SLIDE1UP;
+        else if (red) want_op = VEC_FRED;
         else if (cmp) want_op = VEC_FCMP;
         else want_op = VEC_FARITH;
         got = {valid, reads_vd, reads_xreg, writes_xreg, writes_mask, reads_freg, writes_freg};
         exp = {legal, legal && fma, 1'b0, 1'b0, legal && cmp, legal && f3 == Fff, 1'b0};
         checks++;
-        if (got !== exp || (legal && (op !== want_op || fop !== ref_fop(
+        if (got !== exp || (legal && (op !== want_op || (!slide && fop !== ref_fop(
                 6'(c), rs1
-            ) || src !== ((f != 0) ? VEC_SRC_VX : VEC_SRC_VV) || eew !== VEC_EEW_SAME))) begin
+            )) || src !== ((f != 0) ? VEC_SRC_VX : VEC_SRC_VV) || eew !== VEC_EEW_SAME))) begin
           errors++;
           $display("FAIL float f6=%b f3=%b got=%b/%0d/%0d exp=%b/%0d at %0t", 6'(c), f3, got, op,
                    fop, exp, ref_fop(6'(c), rs1), $time);
@@ -611,6 +615,10 @@ module vec_decode_tb
     chk_fop(5'b00100, VEC_FRSQRT7);
     chk_fop(5'b00101, VEC_FREC7);
     chk_fop(5'b10000, VEC_FCLASS);
+    chk_op(6'b001110, Fff, 5'd1, VEC_SLIDE1UP, VEC_SRC_VX, VEC_EEW_SAME);
+    chk_op(6'b001111, Fff, 5'd1, VEC_SLIDE1DOWN, VEC_SRC_VX, VEC_EEW_SAME);
+    chk_illegal(6'b001110, Ffv, 5'd1);
+    chk_illegal(6'b001111, Ffv, 5'd1);
     repeat (8) sweep_float();
     sweep_float_moves();
     sweep_int_moves();
