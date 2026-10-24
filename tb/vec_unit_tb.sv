@@ -1793,6 +1793,57 @@ module vec_unit_tb
     end
   endtask
 
+  // Unary overlap traps
+  task automatic check_mask_unary_rules();
+    logic [4:0] sel[3];
+    begin
+      sel   = '{5'b00001, 5'b00011, 5'b00010};
+      vill  = 1'b0;
+      vsew  = 3'd0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      for (int k = 0; k < 3; k++) begin
+        instr = enc(6'b010100, 1'b1, 5'd5, sel[k], 3'b010, 5'd5);
+        @(negedge clk);
+        note($sformatf("mask set %0d over source", k), 32'(is_vector), 32'd0);
+        instr = enc(6'b010100, 1'b0, 5'd5, sel[k], 3'b010, 5'd0);
+        @(negedge clk);
+        note($sformatf("masked mask set %0d into v0", k), 32'(is_vector), 32'd0);
+        instr = enc(6'b010100, 1'b1, 5'd5, sel[k], 3'b010, 5'd0);
+        @(negedge clk);
+        note($sformatf("unmasked mask set %0d into v0", k), 32'(is_vector), 32'd1);
+        instr = enc(6'b010100, 1'b0, 5'd0, sel[k], 3'b010, 5'd6);
+        @(negedge clk);
+        note($sformatf("masked mask set %0d from v0", k), 32'(is_vector), 32'd1);
+      end
+      vlmul = 3'd2;
+      instr = enc(6'b010100, 1'b1, 5'd8, 5'b10000, 3'b010, 5'd8);
+      @(negedge clk);
+      note("viota over group base", 32'(is_vector), 32'd0);
+      instr = enc(6'b010100, 1'b1, 5'd11, 5'b10000, 3'b010, 5'd8);
+      @(negedge clk);
+      note("viota over group top", 32'(is_vector), 32'd0);
+      instr = enc(6'b010100, 1'b1, 5'd12, 5'b10000, 3'b010, 5'd8);
+      @(negedge clk);
+      note("viota above group", 32'(is_vector), 32'd1);
+      instr = enc(6'b010100, 1'b1, 5'd7, 5'b10000, 3'b010, 5'd8);
+      @(negedge clk);
+      note("viota below group", 32'(is_vector), 32'd1);
+      instr = enc(6'b010100, 1'b0, 5'd4, 5'b10000, 3'b010, 5'd0);
+      @(negedge clk);
+      note("masked viota into v0", 32'(is_vector), 32'd0);
+      vlmul = 3'd7;
+      instr = enc(6'b010100, 1'b1, 5'd8, 5'b10000, 3'b010, 5'd8);
+      @(negedge clk);
+      note("fractional viota over source", 32'(is_vector), 32'd0);
+      instr = enc(6'b010100, 1'b1, 5'd9, 5'b10000, 3'b010, 5'd8);
+      @(negedge clk);
+      note("fractional viota apart", 32'(is_vector), 32'd1);
+      instr = 32'd0;
+      vlmul = 3'd0;
+    end
+  endtask
+
   // One summary form
   task automatic run_msum(input logic is_pop, input logic [4:0] s2, input logic vmb,
                           input logic [VlW-1:0] len);
@@ -3618,6 +3669,7 @@ module vec_unit_tb
     check_mask_logic();
     check_mask_set();
     check_mask_index();
+    check_mask_unary_rules();
     check_mask_scalar();
 
     // Trap drops instruction
