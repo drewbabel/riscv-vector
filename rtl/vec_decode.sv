@@ -506,6 +506,68 @@ module vec_decode
           fop = VEC_FMUL;
         end
 
+        // Float conversions
+        6'b010010:
+        if (is_fv) begin
+          case (vs1)
+            5'b00000: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_XU_F;
+            end
+            5'b00001: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_X_F;
+            end
+            5'b00010: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_F_XU;
+            end
+            5'b00011: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_F_X;
+            end
+            5'b00110: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_RTZ_XU_F;
+            end
+            5'b00111: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_RTZ_X_F;
+            end
+            5'b01010: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_F_XU;
+              eew = VEC_EEW_WIDEN;
+            end
+            5'b01011: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_F_X;
+              eew = VEC_EEW_WIDEN;
+            end
+            5'b10000: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_XU_F;
+              eew = VEC_EEW_NARROW;
+            end
+            5'b10001: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_X_F;
+              eew = VEC_EEW_NARROW;
+            end
+            5'b10110: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_RTZ_XU_F;
+              eew = VEC_EEW_NARROW;
+            end
+            5'b10111: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_RTZ_X_F;
+              eew = VEC_EEW_NARROW;
+            end
+            default: ;
+          endcase
+        end
+
         // Float unary
         6'b010011:
         if (is_fv) begin
