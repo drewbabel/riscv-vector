@@ -275,6 +275,20 @@ jobs:
         run: python3 tests/cosim.py --fp --vec cosim_fls
       - name: Fractional group co-sim
         run: python3 tests/cosim.py --vec --fp vecfrac
+      - name: Vector float arithmetic co-sim
+        run: python3 tests/cosim.py --vec --fp vecfarith
+      - name: Vector float min, max, sign and compare co-sim
+        run: python3 tests/cosim.py --vec --fp vecfminmax
+      - name: Vector float fused multiply-add co-sim
+        run: python3 tests/cosim.py --vec --fp vecffma
+      - name: Vector float reduction forms co-sim
+        run: python3 tests/cosim.py --vec --fp vecfredall
+      - name: Vector float move and merge co-sim
+        run: python3 tests/cosim.py --vec --fp vecfmove
+      - name: Vector float rounding mode co-sim
+        run: python3 tests/cosim.py --vec --fp vecfround
+      - name: Vector float invalid frm and flags co-sim
+        run: python3 tests/cosim.py --vec --fp vecffrm
       - name: Draw the random co-sim seed
         run: |
           seed=$(( $(od -An -N4 -tu4 /dev/urandom) % 1000000000 ))
