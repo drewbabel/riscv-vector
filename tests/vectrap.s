@@ -21,6 +21,13 @@ R1:     jal     ra, T2
         j       R2
 T2:     vse8.v  v1, (s0)
 R2:     .word   0x02840107
+        jal     ra, T45
+        j       R45
+T45:    vmv1r.v v3, v1
+R45:    jal     ra, T46
+        j       R46
+T46:    vmv2r.v v2, v2
+R46:
 
         # Group too wide
         li      a0, 4
