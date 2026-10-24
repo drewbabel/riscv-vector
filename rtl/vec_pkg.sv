@@ -319,7 +319,11 @@ package vec_pkg;
       end
       VEC_CLS_XS, VEC_CLS_SX: vec_geom.single_write = 1'b1;
       VEC_CLS_CMP:            vec_geom.mask_dest = 1'b1;
-      VEC_CLS_FP:             vec_geom.mul_rate = 1'b1;
+      VEC_CLS_FP: begin
+        vec_geom.mul_rate = 1'b1;
+        if (eew == VEC_EEW_WIDEN) vec_geom.d = VEC_REL_WIDE;
+        if (eew == VEC_EEW_NARROW) vec_geom.s2 = VEC_REL_WIDE;
+      end
       VEC_CLS_FCMP: begin
         vec_geom.mul_rate  = 1'b1;
         vec_geom.mask_dest = 1'b1;
