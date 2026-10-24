@@ -115,6 +115,94 @@ R24:    vadc.vvm   v3, v1, v2, v0
         vmadc.vv   v6, v1, v2
         lw      t2, 0(s0)
 
+        # Nonzero vstart
+        li      a0, 4
+        vsetvli t0, a0, e32, m1, tu, mu
+        csrwi   vstart, 1
+        jal     ra, T25
+        j       R25
+T25:    vadd.vv    v3, v1, v2
+R25:    jal     ra, T26
+        j       R26
+T26:    vmsbf.m    v6, v5
+R26:    jal     ra, T27
+        j       R27
+T27:    viota.m    v6, v5
+R27:    jal     ra, T28
+        j       R28
+T28:    vid.v      v6
+R28:    jal     ra, T29
+        j       R29
+T29:    vcpop.m    a1, v5
+R29:    jal     ra, T30
+        j       R30
+T30:    vfirst.m   a1, v5
+R30:    jal     ra, T31
+        j       R31
+T31:    vmv.x.s    a1, v1
+R31:    jal     ra, T32
+        j       R32
+T32:    vmv.s.x    v6, a1
+R32:    jal     ra, T33
+        j       R33
+T33:    vmand.mm   v6, v5, v4
+R33:    jal     ra, T34
+        j       R34
+T34:    vmseq.vv   v6, v1, v2
+R34:    jal     ra, T35
+        j       R35
+T35:    vmul.vv    v6, v1, v2
+R35:    jal     ra, T36
+        j       R36
+T36:    vmv1r.v    v6, v1
+R36:    jal     ra, T37
+        j       R37
+T37:    vmerge.vvm v6, v1, v2, v0
+R37:    csrr    t5, vstart
+        csrwi   vstart, 0
+        vadd.vv    v3, v1, v2
+        vmsbf.m    v6, v5
+        viota.m    v7, v5
+        vid.v      v6
+        vcpop.m    a1, v5
+        vfirst.m   a1, v5
+        vmv1r.v    v6, v1
+        lw      t2, 4(s0)
+
+        # Mask unary overlap
+        jal     ra, T38
+        j       R38
+T38:    .word   0x5250a2d7
+R38:    jal     ra, T39
+        j       R39
+T39:    .word   0x5051a057
+R39:    jal     ra, T40
+        j       R40
+T40:    .word   0x527123d7
+R40:    vmsbf.m    v6, v5
+        vmsif.m    v0, v5
+        vmsof.m    v6, v5, v0.t
+        vsetvli t0, a0, e32, m4, tu, mu
+        jal     ra, T41
+        j       R41
+T41:    .word   0x52982457
+R41:    jal     ra, T42
+        j       R42
+T42:    .word   0x52882457
+R42:    viota.m    v8, v12
+        vsetvli t0, a0, e32, m1, tu, mu
+        lw      t2, 8(s0)
+
+        # Reserved vid source
+        jal     ra, T43
+        j       R43
+T43:    .word   0x5238a457
+R43:    jal     ra, T44
+        j       R44
+T44:    .word   0x5108a457
+R44:    vid.v      v8
+        lw      t2, 12(s0)
+
         # Vector state off
         li      t0, 0x600
         csrc    mstatus, t0
