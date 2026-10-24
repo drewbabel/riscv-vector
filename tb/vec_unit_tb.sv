@@ -1793,7 +1793,7 @@ module vec_unit_tb
     end
   endtask
 
-  // Unary overlap traps
+  // Mask unary traps
   task automatic check_mask_unary_rules();
     logic [4:0] sel[3];
     begin
@@ -1839,6 +1839,16 @@ module vec_unit_tb
       instr = enc(6'b010100, 1'b1, 5'd9, 5'b10000, 3'b010, 5'd8);
       @(negedge clk);
       note("fractional viota apart", 32'(is_vector), 32'd1);
+      vlmul = 3'd0;
+      instr = enc(6'b010100, 1'b1, 5'd0, 5'b10001, 3'b010, 5'd8);
+      @(negedge clk);
+      note("vid without source", 32'(is_vector), 32'd1);
+      instr = enc(6'b010100, 1'b1, 5'd3, 5'b10001, 3'b010, 5'd8);
+      @(negedge clk);
+      note("vid with source", 32'(is_vector), 32'd0);
+      instr = enc(6'b010100, 1'b0, 5'd16, 5'b10001, 3'b010, 5'd8);
+      @(negedge clk);
+      note("masked vid with source", 32'(is_vector), 32'd0);
       instr = 32'd0;
       vlmul = 3'd0;
     end
