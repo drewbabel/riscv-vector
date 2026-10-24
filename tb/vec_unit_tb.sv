@@ -370,7 +370,7 @@ module vec_unit_tb
     int guard;
     begin
       guard = 0;
-      while (!vec_idle && guard < 400) begin
+      while (!vec_idle && guard < 1000) begin
         @(negedge clk);
         guard = guard + 1;
       end
@@ -495,9 +495,9 @@ module vec_unit_tb
       issue(32'h0010_0093);
       drain();
       check_regs("addi");
-      issue(enc(6'b100000, 1'b1, 5'd4, 5'd3, 3'b001, 5'd5));
+      issue(enc(6'b110000, 1'b1, 5'd4, 5'd3, 3'b001, 5'd5));
       drain();
-      check_regs("float divide");
+      check_regs("float widening add");
       issue(enc(6'b001100, 1'b1, 5'd4, 5'd3, 3'b000, 5'd5));
       drain();
       check_regs("gather");
@@ -2731,6 +2731,35 @@ module vec_unit_tb
       .result_valid(fref_rvalid)
   );
 
+  // Reference float divider
+  logic        dref_start = 1'b0;
+  logic        dref_sqrt = 1'b0;
+  logic [ 2:0] dref_rm = 3'd0;
+  logic [31:0] dref_a = '0;
+  logic [31:0] dref_b = '0;
+  logic [31:0] dref_res;
+  logic [ 4:0] dref_flags;
+  logic        dref_busy;
+  logic        dref_done;
+
+  fp_div_sqrt #(
+      .ExpW (8),
+      .FracW(23)
+  ) u_dref (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(1'b1),
+      .start(dref_start),
+      .sqrt(dref_sqrt),
+      .rm(dref_rm),
+      .a(dref_a),
+      .b(dref_b),
+      .result(dref_res),
+      .fflags(dref_flags),
+      .busy(dref_busy),
+      .done(dref_done)
+  );
+
   // Flags reaching fflags
   initial flags_seen = '0;
   always @(negedge clk) if (rst_n && core_en) flags_seen = flags_seen | fflags;
@@ -2768,20 +2797,52 @@ module vec_unit_tb
       VEC_MFLT:   return 6'b011011;
       VEC_MFNE:   return 6'b011100;
       VEC_MFGT:   return 6'b011101;
-      VEC_FCLASS, VEC_FREC7, VEC_FRSQRT7: return 6'b010011;
+      VEC_FCLASS, VEC_FREC7, VEC_FRSQRT7, VEC_FSQRT: return 6'b010011;
+      VEC_FDIV:   return 6'b100000;
+      VEC_FRDIV:  return 6'b100001;
       default:    return 6'b011111;
     endcase
   endfunction
 
   // Scalar only forms
   function automatic logic fp_vf_only(input vec_fop_e o);
-    return (o == VEC_FRSUB) || (o == VEC_MFGT) || (o == VEC_MFGE);
+    return (o == VEC_FRSUB) || (o == VEC_MFGT) || (o == VEC_MFGE) || (o == VEC_FRDIV);
   endfunction
 
   // Vector only forms
   function automatic logic fp_vv_only(input vec_fop_e o);
-    return (o == VEC_FCLASS) || (o == VEC_FREC7) || (o == VEC_FRSQRT7);
+    return (o == VEC_FCLASS) || (o == VEC_FREC7) || (o == VEC_FRSQRT7) || (o == VEC_FSQRT);
   endfunction
+
+  // Iterative divide forms
+  function automatic logic fp_div_op(input vec_fop_e o);
+    return (o == VEC_FDIV) || (o == VEC_FRDIV) || (o == VEC_FSQRT);
+  endfunction
+
+  // One reference divide
+  task automatic ref_fdiv(input vec_fop_e o, input logic [2:0] rm, input logic [31:0] x,
+                          input logic [31:0] y, output logic [31:0] res, output logic [4:0] flags);
+    int guard;
+    begin
+      @(negedge clk);
+      while (dref_busy || dref_done) @(negedge clk);
+      dref_sqrt  = (o == VEC_FSQRT);
+      dref_rm    = rm;
+      dref_a     = (o == VEC_FRDIV) ? y : x;
+      dref_b     = (o == VEC_FRDIV) ? x : y;
+      dref_start = 1'b1;
+      @(negedge clk);
+      dref_start = 1'b0;
+      guard = 0;
+      while (!dref_done && (guard < 200)) begin
+        @(negedge clk);
+        guard = guard + 1;
+      end
+      if (!dref_done) $fatal(1, "TB REFERENCE DIVIDER STALLED");
+      res   = dref_res;
+      flags = dref_flags;
+    end
+  endtask
 
   // Float operand values
   function automatic logic [31:0] fp_pick();
@@ -2816,6 +2877,7 @@ module vec_unit_tb
       VEC_FCLASS:  rs1 = 5'b10000;
       VEC_FREC7:   rs1 = 5'b00101;
       VEC_FRSQRT7: rs1 = 5'b00100;
+      VEC_FSQRT:   rs1 = 5'b00000;
       default:     rs1 = (form != 0) ? 5'($urandom) : s1;
     endcase
     return enc(fp_funct6(o), vmb, s2, rs1, (form != 0) ? 3'b101 : 3'b001, d);
@@ -2834,6 +2896,7 @@ module vec_unit_tb
     int          got;
     int          guard;
     logic [31:0] r;
+    logic [ 4:0] f;
     begin
       want_flags = '0;
       for (int i = 0; i < group_elems(32, regs); i++) begin
@@ -2843,6 +2906,14 @@ module vec_unit_tb
           bv.push_back((form != 0) ? fsc : grp_get(s1, 32, i));
           cv.push_back(grp_get(d, 32, i));
         end
+      end
+      if (fp_div_op(o)) begin
+        for (int k = 0; k < ids.size(); k++) begin
+          ref_fdiv(o, rm, av[k], bv[k], r, f);
+          want_flags = want_flags | f;
+          grp_set(d, 32, ids[k], r);
+        end
+        return;
       end
       sent  = 0;
       got   = 0;
@@ -2916,7 +2987,7 @@ module vec_unit_tb
     begin
       note("no flags from integer work", 32'(flags_seen), 32'd0);
       seed_fp();
-      for (int k = 0; k < 26; k++) begin
+      for (int k = 0; k < 29; k++) begin
         case (k)
           0: o = VEC_FADD;
           1: o = VEC_FSUB;
@@ -2943,7 +3014,10 @@ module vec_unit_tb
           22: o = VEC_MFGE;
           23: o = VEC_FCLASS;
           24: o = VEC_FREC7;
-          default: o = VEC_FRSQRT7;
+          25: o = VEC_FRSQRT7;
+          26: o = VEC_FDIV;
+          27: o = VEC_FRDIV;
+          default: o = VEC_FSQRT;
         endcase
         for (int f = 0; f < 2; f++) begin
           if ((f == 0) && fp_vf_only(o)) continue;
@@ -2965,7 +3039,6 @@ module vec_unit_tb
       seed_fp();
       for (int i = 0; i < n; i++) begin
         o = vec_fop_e'($urandom_range(32'(VEC_FCLASS)));
-        if ((o == VEC_FDIV) || (o == VEC_FRDIV) || (o == VEC_FSQRT)) o = VEC_FMACC;
         form = int'($urandom_range(1));
         if (fp_vf_only(o)) form = 1;
         if (fp_vv_only(o)) form = 0;
@@ -3056,6 +3129,51 @@ module vec_unit_tb
     end
   endtask
 
+  // Divide stream
+  task automatic check_fdiv_stream();
+    logic [ 4:0] want;
+    logic [ 4:0] f;
+    logic [ 2:0] rm;
+    logic [31:0] fsc;
+    logic        vmb;
+    logic        sat;
+    begin
+      for (int r = 0; r < 8; r++) begin
+        seed_fp();
+        vlmul = 3'd0;
+        vl    = 8'd4;
+        vsew  = 3'd2;
+        rm    = 3'($urandom_range(4));
+        fsc   = fp_pick();
+        vmb   = 1'(r);
+        want  = '0;
+        model_fp(VEC_FDIV, 0, 5'd1, 5'd2, 5'd10, vmb, '0, 1, 8'd4, rm, f);
+        want = want | f;
+        ref_apply(VEC_ADD, 0, 5'd3, 5'd4, 5'd11, 1'b1, '0, 5'd0, 32, 1, 4);
+        model_fp(VEC_FSQRT, 0, 5'd0, 5'd5, 5'd12, vmb, '0, 1, 8'd4, rm, f);
+        want = want | f;
+        model_lane(VEC_MUL, 0, 5'd6, 5'd7, 5'd13, 1'b1, '0, 5'd0, 32, 1, 8'd4, 2'd0, sat);
+        model_fp(VEC_FRDIV, 1, 5'd0, 5'd10, 5'd14, 1'b1, fsc, 1, 8'd4, rm, f);
+        want = want | f;
+        model_fp(VEC_FADD, 0, 5'd14, 5'd12, 5'd15, 1'b1, '0, 1, 8'd4, rm, f);
+        want = want | f;
+        flags_seen = '0;
+        frm = rm;
+        fdata = fsc;
+        issue(fp_encode(VEC_FDIV, 0, 5'd1, 5'd2, 5'd10, vmb));
+        issue(enc(6'b000000, 1'b1, 5'd4, 5'd3, 3'b000, 5'd11));
+        issue(fp_encode(VEC_FSQRT, 0, 5'd0, 5'd5, 5'd12, vmb));
+        issue(lane_instr(VEC_MUL, 0, 5'd6, 5'd7, 5'd13, 1'b1, 5'd0));
+        issue(fp_encode(VEC_FRDIV, 1, 5'd0, 5'd10, 5'd14, 1'b1));
+        issue(fp_encode(VEC_FADD, 0, 5'd14, 5'd12, 5'd15, 1'b1));
+        frm = 3'd0;
+        drain();
+        check_regs($sformatf("float divide stream %0d", r));
+        note($sformatf("fflags after float divide stream %0d", r), 32'(flags_seen), 32'(want));
+      end
+    end
+  endtask
+
   // Float forms legal
   task automatic check_fp_rules();
     begin
@@ -3095,7 +3213,20 @@ module vec_unit_tb
       note("greater than vector", 32'(is_vector), 32'd0);
       instr = enc(6'b100000, 1'b1, 5'd8, 5'd4, 3'b001, 5'd12);
       @(negedge clk);
-      note("float divide", 32'(is_vector), 32'd0);
+      note("float divide", 32'(is_vector), 32'd1);
+      instr = enc(6'b100001, 1'b1, 5'd8, 5'd4, 3'b001, 5'd12);
+      @(negedge clk);
+      note("reverse divide vector", 32'(is_vector), 32'd0);
+      instr = enc(6'b010011, 1'b1, 5'd8, 5'b00000, 3'b001, 5'd12);
+      vlmul = 3'd1;
+      @(negedge clk);
+      note("float root at lmul 2", 32'(is_vector), 32'd1);
+      note("float root reads no vs1", 32'(dut.rd1_regs), 32'd0);
+      vlmul = 3'd0;
+      vsew  = 3'd1;
+      @(negedge clk);
+      note("float root at sew 16", 32'(is_vector), 32'd0);
+      vsew  = 3'd2;
       instr = enc(6'b010011, 1'b1, 5'd8, 5'b10000, 3'b001, 5'd12);
       @(negedge clk);
       note("float classify", 32'(is_vector), 32'd1);
@@ -3892,6 +4023,7 @@ module vec_unit_tb
     check_fp_ops();
     check_fp_stream();
     check_fp_group_stream();
+    check_fdiv_stream();
     soak_fp(200);
     check_fp_move_rules();
     check_fp_moves();
