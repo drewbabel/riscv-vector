@@ -168,7 +168,8 @@ module vec_decode_tb
       case (funct6)
         6'b000000, 6'b000010, 6'b000100, 6'b000110: return 1'b1;
         6'b001000, 6'b001001, 6'b001010, 6'b100100: return 1'b1;
-        6'b100111: return funct3 == Fff;
+        6'b100111, 6'b100001: return funct3 == Fff;
+        6'b100000: return 1'b1;
         6'b001110, 6'b001111: return funct3 == Fff;
         6'b101000, 6'b101001, 6'b101010, 6'b101011: return 1'b1;
         6'b101100, 6'b101101, 6'b101110, 6'b101111: return 1'b1;
@@ -178,7 +179,8 @@ module vec_decode_tb
         6'b010000: return (funct3 == Ffv) ? (rs1 == 5'b00000) : (rs2 == 5'b00000);
         6'b000001, 6'b000011, 6'b000101, 6'b000111: return funct3 == Ffv;
         6'b010011:
-        return (funct3 == Ffv) && (rs1 == 5'b00100 || rs1 == 5'b00101 || rs1 == 5'b10000);
+        return (funct3 == Ffv) &&
+            (rs1 == 5'b00000 || rs1 == 5'b00100 || rs1 == 5'b00101 || rs1 == 5'b10000);
         default: return 1'b0;
       endcase
     end
@@ -201,8 +203,11 @@ module vec_decode_tb
       6'b001010: return VEC_FSGNJX;
       6'b100100: return VEC_FMUL;
       6'b100111: return VEC_FRSUB;
+      6'b100000: return VEC_FDIV;
+      6'b100001: return VEC_FRDIV;
       6'b010011:
       case (rs1)
+        5'b00000: return VEC_FSQRT;
         5'b00100: return VEC_FRSQRT7;
         5'b00101: return VEC_FREC7;
         default:  return VEC_FCLASS;
@@ -306,10 +311,11 @@ module vec_decode_tb
         rs1 = 5'($urandom);
         if ((6'(c) == 6'b010011) && ($urandom_range(1) != 0)) begin
           case ($urandom_range(
-              2
+              3
           ))
             0: rs1 = 5'b00100;
             1: rs1 = 5'b00101;
+            2: rs1 = 5'b00000;
             default: rs1 = 5'b10000;
           endcase
         end
@@ -602,7 +608,11 @@ module vec_decode_tb
     chk_flags(6'b101100, Ffv, 5'd1, 4'b1000);
     chk_flags(6'b011101, Fff, 5'd1, 4'b0001);
     chk_illegal(6'b100111, Ffv, 5'd1);
-    chk_illegal(6'b100000, Ffv, 5'd1);
+    chk_op(6'b100000, Ffv, 5'd1, VEC_FARITH, VEC_SRC_VV, VEC_EEW_SAME);
+    chk_op(6'b100000, Fff, 5'd1, VEC_FARITH, VEC_SRC_VX, VEC_EEW_SAME);
+    chk_op(6'b100001, Fff, 5'd1, VEC_FARITH, VEC_SRC_VX, VEC_EEW_SAME);
+    chk_flags(6'b100001, Fff, 5'd1, 4'b0000);
+    chk_illegal(6'b100001, Ffv, 5'd1);
     chk_illegal(6'b010111, Fff, 5'd1);
     chk_op(6'b010011, Ffv, 5'b10000, VEC_FARITH, VEC_SRC_VV, VEC_EEW_SAME);
     chk_flags(6'b010011, Ffv, 5'b10000, 4'b0000);
@@ -619,6 +629,9 @@ module vec_decode_tb
     chk_op(6'b001111, Fff, 5'd1, VEC_SLIDE1DOWN, VEC_SRC_VX, VEC_EEW_SAME);
     chk_illegal(6'b001110, Ffv, 5'd1);
     chk_illegal(6'b001111, Ffv, 5'd1);
+    chk_op(6'b010011, Ffv, 5'b00000, VEC_FARITH, VEC_SRC_VV, VEC_EEW_SAME);
+    chk_illegal(6'b010011, Fff, 5'b00000);
+    chk_fop(5'b00000, VEC_FSQRT);
     repeat (8) sweep_float();
     sweep_float_moves();
     sweep_int_moves();
