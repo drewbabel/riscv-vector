@@ -559,7 +559,7 @@ module vec_unit
   assign op_ready = (dec_cls != VEC_CLS_NONE) && fp_legal && group_legal && vstart_legal &&
       mset_legal && iota_legal && id_legal &&
       (dec_mem || dec_mvnr || (width_legal && scalar_legal && carry_legal));
-  assign is_vector = dec_valid && op_ready && (dec_full || !vill) && emul_ok;
+  assign is_vector = dec_valid && op_ready && (dec_whole || !vill) && emul_ok;
   assign accept_now = instr_valid && is_vector;
 
   assign dec_valid = dec.valid;
