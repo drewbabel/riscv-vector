@@ -2913,6 +2913,238 @@ module vec_unit_tb
     end
   endtask
 
+  // Conversion reference lane
+  logic            cref_valid = 1'b0;
+  vec_fop_e        cref_op = VEC_FCVT_X_F;
+  vec_eew_e        cref_eew = VEC_EEW_SAME;
+  logic     [ 2:0] cref_rm = 3'd0;
+  logic     [31:0] cref_a = '0;
+  logic     [31:0] cref_res;
+  logic     [ 4:0] cref_flags;
+  logic            cref_rvalid;
+
+  vec_fp_cvt_lane u_cref (
+      .clk(clk),
+      .rst_n(rst_n),
+      .core_en(1'b1),
+      .valid(cref_valid),
+      .op(cref_op),
+      .eew(cref_eew),
+      .vsew((cref_eew == VEC_EEW_SAME) ? 3'd2 : 3'd1),
+      .rm(cref_rm),
+      .a(cref_a),
+      .result(cref_res),
+      .fflags(cref_flags),
+      .result_valid(cref_rvalid)
+  );
+
+  function automatic logic [4:0] cvt_rs1(input vec_fop_e o, input vec_eew_e e);
+    logic [4:0] r;
+    case (o)
+      VEC_FCVT_XU_F:     r = 5'b00000;
+      VEC_FCVT_X_F:      r = 5'b00001;
+      VEC_FCVT_F_XU:     r = 5'b00010;
+      VEC_FCVT_F_X:      r = 5'b00011;
+      VEC_FCVT_RTZ_XU_F: r = 5'b00110;
+      default:           r = 5'b00111;
+    endcase
+    if (e == VEC_EEW_WIDEN) r[3] = 1'b1;
+    if (e == VEC_EEW_NARROW) r[4] = 1'b1;
+    return r;
+  endfunction
+
+  // Conversion model
+  task automatic model_cvt(input vec_fop_e o, input vec_eew_e e, input logic [4:0] s2,
+                           input logic [4:0] d, input logic vmb, input logic [VlW-1:0] len,
+                           input logic [2:0] rm, output logic [4:0] want_flags);
+    int          ids   [$];
+    logic [31:0] av    [$];
+    int          sw;
+    int          dw;
+    int          sent;
+    int          got;
+    int          guard;
+    begin
+      sw = (e == VEC_EEW_WIDEN) ? 16 : 32;
+      dw = (e == VEC_EEW_NARROW) ? 16 : 32;
+      want_flags = '0;
+      for (int i = 0; i < int'(len); i++) begin
+        if (vmb || shadow[0][i]) begin
+          ids.push_back(i);
+          av.push_back(32'(grp_get(s2, sw, i)));
+        end
+      end
+      sent  = 0;
+      got   = 0;
+      guard = 0;
+      while ((got < ids.size()) && (guard < 300)) begin
+        @(negedge clk);
+        guard = guard + 1;
+        if (cref_rvalid) begin
+          want_flags = want_flags | cref_flags;
+          grp_set(d, dw, ids[got], ELEN'(cref_res));
+          got = got + 1;
+        end
+        cref_valid = (sent < ids.size());
+        if (sent < ids.size()) begin
+          cref_op  = o;
+          cref_eew = e;
+          cref_rm  = rm;
+          cref_a   = av[sent];
+          sent     = sent + 1;
+        end
+      end
+      cref_valid = 1'b0;
+      if (got != ids.size()) $fatal(1, "TB REFERENCE LANE STALLED");
+    end
+  endtask
+
+  // Run one conversion
+  task automatic run_cvt(input vec_fop_e o, input vec_eew_e e, input logic [4:0] s2,
+                         input logic [4:0] d, input logic vmb, input logic [2:0] lmul,
+                         input logic [VlW-1:0] len, input logic [2:0] rm);
+    logic [4:0] want;
+    begin
+      vsew  = (e == VEC_EEW_SAME) ? 3'd2 : 3'd1;
+      vlmul = lmul;
+      vl    = len;
+      frm   = rm;
+      model_cvt(o, e, s2, d, vmb, len, rm, want);
+      flags_seen = '0;
+      issue(enc(6'b010010, vmb, s2, cvt_rs1(o, e), 3'b001, d));
+      frm = 3'($urandom_range(4));
+      drain();
+      check_regs($sformatf("convert %0s %0s lmul %0d", o.name(), e.name(), lmul));
+      note($sformatf("fflags after %0s %0s", o.name(), e.name()), 32'(flags_seen), 32'(want));
+    end
+  endtask
+
+  function automatic vec_fop_e cvt_op(input int k);
+    case (k)
+      0: return VEC_FCVT_XU_F;
+      1: return VEC_FCVT_X_F;
+      2: return VEC_FCVT_RTZ_XU_F;
+      3: return VEC_FCVT_RTZ_X_F;
+      4: return VEC_FCVT_F_XU;
+      default: return VEC_FCVT_F_X;
+    endcase
+  endfunction
+
+  // Every conversion form
+  task automatic check_fcvt_ops();
+    vec_fop_e o;
+    begin
+      seed_fp();
+      for (int k = 0; k < 6; k++) begin
+        o = cvt_op(k);
+        for (int rm = 0; rm < 5; rm++) begin
+          run_cvt(o, VEC_EEW_SAME, 5'd8, 5'd12, 1'($urandom), 3'd0, 8'(1 + $urandom_range(3)),
+                  3'(rm));
+          if (k >= 4) run_cvt(o, VEC_EEW_WIDEN, 5'd8, 5'd12, 1'($urandom), 3'd0, 8'd8, 3'(rm));
+          else run_cvt(o, VEC_EEW_NARROW, 5'd8, 5'd13, 1'($urandom), 3'd0, 8'd8, 3'(rm));
+        end
+        run_cvt(o, VEC_EEW_SAME, 5'd16, 5'd24, 1'b0, 3'd3, 8'd32, 3'd0);
+        if (k >= 4) run_cvt(o, VEC_EEW_WIDEN, 5'd16, 5'd24, 1'b1, 3'd2, 8'd32, 3'd0);
+        else run_cvt(o, VEC_EEW_NARROW, 5'd16, 5'd16, 1'b0, 3'd2, 8'd27, 3'd3);
+        if (k >= 4) run_cvt(o, VEC_EEW_WIDEN, 5'd8, 5'd12, 1'b1, 3'd7, 8'd4, 3'd2);
+        else run_cvt(o, VEC_EEW_NARROW, 5'd8, 5'd12, 1'b1, 3'd7, 8'd4, 3'd2);
+      end
+    end
+  endtask
+
+  // Random conversion traffic
+  task automatic soak_fcvt(input int n);
+    vec_fop_e       o;
+    vec_eew_e       e;
+    logic     [2:0] lmul;
+    int             regs;
+    begin
+      seed_fp();
+      for (int i = 0; i < n; i++) begin
+        o = cvt_op($urandom_range(5));
+        e = VEC_EEW_SAME;
+        if (($urandom_range(1) != 0) && (o == VEC_FCVT_F_X || o == VEC_FCVT_F_XU))
+          e = VEC_EEW_WIDEN;
+        else if ($urandom_range(1) != 0) e = VEC_EEW_NARROW;
+        if ((e == VEC_EEW_NARROW) && (o == VEC_FCVT_F_X || o == VEC_FCVT_F_XU)) e = VEC_EEW_SAME;
+        lmul = 3'($urandom_range(2));
+        regs = 1 << lmul[1:0];
+        if (e == VEC_EEW_SAME)
+          run_cvt(o, e, 5'd8, 5'd16, 1'($urandom), lmul, 8'($urandom_range(4 * regs)),
+                  3'($urandom_range(4)));
+        else
+          run_cvt(o, e, 5'd8, 5'd16, 1'($urandom), lmul, 8'($urandom_range(8 * regs)),
+                  3'($urandom_range(4)));
+        if ($urandom_range(9) == 0) seed_fp();
+      end
+    end
+  endtask
+
+  // Conversion forms legal
+  task automatic check_fcvt_rules();
+    vec_eew_e e;
+    begin
+      vill  = 1'b0;
+      vlmul = 3'd0;
+      vl    = 8'd4;
+      frm   = 3'd0;
+      for (int k = 0; k < 6; k++) begin
+        for (int w = 0; w < 2; w++) begin
+          if (w == 0) e = VEC_EEW_SAME;
+          else if (k >= 4) e = VEC_EEW_WIDEN;
+          else e = VEC_EEW_NARROW;
+          instr = enc(6'b010010, 1'b1, 5'd8, cvt_rs1(cvt_op(k), e), 3'b001, 5'd16);
+          for (int s = 0; s < 3; s++) begin
+            vsew = 3'(s);
+            @(negedge clk);
+            note($sformatf("convert %0d form %0d at sew %0d", k, w, 8 << s), 32'(is_vector),
+                 32'(s == ((w == 0) ? 2 : 1)));
+          end
+          vsew = (w == 0) ? 3'd2 : 3'd1;
+          @(negedge clk);
+          note($sformatf("convert %0d form %0d reads no vs1", k, w), 32'(dut.rd1_regs), 32'd0);
+          frm = 3'd5;
+          @(negedge clk);
+          note($sformatf("convert %0d form %0d at frm 5", k, w), 32'(is_vector), 32'd0);
+          frm   = 3'd0;
+          vlmul = 3'd3;
+          @(negedge clk);
+          note($sformatf("convert %0d form %0d at lmul 8", k, w), 32'(is_vector), 32'(w == 0));
+          vlmul = 3'd0;
+        end
+      end
+      vsew  = 3'd1;
+      instr = enc(6'b010010, 1'b1, 5'd8, 5'b01011, 3'b001, 5'd8);
+      @(negedge clk);
+      note("widen onto source", 32'(is_vector), 32'd0);
+      instr = enc(6'b010010, 1'b1, 5'd8, 5'b01011, 3'b001, 5'd7);
+      @(negedge clk);
+      note("widen odd group", 32'(is_vector), 32'd0);
+      instr = enc(6'b010010, 1'b1, 5'd8, 5'b10001, 3'b001, 5'd8);
+      @(negedge clk);
+      note("narrow onto source", 32'(is_vector), 32'd1);
+      instr = enc(6'b010010, 1'b1, 5'd8, 5'b10001, 3'b001, 5'd9);
+      @(negedge clk);
+      note("narrow into source top", 32'(is_vector), 32'd0);
+      instr = enc(6'b010010, 1'b1, 5'd7, 5'b10001, 3'b001, 5'd4);
+      @(negedge clk);
+      note("narrow odd source", 32'(is_vector), 32'd0);
+      for (int u = 0; u < 32; u++) begin
+        instr = enc(6'b010010, 1'b1, 5'd8, 5'(u), 3'b101, 5'd12);
+        @(negedge clk);
+        note($sformatf("convert %0d scalar form", u), 32'(is_vector), 32'd0);
+      end
+      instr = enc(6'b010010, 1'b1, 5'd8, 5'b01000, 3'b001, 5'd12);
+      @(negedge clk);
+      note("widen float to int", 32'(is_vector), 32'd0);
+      instr = enc(6'b010010, 1'b1, 5'd8, 5'b10011, 3'b001, 5'd12);
+      @(negedge clk);
+      note("narrow int to float", 32'(is_vector), 32'd0);
+      instr = 32'd0;
+      vsew  = 3'd2;
+    end
+  endtask
+
   // Float merge model
   task automatic run_fmerge(input logic vmb, input logic [4:0] s2, input logic [4:0] d,
                             input logic [2:0] lmul, input logic [VlW-1:0] len);
@@ -3637,6 +3869,9 @@ module vec_unit_tb
     check_fp_stream();
     check_fp_group_stream();
     soak_fp(200);
+    check_fcvt_rules();
+    check_fcvt_ops();
+    soak_fcvt(120);
     check_fp_move_rules();
     check_fp_moves();
     check_fp_move_stream();
