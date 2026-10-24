@@ -68,7 +68,13 @@ module control_decoder_tb ();
       .result_src   (result_src),
       .branch       (branch),
       .jump         (jump),
-      .alu_op       (alu_op)
+      .alu_op       (alu_op),
+      .csr_access   (),
+      .is_ecall     (),
+      .is_ebreak    (),
+      .is_mret      (),
+      .is_muldiv    (),
+      .muldiv_op    ()
   );
 
   task automatic check1(input string name, input logic got, input logic exp);

@@ -16,6 +16,10 @@ module imem_tb ();
       .XLEN (Xlen),
       .DEPTH(DEPTH)
   ) dut (
+      .clk  (1'b0),
+      .we   (1'b0),
+      .waddr('0),
+      .wdata('0),
       .addr (addr),
       .instr(instr)
   );
