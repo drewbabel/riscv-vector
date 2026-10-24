@@ -2229,6 +2229,164 @@ module vec_unit_tb
     seed_all();
   endtask
 
+  // Slide model
+  task automatic ref_slide(input logic up, input int form, input logic [4:0] s2,
+                           input logic [4:0] d, input logic vmb, input logic [XLEN-1:0] sc,
+                           input logic [2:0] sew, input logic [2:0] lmul, input int len);
+    logic [VLEN-1:0] src[Depth];
+    int w;
+    int per_reg;
+    int vlmax;
+    longint amt;
+    longint from;
+    logic [ELEN-1:0] val;
+    begin
+      w = 8 << sew;
+      per_reg = VLEN / w;
+      vlmax = lmul[2] ? (per_reg >> (3'd0 - lmul)) : (per_reg << lmul);
+      if (form == 1) amt = longint'(sc[4:0]);
+      else if (form >= 2) amt = 1;
+      else amt = longint'({32'd0, sc});
+      for (int r = 0; r < Depth; r++) src[r] = shadow[r];
+      for (int i = 0; i < len; i++) begin
+        if (!(vmb || src[0][i])) continue;
+        if (up && (form >= 2) && (i == 0)) val = ELEN'(sc);
+        else if (!up && (form >= 2) && (i == len - 1)) val = ELEN'(sc);
+        else if (up && (longint'(i) < amt)) continue;
+        else begin
+          from = up ? (longint'(i) - amt) : (longint'(i) + amt);
+          if (from >= longint'(vlmax)) val = '0;
+          else val = get_elem(src[(32'(s2)+32'(from)/per_reg)%Depth], w, 32'(from) % per_reg);
+        end
+        grp_set(d, w, i, val);
+      end
+    end
+  endtask
+
+  function automatic logic [31:0] slide_instr(input logic up, input int form, input logic [4:0] s2,
+                                              input logic [4:0] d, input logic vmb,
+                                              input logic [XLEN-1:0] sc);
+    logic [2:0] f3;
+    case (form)
+      0: f3 = 3'b100;
+      1: f3 = 3'b011;
+      2: f3 = 3'b110;
+      default: f3 = 3'b101;
+    endcase
+    return enc(up ? 6'b001110 : 6'b001111, vmb, s2, (form == 1) ? sc[4:0] : 5'd1, f3, d);
+  endfunction
+
+  task automatic run_slide(input logic up, input int form, input logic [4:0] s2,
+                           input logic [4:0] d, input logic vmb, input logic [XLEN-1:0] sc,
+                           input logic [2:0] sew, input logic [2:0] lmul,
+                           input logic [VlW-1:0] len);
+    begin
+      vsew  = sew;
+      vlmul = lmul;
+      vl    = len;
+      xdata = sc;
+      fdata = sc;
+      ref_slide(up, form, s2, d, vmb, sc, sew, lmul, int'(len));
+      issue(slide_instr(up, form, s2, d, vmb, sc));
+      xdata = $urandom;
+      fdata = $urandom;
+      drain();
+      check_regs($sformatf("slide up %0d form %0d sew %0d lmul %0d", up, form, sew, lmul));
+    end
+  endtask
+
+  task automatic check_slide_rules();
+    begin
+      vill  = 1'b0;
+      vlmul = 3'd1;
+      vl    = 8'd8;
+      vsew  = 3'd2;
+      instr = slide_instr(1'b1, 0, 5'd8, 5'd8, 1'b1, '0);
+      @(negedge clk);
+      note("slideup onto its source", 32'(is_vector), 32'd0);
+      instr = slide_instr(1'b1, 2, 5'd8, 5'd8, 1'b1, '0);
+      @(negedge clk);
+      note("slide1up onto its source", 32'(is_vector), 32'd0);
+      instr = slide_instr(1'b1, 1, 5'd8, 5'd10, 1'b1, '0);
+      @(negedge clk);
+      note("slideup beside its source", 32'(is_vector), 32'd1);
+      instr = slide_instr(1'b0, 0, 5'd8, 5'd8, 1'b1, '0);
+      @(negedge clk);
+      note("slidedown onto its source", 32'(is_vector), 32'd1);
+      instr = slide_instr(1'b0, 0, 5'd8, 5'd9, 1'b1, '0);
+      @(negedge clk);
+      note("slidedown misaligned", 32'(is_vector), 32'd0);
+      instr = slide_instr(1'b0, 2, 5'd8, 5'd0, 1'b0, '0);
+      @(negedge clk);
+      note("masked slide onto v0", 32'(is_vector), 32'd0);
+      instr = slide_instr(1'b1, 3, 5'd8, 5'd10, 1'b1, '0);
+      @(negedge clk);
+      note("float slide at e32", 32'(is_vector), 32'd1);
+      vsew = 3'd1;
+      @(negedge clk);
+      note("float slide at e16", 32'(is_vector), 32'd0);
+      vsew = 3'd2;
+      frm  = 3'd5;
+      @(negedge clk);
+      note("float slide bad rounding", 32'(is_vector), 32'd0);
+      frm   = 3'd0;
+      instr = '0;
+      @(negedge clk);
+    end
+  endtask
+
+  task automatic check_slides();
+    logic [XLEN-1:0] offs[6] = '{32'd0, 32'd1, 32'd5, 32'd17, 32'd130, 32'hFFFF_FFFF};
+    begin
+      seed_all();
+      for (int f = 0; f < 4; f++) begin
+        for (int u = 0; u < 2; u++) begin
+          for (int s = 0; s < 3; s++) begin
+            if ((f == 3) && (s != 2)) continue;
+            for (int k = 0; k < 6; k++) begin
+              if ((f >= 2) && (k > 0)) continue;
+              run_slide(1'(u), f, 5'd8, 5'd16, 1'b1, (f >= 2) ? XLEN'($urandom) : offs[k], 3'(s),
+                        3'd0, 8'(VLEN / (8 << s)));
+            end
+            run_slide(1'(u), f, 5'd8, 5'd16, 1'b0, (f >= 2) ? XLEN'($urandom) : XLEN'(3), 3'(s),
+                      3'd1, 8'(2 * VLEN / (8 << s) - 3));
+            run_slide(1'(u), f, 5'd8, 5'd24, 1'b1, (f >= 2) ? XLEN'($urandom) : XLEN'(9), 3'(s),
+                      3'd3, 8'(VLEN / (1 << s)));
+            run_slide(1'(u), f, 5'd8, 5'd12, 1'b1, (f >= 2) ? XLEN'($urandom) : XLEN'(1), 3'(s),
+                      3'd7, 8'(VLEN / (16 << s)));
+            if (u == 0) run_slide(1'b0, f, 5'd8, 5'd8, 1'b0, XLEN'(6), 3'(s), 3'd2, 8'd11);
+            run_slide(1'(u), f, 5'd8, 5'd16, 1'b1, XLEN'(2), 3'(s), 3'd0, 8'd0);
+          end
+        end
+      end
+      seed_all();
+    end
+  endtask
+
+  // Slides behind lanes
+  task automatic check_slide_stream();
+    begin
+      seed_all();
+      vsew  = 3'd0;
+      vlmul = 3'd0;
+      vl    = 8'd16;
+      ref_apply(VEC_ADD, 0, 5'd4, 5'd8, 5'd12, 1'b1, '0, 5'd0, 8, 1, 16);
+      ref_slide(1'b0, 0, 5'd12, 5'd16, 1'b1, XLEN'(3), 3'd0, 3'd0, 16);
+      ref_apply(VEC_ADD, 0, 5'd4, 5'd16, 5'd20, 1'b1, '0, 5'd0, 8, 1, 16);
+      ref_slide(1'b1, 1, 5'd20, 5'd24, 1'b1, XLEN'(5), 3'd0, 3'd0, 16);
+      ref_apply(VEC_ADD, 0, 5'd24, 5'd4, 5'd26, 1'b1, '0, 5'd0, 8, 1, 16);
+      issue(enc(6'b000000, 1'b1, 5'd8, 5'd4, 3'b000, 5'd12));
+      xdata = XLEN'(3);
+      issue(slide_instr(1'b0, 0, 5'd12, 5'd16, 1'b1, XLEN'(3)));
+      issue(enc(6'b000000, 1'b1, 5'd16, 5'd4, 3'b000, 5'd20));
+      issue(slide_instr(1'b1, 1, 5'd20, 5'd24, 1'b1, XLEN'(5)));
+      issue(enc(6'b000000, 1'b1, 5'd4, 5'd24, 3'b000, 5'd26));
+      drain();
+      check_regs("slide stream");
+      seed_all();
+    end
+  endtask
+
   task automatic check_multiplies();
     vec_op_e ops[8] = '{
         VEC_MUL,
@@ -3719,6 +3877,9 @@ module vec_unit_tb
     check_lane_rules();
     check_multiplies();
     check_widening_muls();
+    check_slide_rules();
+    check_slides();
+    check_slide_stream();
     check_fixed_ops();
     check_divides();
     check_averaging();
