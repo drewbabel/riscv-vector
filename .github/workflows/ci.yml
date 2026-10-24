@@ -289,6 +289,10 @@ jobs:
         run: python3 tests/cosim.py --vec --fp vecfround
       - name: Vector float invalid frm and flags co-sim
         run: python3 tests/cosim.py --vec --fp vecffrm
+      - name: Vector float widening trap co-sim
+        run: python3 tests/cosim.py --vec --fp vecfwtrap
+      - name: Vector SEW 64 vill co-sim
+        run: python3 tests/cosim.py --vec --fp vecve64
       - name: Draw the random co-sim seed
         run: |
           seed=$(( $(od -An -N4 -tu4 /dev/urandom) % 1000000000 ))
