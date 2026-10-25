@@ -119,17 +119,8 @@ module control_decoder_tb
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
-  task automatic check(input string name, input logic got, input logic exp);
-    checks++;
-    if (got !== exp) begin
-      errors++;
-      $display("FAIL %s: got %h, expected %h", name, got, exp);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-  endtask  // Automatic
-
-  task automatic check_field(input string name, input logic [FieldW-1:0] got,
-                             input logic [FieldW-1:0] exp);
+  task automatic check(input string name, input logic [FieldW-1:0] got,
+                       input logic [FieldW-1:0] exp);
     checks++;
     if (got !== exp) begin
       errors++;
@@ -156,163 +147,164 @@ module control_decoder_tb
   task automatic check_system(input string name);
     logic exp_muldiv;
     exp_muldiv = muldiv_ref(op, funct12);
-    check({name, " csr_access"}, csr_access, csr_ref(op, funct3));
-    check({name, " is_ecall"}, is_ecall, priv_ref(op, funct3, funct12, Funct12Ecall));
-    check({name, " is_ebreak"}, is_ebreak, priv_ref(op, funct3, funct12, Funct12Ebreak));
-    check({name, " is_mret"}, is_mret, priv_ref(op, funct3, funct12, Funct12Mret));
-    check({name, " illegal"}, illegal, op == OpcodeSystem && funct3 == Funct3SysRsvd);
-    check({name, " is_muldiv"}, is_muldiv, exp_muldiv);
-    if (exp_muldiv) check_field({name, " muldiv_op"}, muldiv_op, muldiv_ops[funct3]);
+    check({name, " csr_access"}, FieldW'(csr_access), FieldW'(csr_ref(op, funct3)));
+    check({name, " is_ecall"}, FieldW'(is_ecall), priv_ref(op, funct3, funct12, Funct12Ecall));
+    check({name, " is_ebreak"}, FieldW'(is_ebreak), priv_ref(op, funct3, funct12, Funct12Ebreak));
+    check({name, " is_mret"}, FieldW'(is_mret), priv_ref(op, funct3, funct12, Funct12Mret));
+    check({name, " illegal"}, FieldW'(illegal),
+          FieldW'(op == OpcodeSystem && funct3 == Funct3SysRsvd));
+    check({name, " is_muldiv"}, FieldW'(is_muldiv), FieldW'(exp_muldiv));
+    if (exp_muldiv) check({name, " muldiv_op"}, muldiv_op, muldiv_ops[funct3]);
   endtask  // Automatic
 
   task automatic chk_default(input string name);
-    check({name, " reg_write"}, reg_write, 1'b0);
-    check_field({name, " imm_src"}, imm_src, ImmI);
-    check_field({name, " alu_a_src"}, FieldW'(alu_a_src), FieldW'(SrcARs1));
-    check({name, " pc_target_src"}, pc_target_src, 1'b0);
-    check({name, " alu_src"}, alu_src, 1'b0);
-    check({name, " mem_write"}, mem_write, 1'b0);
-    check_field({name, " result_src"}, FieldW'(result_src), FieldW'(ResAlu));
-    check({name, " branch"}, branch, 1'b0);
-    check({name, " jump"}, jump, 1'b0);
-    check_field({name, " alu_op"}, FieldW'(alu_op), FieldW'(AluAdd));
+    check({name, " reg_write"}, FieldW'(reg_write), FieldW'(1'b0));
+    check({name, " imm_src"}, imm_src, ImmI);
+    check({name, " alu_a_src"}, FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check({name, " pc_target_src"}, FieldW'(pc_target_src), FieldW'(1'b0));
+    check({name, " alu_src"}, FieldW'(alu_src), FieldW'(1'b0));
+    check({name, " mem_write"}, FieldW'(mem_write), FieldW'(1'b0));
+    check({name, " result_src"}, FieldW'(result_src), FieldW'(ResAlu));
+    check({name, " branch"}, FieldW'(branch), FieldW'(1'b0));
+    check({name, " jump"}, FieldW'(jump), FieldW'(1'b0));
+    check({name, " alu_op"}, FieldW'(alu_op), FieldW'(AluAdd));
     check_system(name);
   endtask  // Automatic
 
   task automatic chk_op();
     decode(OpcodeOp, '0, '0);
-    check("op reg_write", reg_write, 1'b1);
-    check("op alu_src", alu_src, 1'b0);
-    check("op mem_write", mem_write, 1'b0);
-    check_field("op result_src", FieldW'(result_src), FieldW'(ResAlu));
-    check("op branch", branch, 1'b0);
-    check("op jump", jump, 1'b0);
-    check_field("op alu_op", FieldW'(alu_op), FieldW'(AluFunct));
-    check_field("op alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
-    check("op pc_target_src", pc_target_src, 1'b0);
+    check("op reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("op alu_src", FieldW'(alu_src), FieldW'(1'b0));
+    check("op mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("op result_src", FieldW'(result_src), FieldW'(ResAlu));
+    check("op branch", FieldW'(branch), FieldW'(1'b0));
+    check("op jump", FieldW'(jump), FieldW'(1'b0));
+    check("op alu_op", FieldW'(alu_op), FieldW'(AluFunct));
+    check("op alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("op pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
     check_system("op");
   endtask  // Automatic
 
   task automatic chk_opimm();
     decode(OpcodeOpImm, '0, '0);
-    check("opimm reg_write", reg_write, 1'b1);
-    check_field("opimm imm_src", imm_src, ImmI);
-    check("opimm alu_src", alu_src, 1'b1);
-    check("opimm mem_write", mem_write, 1'b0);
-    check_field("opimm result_src", FieldW'(result_src), FieldW'(ResAlu));
-    check("opimm branch", branch, 1'b0);
-    check("opimm jump", jump, 1'b0);
-    check_field("opimm alu_op", FieldW'(alu_op), FieldW'(AluFunct));
-    check_field("opimm alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
-    check("opimm pc_target_src", pc_target_src, 1'b0);
+    check("opimm reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("opimm imm_src", imm_src, ImmI);
+    check("opimm alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("opimm mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("opimm result_src", FieldW'(result_src), FieldW'(ResAlu));
+    check("opimm branch", FieldW'(branch), FieldW'(1'b0));
+    check("opimm jump", FieldW'(jump), FieldW'(1'b0));
+    check("opimm alu_op", FieldW'(alu_op), FieldW'(AluFunct));
+    check("opimm alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("opimm pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
     check_system("opimm");
   endtask  // Automatic
 
   task automatic chk_load();
     decode(OpcodeLoad, '0, '0);
-    check("load reg_write", reg_write, 1'b1);
-    check_field("load imm_src", imm_src, ImmI);
-    check("load alu_src", alu_src, 1'b1);
-    check("load mem_write", mem_write, 1'b0);
-    check_field("load result_src", FieldW'(result_src), FieldW'(ResMem));
-    check("load branch", branch, 1'b0);
-    check("load jump", jump, 1'b0);
-    check_field("load alu_op", FieldW'(alu_op), FieldW'(AluAdd));
-    check_field("load alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
-    check("load pc_target_src", pc_target_src, 1'b0);
+    check("load reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("load imm_src", imm_src, ImmI);
+    check("load alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("load mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("load result_src", FieldW'(result_src), FieldW'(ResMem));
+    check("load branch", FieldW'(branch), FieldW'(1'b0));
+    check("load jump", FieldW'(jump), FieldW'(1'b0));
+    check("load alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("load alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("load pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
     check_system("load");
   endtask  // Automatic
 
   task automatic chk_store();
     decode(OpcodeStore, '0, '0);
-    check("store reg_write", reg_write, 1'b0);
-    check_field("store imm_src", imm_src, ImmS);
-    check("store alu_src", alu_src, 1'b1);
-    check("store mem_write", mem_write, 1'b1);
-    check("store branch", branch, 1'b0);
-    check("store jump", jump, 1'b0);
-    check_field("store alu_op", FieldW'(alu_op), FieldW'(AluAdd));
-    check_field("store alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
-    check("store pc_target_src", pc_target_src, 1'b0);
+    check("store reg_write", FieldW'(reg_write), FieldW'(1'b0));
+    check("store imm_src", imm_src, ImmS);
+    check("store alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("store mem_write", FieldW'(mem_write), FieldW'(1'b1));
+    check("store branch", FieldW'(branch), FieldW'(1'b0));
+    check("store jump", FieldW'(jump), FieldW'(1'b0));
+    check("store alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("store alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("store pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
     check_system("store");
   endtask  // Automatic
 
   task automatic chk_branch();
     decode(OpcodeBranch, '0, '0);
-    check("branch reg_write", reg_write, 1'b0);
-    check_field("branch imm_src", imm_src, ImmB);
-    check("branch alu_src", alu_src, 1'b0);
-    check("branch mem_write", mem_write, 1'b0);
-    check("branch branch", branch, 1'b1);
-    check("branch jump", jump, 1'b0);
-    check_field("branch alu_op", FieldW'(alu_op), FieldW'(AluBranch));
-    check_field("branch alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
-    check("branch pc_target_src", pc_target_src, 1'b0);
+    check("branch reg_write", FieldW'(reg_write), FieldW'(1'b0));
+    check("branch imm_src", imm_src, ImmB);
+    check("branch alu_src", FieldW'(alu_src), FieldW'(1'b0));
+    check("branch mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("branch branch", FieldW'(branch), FieldW'(1'b1));
+    check("branch jump", FieldW'(jump), FieldW'(1'b0));
+    check("branch alu_op", FieldW'(alu_op), FieldW'(AluBranch));
+    check("branch alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("branch pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
     check_system("branch");
   endtask  // Automatic
 
   task automatic chk_jal();
     decode(OpcodeJal, '0, '0);
-    check("jal reg_write", reg_write, 1'b1);
-    check_field("jal imm_src", imm_src, ImmJ);
-    check("jal mem_write", mem_write, 1'b0);
-    check_field("jal result_src", FieldW'(result_src), FieldW'(ResPc4));
-    check("jal branch", branch, 1'b0);
-    check("jal jump", jump, 1'b1);
-    check_field("jal alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
-    check("jal pc_target_src", pc_target_src, 1'b0);
+    check("jal reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("jal imm_src", imm_src, ImmJ);
+    check("jal mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("jal result_src", FieldW'(result_src), FieldW'(ResPc4));
+    check("jal branch", FieldW'(branch), FieldW'(1'b0));
+    check("jal jump", FieldW'(jump), FieldW'(1'b1));
+    check("jal alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("jal pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
     check_system("jal");
   endtask  // Automatic
 
   task automatic chk_jalr();
     decode(OpcodeJalr, '0, '0);
-    check("jalr reg_write", reg_write, 1'b1);
-    check_field("jalr imm_src", imm_src, ImmI);
-    check("jalr alu_src", alu_src, 1'b1);
-    check("jalr mem_write", mem_write, 1'b0);
-    check_field("jalr result_src", FieldW'(result_src), FieldW'(ResPc4));
-    check("jalr branch", branch, 1'b0);
-    check("jalr jump", jump, 1'b1);
-    check_field("jalr alu_op", FieldW'(alu_op), FieldW'(AluAdd));
-    check_field("jalr alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
-    check("jalr pc_target_src", pc_target_src, 1'b1);
+    check("jalr reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("jalr imm_src", imm_src, ImmI);
+    check("jalr alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("jalr mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("jalr result_src", FieldW'(result_src), FieldW'(ResPc4));
+    check("jalr branch", FieldW'(branch), FieldW'(1'b0));
+    check("jalr jump", FieldW'(jump), FieldW'(1'b1));
+    check("jalr alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("jalr alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("jalr pc_target_src", FieldW'(pc_target_src), FieldW'(1'b1));
     check_system("jalr");
   endtask  // Automatic
 
   task automatic chk_lui();
     decode(OpcodeLui, '0, '0);
-    check("lui reg_write", reg_write, 1'b1);
-    check_field("lui imm_src", imm_src, ImmU);
-    check("lui alu_src", alu_src, 1'b1);
-    check("lui mem_write", mem_write, 1'b0);
-    check_field("lui result_src", FieldW'(result_src), FieldW'(ResAlu));
-    check("lui branch", branch, 1'b0);
-    check("lui jump", jump, 1'b0);
-    check_field("lui alu_op", FieldW'(alu_op), FieldW'(AluAdd));
-    check_field("lui alu_a_src", FieldW'(alu_a_src), FieldW'(SrcAZero));
-    check("lui pc_target_src", pc_target_src, 1'b0);
+    check("lui reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("lui imm_src", imm_src, ImmU);
+    check("lui alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("lui mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("lui result_src", FieldW'(result_src), FieldW'(ResAlu));
+    check("lui branch", FieldW'(branch), FieldW'(1'b0));
+    check("lui jump", FieldW'(jump), FieldW'(1'b0));
+    check("lui alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("lui alu_a_src", FieldW'(alu_a_src), FieldW'(SrcAZero));
+    check("lui pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
     check_system("lui");
   endtask  // Automatic
 
   task automatic chk_auipc();
     decode(OpcodeAuipc, '0, '0);
-    check("auipc reg_write", reg_write, 1'b1);
-    check_field("auipc imm_src", imm_src, ImmU);
-    check("auipc alu_src", alu_src, 1'b1);
-    check("auipc mem_write", mem_write, 1'b0);
-    check_field("auipc result_src", FieldW'(result_src), FieldW'(ResAlu));
-    check("auipc branch", branch, 1'b0);
-    check("auipc jump", jump, 1'b0);
-    check_field("auipc alu_op", FieldW'(alu_op), FieldW'(AluAdd));
-    check_field("auipc alu_a_src", FieldW'(alu_a_src), FieldW'(SrcAPc));
-    check("auipc pc_target_src", pc_target_src, 1'b0);
+    check("auipc reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("auipc imm_src", imm_src, ImmU);
+    check("auipc alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("auipc mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("auipc result_src", FieldW'(result_src), FieldW'(ResAlu));
+    check("auipc branch", FieldW'(branch), FieldW'(1'b0));
+    check("auipc jump", FieldW'(jump), FieldW'(1'b0));
+    check("auipc alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("auipc alu_a_src", FieldW'(alu_a_src), FieldW'(SrcAPc));
+    check("auipc pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
     check_system("auipc");
   endtask  // Automatic
 
   task automatic chk_illegal();
     decode('1, '0, '0);
-    check("illegal reg_write", reg_write, 1'b0);
-    check("illegal mem_write", mem_write, 1'b0);
+    check("illegal reg_write", FieldW'(reg_write), FieldW'(1'b0));
+    check("illegal mem_write", FieldW'(mem_write), FieldW'(1'b0));
     check_system("illegal");
   endtask  // Automatic
 
@@ -323,11 +315,11 @@ module control_decoder_tb
       f5 = Funct5W'(f);
       for (int i = 0; i < $size(f3s); i++) begin
         decode(OpcodeOpFp, f3s[i], {f5, FmtS, Rs2W'(i)});
-        check($sformatf("opfp %b reg_write", f5), reg_write,
-              f5 == Funct5FcvtWS || f5 == Funct5FmvXW || f5 == Funct5Fcmp);
-        check("opfp mem_write", mem_write, 1'b0);
-        check("opfp branch", branch, 1'b0);
-        check("opfp jump", jump, 1'b0);
+        check($sformatf("opfp %b reg_write", f5), FieldW'(reg_write),
+              FieldW'(f5 == Funct5FcvtWS || f5 == Funct5FmvXW || f5 == Funct5Fcmp));
+        check("opfp mem_write", FieldW'(mem_write), FieldW'(1'b0));
+        check("opfp branch", FieldW'(branch), FieldW'(1'b0));
+        check("opfp jump", FieldW'(jump), FieldW'(1'b0));
         check_system($sformatf("opfp %b", f5));
       end
     end
@@ -335,30 +327,30 @@ module control_decoder_tb
 
   task automatic chk_flw();
     decode(OpcodeLoadFp, Funct3FpWord, Funct12W'('hffc));
-    check("flw reg_write", reg_write, 1'b0);
-    check_field("flw imm_src", imm_src, ImmI);
-    check("flw alu_src", alu_src, 1'b1);
-    check("flw mem_write", mem_write, 1'b0);
-    check_field("flw result_src", FieldW'(result_src), FieldW'(ResMem));
-    check("flw branch", branch, 1'b0);
-    check("flw jump", jump, 1'b0);
-    check_field("flw alu_op", FieldW'(alu_op), FieldW'(AluAdd));
-    check_field("flw alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
-    check("flw pc_target_src", pc_target_src, 1'b0);
+    check("flw reg_write", FieldW'(reg_write), FieldW'(1'b0));
+    check("flw imm_src", imm_src, ImmI);
+    check("flw alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("flw mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("flw result_src", FieldW'(result_src), FieldW'(ResMem));
+    check("flw branch", FieldW'(branch), FieldW'(1'b0));
+    check("flw jump", FieldW'(jump), FieldW'(1'b0));
+    check("flw alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("flw alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("flw pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
     check_system("flw");
   endtask  // Automatic
 
   task automatic chk_fsw();
     decode(OpcodeStoreFp, Funct3FpWord, Funct12W'('h7e5));
-    check("fsw reg_write", reg_write, 1'b0);
-    check_field("fsw imm_src", imm_src, ImmS);
-    check("fsw alu_src", alu_src, 1'b1);
-    check("fsw mem_write", mem_write, 1'b1);
-    check("fsw branch", branch, 1'b0);
-    check("fsw jump", jump, 1'b0);
-    check_field("fsw alu_op", FieldW'(alu_op), FieldW'(AluAdd));
-    check_field("fsw alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
-    check("fsw pc_target_src", pc_target_src, 1'b0);
+    check("fsw reg_write", FieldW'(reg_write), FieldW'(1'b0));
+    check("fsw imm_src", imm_src, ImmS);
+    check("fsw alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("fsw mem_write", FieldW'(mem_write), FieldW'(1'b1));
+    check("fsw branch", FieldW'(branch), FieldW'(1'b0));
+    check("fsw jump", FieldW'(jump), FieldW'(1'b0));
+    check("fsw alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("fsw alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("fsw pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
     check_system("fsw");
   endtask  // Automatic
 
@@ -400,10 +392,10 @@ module control_decoder_tb
       for (int j = 0; j < $size(csr_funct12s); j++) begin
         decode(OpcodeSystem, csr_funct3s[i], csr_funct12s[j]);
         name = $sformatf("csr %b %h", funct3, funct12);
-        check({name, " reg_write"}, reg_write, 1'b1);
-        check({name, " mem_write"}, mem_write, 1'b0);
-        check({name, " branch"}, branch, 1'b0);
-        check({name, " jump"}, jump, 1'b0);
+        check({name, " reg_write"}, FieldW'(reg_write), FieldW'(1'b1));
+        check({name, " mem_write"}, FieldW'(mem_write), FieldW'(1'b0));
+        check({name, " branch"}, FieldW'(branch), FieldW'(1'b0));
+        check({name, " jump"}, FieldW'(jump), FieldW'(1'b0));
         check_system(name);
       end
     end
@@ -422,9 +414,9 @@ module control_decoder_tb
       for (int f3 = 0; f3 < 2 ** Funct3W; f3++) begin
         decode(o, Funct3W'(f3), {Funct7W'(f7), Rs2W'($urandom)});
         name = $sformatf("muldiv %b %b %b", o, Funct7W'(f7), Funct3W'(f3));
-        check({name, " reg_write"}, reg_write, 1'b1);
-        check({name, " mem_write"}, mem_write, 1'b0);
-        check_field({name, " alu_op"}, FieldW'(alu_op), FieldW'(AluFunct));
+        check({name, " reg_write"}, FieldW'(reg_write), FieldW'(1'b1));
+        check({name, " mem_write"}, FieldW'(mem_write), FieldW'(1'b0));
+        check({name, " alu_op"}, FieldW'(alu_op), FieldW'(AluFunct));
         check_system(name);
       end
     end
@@ -491,10 +483,10 @@ module control_decoder_tb
     end
   endfunction
 
-  function automatic logic priv_ref(input logic [OpW-1:0] o, input logic [Funct3W-1:0] f3,
-                                    input logic [Funct12W-1:0] f12,
-                                    input logic [Funct12W-1:0] code);
-    priv_ref = o == OpcodeSystem && f3 == Funct3Priv && f12 == code;
+  function automatic logic [FieldW-1:0] priv_ref(
+      input logic [OpW-1:0] o, input logic [Funct3W-1:0] f3, input logic [Funct12W-1:0] f12,
+      input logic [Funct12W-1:0] code);
+    priv_ref = FieldW'(o == OpcodeSystem && f3 == Funct3Priv && f12 == code);
   endfunction
 
   function automatic logic muldiv_ref(input logic [OpW-1:0] o, input logic [Funct12W-1:0] f12);
