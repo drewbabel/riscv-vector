@@ -207,25 +207,9 @@ jobs:
       - uses: ./.github/actions/riscv-toolchain
         with:
           extra-packages: device-tree-compiler libfdt-dev
-      - name: Cache Spike
-        id: spike-cache
-        uses: actions/cache@v6
+      - uses: ./.github/actions/spike
         with:
-          path: /opt/spike
-          key: spike-${{ env.SPIKE_SHA }}
-      - name: Build Spike
-        if: steps.spike-cache.outputs.cache-hit != 'true'
-        run: |
-          git clone https://github.com/riscv-software-src/riscv-isa-sim.git
-          git -C riscv-isa-sim checkout "$SPIKE_SHA"
-          cd riscv-isa-sim && mkdir build && cd build
-          ../configure --prefix=/opt/spike
-          make -j"$(nproc)"
-          make install
-      - name: Add Spike to environment
-        run: |
-          echo "/opt/spike/bin" >> "$GITHUB_PATH"
-          echo "LD_LIBRARY_PATH=/opt/spike/lib" >> "$GITHUB_ENV"
+          sha: ${{ env.SPIKE_SHA }}
       - name: Directed rv32im co-sim
         run: python3 tests/cosim.py cosim_m
       - name: Directed vector configuration co-sim
