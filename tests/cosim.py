@@ -265,7 +265,7 @@ VEC_WIDTH = {0: 1, 5: 2, 6: 4}  # width field to byte count
 
 
 def run_dut(
-    dut_hex, vcd=False, n=8000, gen=False, stall_seed=None, irq_seed=None
+    dut_hex, vcd=False, n=32000, gen=False, stall_seed=None, irq_seed=None
 ):
     if stall_seed is not None:
         n *= STALL_SLOW
