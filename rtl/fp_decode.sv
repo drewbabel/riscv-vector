@@ -36,6 +36,9 @@ module fp_decode
   logic                          rs2_cvt_ok;
   logic                          rs2_cvt_wu;
   logic                          legal;
+  logic                          unused_regs;
+
+  assign unused_regs = ^{instr[19:15], instr[11:7]};
 
   assign opcode = instr[6:0];
   assign funct5 = instr[31:27];
