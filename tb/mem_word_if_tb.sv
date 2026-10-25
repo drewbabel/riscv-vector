@@ -1,11 +1,63 @@
 `default_nettype none
 
-module mem_word_if_tb;
-
-  import cache_pkg::*;
+module mem_word_if_tb ();
 
   localparam int MinChecks = 40000;
+  localparam int MinLineChecks = 39000;
+
+  int checks;
+  int errors;
+  int max_errors;
+  int live_errors;
+
+  mem_word_if_bench xlen_bench ();
+
+  mem_word_if_bench #(.CPU_W(cache_pkg::LineBits)) line_bench ();
+
+  task automatic check_floor(input string name, input int got, input int floor);
+    if (got < floor)
+      $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    checks = xlen_bench.checks + line_bench.checks;
+    errors = xlen_bench.errors + line_bench.errors;
+    check_floor("xlen_bench", xlen_bench.checks, MinChecks);
+    check_floor("line_bench", line_bench.checks, MinLineChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("mem_word_if_tb.vcd");
+    $dumpvars(0, mem_word_if_tb);
+    wait (xlen_bench.done && line_bench.done);
+    do_verdict();
+  end
+
+  always_comb live_errors = xlen_bench.errors + line_bench.errors;
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (live_errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", live_errors);
+    end
+  end
+
+endmodule
+
+module mem_word_if_bench
+  import cache_pkg::*;
+#(
+    parameter int CPU_W = arch_pkg::XLEN
+) ();
+
   localparam int Xlen = arch_pkg::XLEN;
+  localparam int CpuW = CPU_W;
+  localparam int CpuBytes = CpuW / 8;
+  localparam int CpuLsb = $clog2(CpuBytes);
+  localparam int Chunks = LineBits / CpuW;
   localparam int MemLines = 64;
   localparam int MaxLat = 6;
   localparam int MaxWait = 4000;
@@ -16,6 +68,7 @@ module mem_word_if_tb;
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  logic done = 1'b0;
   int max_lat = MaxLat;
   int en_period = 1;
   int en_ctr = 0;
@@ -28,7 +81,7 @@ module mem_word_if_tb;
 
   logic i_cpu_valid;
   logic [Xlen-1:0] i_cpu_addr;
-  logic [Xlen-1:0] i_cpu_rdata;
+  logic [CpuW-1:0] i_cpu_rdata;
   logic i_cpu_ready;
   logic i_mem_valid;
   logic i_mem_rw;
@@ -43,9 +96,9 @@ module mem_word_if_tb;
   logic d_cpu_valid;
   logic d_cpu_rw;
   logic [Xlen-1:0] d_cpu_addr;
-  logic [Xlen-1:0] d_cpu_wdata;
-  logic [WordBytes-1:0] d_cpu_wstrb;
-  logic [Xlen-1:0] d_cpu_rdata;
+  logic [CpuW-1:0] d_cpu_wdata;
+  logic [CpuBytes-1:0] d_cpu_wstrb;
+  logic [CpuW-1:0] d_cpu_rdata;
   logic d_cpu_ready;
   logic d_mem_valid;
   logic d_mem_rw;
@@ -57,7 +110,7 @@ module mem_word_if_tb;
   logic [31:0] d_hits;
   logic [31:0] d_misses;
 
-  logic [Xlen-1:0] got;
+  logic [CpuW-1:0] got;
 
   // Line memory model
   logic [LineBits-1:0] mem[MemLines];
@@ -77,8 +130,9 @@ module mem_word_if_tb;
   always #5 clk = ~clk;
 
   mem_word_if #(
-      .XLEN(Xlen),
-      .RW  (1'b0)
+      .XLEN (Xlen),
+      .RW   (1'b0),
+      .CPU_W(CpuW)
   ) i_dut (
       .clk(clk),
       .core_en(core_en),
@@ -86,7 +140,7 @@ module mem_word_if_tb;
       .cpu_valid(i_cpu_valid),
       .cpu_rw(1'b1),
       .cpu_addr(i_cpu_addr),
-      .cpu_wdata(Xlen'('hDEAD_BEEF)),
+      .cpu_wdata(CpuW'('hDEAD_BEEF)),
       .cpu_wstrb('1),
       .cpu_rdata(i_cpu_rdata),
       .cpu_ready(i_cpu_ready),
@@ -102,8 +156,9 @@ module mem_word_if_tb;
   );
 
   mem_word_if #(
-      .XLEN(Xlen),
-      .RW  (1'b1)
+      .XLEN (Xlen),
+      .RW   (1'b1),
+      .CPU_W(CpuW)
   ) d_dut (
       .clk(clk),
       .core_en(core_en),
@@ -126,11 +181,11 @@ module mem_word_if_tb;
       .miss_count(d_misses)
   );
 
-  task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
+  task automatic check(input string name, input logic [CpuW-1:0] got, input logic [CpuW-1:0] exp);
     checks++;
     if (got !== exp) begin
       errors++;
-      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      $display("FAIL %m %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
@@ -160,8 +215,8 @@ module mem_word_if_tb;
     end
   endtask  // Automatic
 
-  task automatic poke_word(input logic [Xlen-1:0] addr, input logic [Xlen-1:0] data);
-    mem[line_of(addr)][word_of(addr)*Xlen+:Xlen] = data;
+  task automatic poke_word(input logic [Xlen-1:0] addr, input logic [CpuW-1:0] data);
+    mem[line_of(addr)][word_of(addr)*CpuW+:CpuW] = data;
   endtask  // Automatic
 
   task automatic idle(input int n);
@@ -195,7 +250,7 @@ module mem_word_if_tb;
     end
   endtask  // Automatic
 
-  task automatic fetch(input logic [Xlen-1:0] addr, output logic [Xlen-1:0] data);
+  task automatic fetch(input logic [Xlen-1:0] addr, output logic [CpuW-1:0] data);
     i_cpu_valid = 1'b1;
     i_cpu_addr  = addr;
     wait_i();
@@ -205,7 +260,7 @@ module mem_word_if_tb;
     @(negedge clk);
   endtask  // Automatic
 
-  task automatic load(input logic [Xlen-1:0] addr, output logic [Xlen-1:0] data);
+  task automatic load(input logic [Xlen-1:0] addr, output logic [CpuW-1:0] data);
     d_cpu_valid = 1'b1;
     d_cpu_rw    = 1'b0;
     d_cpu_addr  = addr;
@@ -217,8 +272,8 @@ module mem_word_if_tb;
     @(negedge clk);
   endtask  // Automatic
 
-  task automatic store(input logic [Xlen-1:0] addr, input logic [WordBytes-1:0] strb,
-                       input logic [Xlen-1:0] data);
+  task automatic store(input logic [Xlen-1:0] addr, input logic [CpuBytes-1:0] strb,
+                       input logic [CpuW-1:0] data);
     d_cpu_valid = 1'b1;
     d_cpu_rw    = 1'b1;
     d_cpu_addr  = addr;
@@ -232,13 +287,13 @@ module mem_word_if_tb;
   endtask  // Automatic
 
   task automatic check_fetch(input string name, input logic [Xlen-1:0] addr,
-                             input logic [Xlen-1:0] exp);
+                             input logic [CpuW-1:0] exp);
     fetch(addr, got);
     check(name, got, exp);
   endtask  // Automatic
 
   task automatic check_load(input string name, input logic [Xlen-1:0] addr,
-                            input logic [Xlen-1:0] exp);
+                            input logic [CpuW-1:0] exp);
     load(addr, got);
     check(name, got, exp);
   endtask  // Automatic
@@ -246,47 +301,47 @@ module mem_word_if_tb;
   task automatic test_word_select();
     logic [Xlen-1:0] a;
     for (int i = 0; i < MemLines; i++) begin
-      for (int w = 0; w < LineWords; w++) begin
-        a = Xlen'(i * LineBytes + w * WordBytes);
+      for (int w = 0; w < Chunks; w++) begin
+        a = Xlen'(i * LineBytes + w * CpuBytes);
         check_fetch($sformatf("instruction fetch selected the wrong word at %h", a), a,
-                    mem[i][w*Xlen+:Xlen]);
-        check_load($sformatf("load selected the wrong word at %h", a), a, mem[i][w*Xlen+:Xlen]);
+                    mem[i][w*CpuW+:CpuW]);
+        check_load($sformatf("load selected the wrong word at %h", a), a, mem[i][w*CpuW+:CpuW]);
       end
     end
   endtask  // Automatic
 
   task automatic test_no_line_reuse();
     for (int i = 0; i < ReuseRounds; i++) begin
-      check_fetch("repeat fetch did not see the new memory contents", '0, mem[0][Xlen-1:0]);
-      poke_word('0, Xlen'('hFACE_0000) + Xlen'(i));
-      check_load("repeat load did not see the new memory contents", Xlen'(WordBytes),
-                 mem[0][2*Xlen-1:Xlen]);
-      poke_word(Xlen'(WordBytes), Xlen'('hCAFE_0000) + Xlen'(i));
+      check_fetch("repeat fetch did not see the new memory contents", '0, chunk_at('0));
+      poke_word('0, CpuW'('hFACE_0000) + CpuW'(i));
+      check_load("repeat load did not see the new memory contents", Xlen'(CpuBytes), chunk_at(
+                 Xlen'(CpuBytes)));
+      poke_word(Xlen'(CpuBytes), CpuW'('hCAFE_0000) + CpuW'(i));
     end
   endtask  // Automatic
 
   task automatic test_store_lanes();
     logic [Xlen-1:0] a;
     logic [Xlen-1:0] next;
-    for (int w = 0; w < LineWords; w++) begin
-      a = Xlen'('h100) + Xlen'(w * WordBytes);
-      next = Xlen'('h100) + Xlen'(((w + 1) % LineWords) * WordBytes);
-      store(a, '1, Xlen'('h2222_0000) + Xlen'(w));
+    for (int w = 0; w < Chunks; w++) begin
+      a = Xlen'('h100) + Xlen'(w * CpuBytes);
+      next = Xlen'('h100) + Xlen'(((w + 1) % Chunks) * CpuBytes);
+      store(a, '1, CpuW'('h2222_0000) + CpuW'(w));
       check_fetch($sformatf("store did not land in word %0d of the line", w), a,
-                  Xlen'('h2222_0000) + Xlen'(w));
-      check_fetch($sformatf("store from word %0d overwrote a neighbouring word", w), next,
-                  mem[line_of(next)][word_of(next)*Xlen+:Xlen]);
+                  CpuW'('h2222_0000) + CpuW'(w));
+      check_fetch($sformatf("store from word %0d overwrote a neighbouring word", w), next, chunk_at(
+                  next));
     end
   endtask  // Automatic
 
   task automatic test_byte_strobes();
-    logic [WordBytes-1:0] strobes[4];
-    logic [Xlen-1:0] want;
-    strobes = '{WordBytes'('b0001), WordBytes'('b1100), WordBytes'('b0110), '1};
+    logic [CpuBytes-1:0] strobes[4];
+    logic [CpuW-1:0] want;
+    strobes = '{CpuBytes'('b0001), CpuBytes'('b1100), CpuBytes'('b0110), '1};
     for (int s = 0; s < $size(strobes); s++) begin
-      store(Xlen'('h200), '1, {WordBytes{8'h33}});
-      want = {WordBytes{8'h33}};
-      for (int i = 0; i < WordBytes; i++) begin
+      store(Xlen'('h200), '1, {CpuBytes{8'h33}});
+      want = {CpuBytes{8'h33}};
+      for (int i = 0; i < CpuBytes; i++) begin
         if (strobes[s][i]) want[i*8+:8] = byte_ramp(i);
       end
       store(Xlen'('h200), strobes[s], word_ramp());
@@ -297,14 +352,14 @@ module mem_word_if_tb;
   task automatic test_core_enable_sweep();
     int periods[5];
     logic [Xlen-1:0] a;
-    logic [Xlen-1:0] d;
+    logic [CpuW-1:0] d;
     periods = '{1, 2, 3, 5, 8};
     for (int p = 0; p < $size(periods); p++) begin
       set_core(periods[p], (p % 3) * 5);
       idle(1);
       for (int i = 0; i < 6; i++) begin
-        a = Xlen'('h300) + Xlen'(i * WordBytes);
-        d = Xlen'('h4444_0000) + Xlen'(p * 16 + i);
+        a = Xlen'('h300) + Xlen'(i * CpuBytes);
+        d = CpuW'('h4444_0000) + CpuW'(p * 16 + i);
         store(a, '1, d);
         check_fetch($sformatf("store did not reach memory, core_en 1 cycle in %0d", en_period), a,
                     d);
@@ -315,29 +370,29 @@ module mem_word_if_tb;
 
   task automatic random_traffic(input int n);
     logic [Xlen-1:0] a;
-    logic [Xlen-1:0] d;
-    logic [WordBytes-1:0] strb;
+    logic [CpuW-1:0] d;
+    logic [CpuBytes-1:0] strb;
     repeat (n) begin
-      a    = Xlen'($urandom_range(MemLines * LineWords - 1) * WordBytes);
-      d    = Xlen'($urandom);
-      strb = WordBytes'($urandom);
+      a    = Xlen'($urandom_range(MemLines * Chunks - 1) * CpuBytes);
+      d    = CpuW'({$urandom, $urandom, $urandom, $urandom});
+      strb = CpuBytes'($urandom);
       if (1'($urandom)) begin
         if (strb != '0) store(a, strb, d);
         load(a, got);
-        check("random load returned the wrong word", got, mem[line_of(a)][word_of(a)*Xlen+:Xlen]);
+        check("random load returned the wrong word", got, chunk_at(a));
       end else begin
         fetch(a, got);
-        check("random fetch returned the wrong word", got, mem[line_of(a)][word_of(a)*Xlen+:Xlen]);
+        check("random fetch returned the wrong word", got, chunk_at(a));
       end
     end
   endtask  // Automatic
 
   task automatic check_counters();
-    check("instruction side reported hits", Xlen'(i_hits), '0);
-    check("data side reported hits", Xlen'(d_hits), '0);
-    check("instruction side missed on a different number of accesses", Xlen'(i_misses),
-          Xlen'(i_done));
-    check("data side missed on a different number of accesses", Xlen'(d_misses), Xlen'(d_done));
+    check("instruction side reported hits", CpuW'(i_hits), '0);
+    check("data side reported hits", CpuW'(d_hits), '0);
+    check("instruction side missed on a different number of accesses", CpuW'(i_misses),
+          CpuW'(i_done));
+    check("data side missed on a different number of accesses", CpuW'(d_misses), CpuW'(d_done));
   endtask  // Automatic
 
   task automatic watchdog(input int n);
@@ -345,12 +400,9 @@ module mem_word_if_tb;
     $fatal(1, "global time limit reached before the stimulus finished");
   endtask  // Automatic
 
-  task automatic do_verdict();
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
+  task automatic finish();
+    @(negedge clk);
+    done = 1'b1;
   endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
@@ -358,8 +410,6 @@ module mem_word_if_tb;
   initial watchdog(TimeoutCycles);
 
   initial begin
-    $dumpfile("mem_word_if_tb.vcd");
-    $dumpvars(0, mem_word_if_tb);
     init_memory();
     do_reset();
 
@@ -371,7 +421,7 @@ module mem_word_if_tb;
     random_traffic(RandomOps);
     check_counters();
 
-    do_verdict();
+    finish();
   end
 
   function automatic int line_of(input logic [Xlen-1:0] a);
@@ -379,15 +429,19 @@ module mem_word_if_tb;
   endfunction
 
   function automatic int word_of(input logic [Xlen-1:0] a);
-    word_of = (int'(a) >> WordLsb) % LineWords;
+    word_of = (int'(a) >> CpuLsb) % Chunks;
+  endfunction
+
+  function automatic logic [CpuW-1:0] chunk_at(input logic [Xlen-1:0] a);
+    return mem[line_of(a)][word_of(a)*CpuW+:CpuW];
   endfunction
 
   function automatic logic [7:0] byte_ramp(input int b);
     return 8'('h70 + b);
   endfunction
 
-  function automatic logic [Xlen-1:0] word_ramp();
-    for (int b = 0; b < WordBytes; b++) word_ramp[b*8+:8] = byte_ramp(b);
+  function automatic logic [CpuW-1:0] word_ramp();
+    for (int b = 0; b < CpuBytes; b++) word_ramp[b*8+:8] = byte_ramp(b);
   endfunction
 
   always @(posedge clk) begin
@@ -458,14 +512,14 @@ module mem_word_if_tb;
   // Protocol checks
   always @(posedge clk) begin
     if (rst_n) begin
-      check("read only instance drove a write command at memory", Xlen'(i_mem_rw), '0);
-      check("read only instance drove a nonzero byte strobe", Xlen'(i_mem_wstrb != '0), '0);
-      check("instruction side asserted ready while core_en was low", Xlen'(i_cpu_ready && !core_en),
+      check("read only instance drove a write command at memory", CpuW'(i_mem_rw), '0);
+      check("read only instance drove a nonzero byte strobe", CpuW'(i_mem_wstrb != '0), '0);
+      check("instruction side asserted ready while core_en was low", CpuW'(i_cpu_ready && !core_en),
             '0);
-      check("data side asserted ready while core_en was low", Xlen'(d_cpu_ready && !core_en), '0);
+      check("data side asserted ready while core_en was low", CpuW'(d_cpu_ready && !core_en), '0);
       check("instruction side answered without a memory response",
-            Xlen'(i_cpu_ready && !i_mem_ready), '0);
-      check("data side answered without a memory response", Xlen'(d_cpu_ready && !d_mem_ready), '0);
+            CpuW'(i_cpu_ready && !i_mem_ready), '0);
+      check("data side answered without a memory response", CpuW'(d_cpu_ready && !d_mem_ready), '0);
     end
   end
 
