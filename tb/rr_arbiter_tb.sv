@@ -2,13 +2,71 @@
 
 module rr_arbiter_tb ();
 
-  localparam int N = 4;
-  localparam int MinChecks = 48000;
+  localparam int MinChecksMax  = 72000;
+  localparam int MinChecksSpan = 16000;
+
+  int checks;
+  int errors;
+  int max_errors;
+  int live_errors;
+
+  rr_arbiter_bench #(.N(2)) n2_bench ();
+
+  rr_arbiter_bench #(.N(3)) n3_bench ();
+
+  rr_arbiter_bench #(.N(4)) n4_bench ();
+
+  rr_arbiter_bench #(.N(8)) n8_bench ();
+
+  task automatic check_floor(input string name, input int got, input int floor);
+    if (got < floor)
+      $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
+  endtask  // Automatic
+
+  function automatic int min_checks(input int n);
+    return MinChecksMax - MinChecksSpan / n;
+  endfunction
+
+  task automatic do_verdict();
+    checks = n2_bench.checks + n3_bench.checks + n4_bench.checks + n8_bench.checks;
+    errors = n2_bench.errors + n3_bench.errors + n4_bench.errors + n8_bench.errors;
+    check_floor("n2_bench", n2_bench.checks, min_checks(2));
+    check_floor("n3_bench", n3_bench.checks, min_checks(3));
+    check_floor("n4_bench", n4_bench.checks, min_checks(4));
+    check_floor("n8_bench", n8_bench.checks, min_checks(8));
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("tb.vcd");
+    $dumpvars(0, rr_arbiter_tb);
+    wait (n2_bench.done && n3_bench.done && n4_bench.done && n8_bench.done);
+    do_verdict();
+  end
+
+  always_comb live_errors = n2_bench.errors + n3_bench.errors + n4_bench.errors + n8_bench.errors;
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (live_errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", live_errors);
+    end
+  end
+
+endmodule
+
+module rr_arbiter_bench #(
+    parameter int N = 4
+) ();
+
   localparam int TimeoutCycles = 20_000_000;
 
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  logic done = 1'b0;
 
   logic clk = 1'b0;
   logic rst_n = 1'b1;
@@ -41,7 +99,7 @@ module rr_arbiter_tb ();
     checks++;
     if (got !== exp) begin
       errors++;
-      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      $display("FAIL %m %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
@@ -53,15 +111,6 @@ module rr_arbiter_tb ();
     @(posedge clk);
     @(negedge clk);
     rst_n = 1'b1;
-  endtask  // Automatic
-
-  task automatic do_verdict();
-    @(posedge clk);
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
   endtask  // Automatic
 
   task automatic watchdog(input int cycles);
@@ -108,18 +157,21 @@ module rr_arbiter_tb ();
     repeat (n) drive(N'($urandom), 1'($urandom), $urandom_range(4, 2));
   endtask  // Automatic
 
+  task automatic finish();
+    @(posedge clk);
+    done = 1'b1;
+  endtask  // Automatic
+
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial watchdog(TimeoutCycles);
 
   initial begin
-    $dumpfile("tb.vcd");
-    $dumpvars(0, rr_arbiter_tb);
     do_reset();
     directed();
     full_range(N);
     random_sweep(5000);
-    do_verdict();
+    finish();
   end
 
   // Reference model
