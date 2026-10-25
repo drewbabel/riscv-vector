@@ -13,6 +13,7 @@ module coremark_predict_tb ();
   localparam int ClksPerBit = (FastClkHz + BaudRate / 2) / BaudRate;
   localparam int BootCycles = 2000;
   localparam int ProbeBranches = 30_000;
+  localparam int MinChecks = ProbeBranches;
   localparam int TimeoutCycles = 60_000_000;
 
   logic clk = 1'b0;
@@ -24,6 +25,8 @@ module coremark_predict_tb ();
   logic [XLEN-1:0] img[DEPTH];
 
   int branches = 0;
+  logic branch;
+  logic mis;
   int mispredicts = 0;
 
   always #5 clk = ~clk;
@@ -32,19 +35,18 @@ module coremark_predict_tb ();
       .DEPTH (DEPTH),
       .ClkDiv(ClkDiv)
   ) dut (
-      .clk    (clk),
-      .rst    (rst),
-      .sw     (sw),
-      .led    (led),
-      .uart_rx(uart_rx),
-      .uart_tx(uart_tx)
+      .sim_branch      (branch),
+      .sim_branch_taken(),
+      .sim_mispredict  (mis),
+      .sim_muldiv_hold (),
+      .clk             (clk),
+      .rst             (rst),
+      .sw              (sw),
+      .led             (led),
+      .uart_rx         (uart_rx),
+      .uart_tx         (uart_tx)
   );
 
-  logic v_ex, b_ex, mis, c_en;
-  assign v_ex = dut.riscv_pipelined_inst.datapath_inst.valid_ex;
-  assign b_ex = dut.riscv_pipelined_inst.datapath_inst.branch_ex;
-  assign mis  = dut.riscv_pipelined_inst.datapath_inst.mispredict;
-  assign c_en = dut.core_en;
 
   task automatic load_image(input string path);
     logic [LineBits-1:0] pline;
@@ -95,9 +97,14 @@ module coremark_predict_tb ();
 
   task automatic probe(input int n);
     wait (branches >= n);
-    $display("PROBE branches=%0d mispredicts=%0d rate=%0d.%02d%% pc=%08x", branches, mispredicts,
-             (100 * mispredicts) / branches, ((10000 * mispredicts) / branches) % 100,
-             dut.riscv_pipelined_inst.pc);
+    $display("PROBE branches=%0d mispredicts=%0d rate=%0d.%02d%%", branches, mispredicts,
+             (100 * mispredicts) / branches, ((10000 * mispredicts) / branches) % 100);
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (branches < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d branches, expected at least %0d", branches, MinChecks);
+    $display("PASS: %0d branches probed", branches);
     $finish;
   endtask  // Automatic
 
@@ -111,12 +118,13 @@ module coremark_predict_tb ();
     do_reset();
     start_core();
     probe(ProbeBranches);
+    do_verdict();
   end
 
   initial watchdog();
 
   always @(posedge clk) begin
-    if (!rst && c_en && v_ex && b_ex) begin
+    if (!rst && branch) begin
       branches++;
       if (mis) mispredicts++;
     end
