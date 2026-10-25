@@ -199,6 +199,7 @@ jobs:
 
   cosim:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -210,74 +211,14 @@ jobs:
       - uses: ./.github/actions/spike
         with:
           sha: ${{ env.SPIKE_SHA }}
-      - name: Directed rv32im co-sim
-        run: python3 tests/cosim.py cosim_m
-      - name: Directed vector configuration co-sim
-        run: python3 tests/cosim.py --vec vecconf
-      - name: Directed vector memory co-sim
-        run: python3 tests/cosim.py --vec vecmem
-      - name: Vector trap co-sim
-        run: python3 tests/cosim.py --vec vectrap
-      - name: Vector memcpy co-sim
-        run: python3 tests/cosim.py --vec vecmemcpy
-      - name: Vector mixed width co-sim
-        run: python3 tests/cosim.py --vec vecmix
-      - name: Vector mask co-sim
-        run: python3 tests/cosim.py --vec vecmask
-      - name: Vector ALU co-sim
-        run: python3 tests/cosim.py --vec vecalu
-      - name: Vector multiply co-sim
-        run: python3 tests/cosim.py --vec vecmul
-      - name: Vector fixed-point co-sim
-        run: python3 tests/cosim.py --vec vecsat
-      - name: Vector divide co-sim
-        run: python3 tests/cosim.py --vec vecdiv
-      - name: Vector scalar-return co-sim
-        run: python3 tests/cosim.py --vec vecxres
-      - name: Scalar float co-sim
-        run: python3 tests/cosim.py --fp cosim_f
-      - name: Vector float co-sim
-        run: python3 tests/cosim.py --vec --fp vecfp
-      - name: Vector float move co-sim
-        run: python3 tests/cosim.py --vec --fp vecfmv
-      - name: Vector float move behind divide co-sim
-        run: python3 tests/cosim.py --vec --fp vecfmvdiv
-      - name: Vector float reduction co-sim
-        run: python3 tests/cosim.py --vec --fp vecfred
-      - name: Vector float sum co-sim
-        run: python3 tests/cosim.py --vec --fp vecfsum
-      - name: Vector float unary co-sim
-        run: python3 tests/cosim.py --vec --fp vecfunary
-      - name: Vector slide co-sim
-        run: python3 tests/cosim.py --vec --fp vecslide
-      - name: Vector float divide co-sim
-        run: python3 tests/cosim.py --vec --fp vecfdiv
-      - name: Vector float convert co-sim
-        run: python3 tests/cosim.py --vec --fp vecfcvt
-      - name: Vector float widen and narrow co-sim
-        run: python3 tests/cosim.py --vec --fp vecfcvtw
-      - name: Float load and store co-sim
-        run: python3 tests/cosim.py --fp --vec cosim_fls
-      - name: Fractional group co-sim
-        run: python3 tests/cosim.py --vec --fp vecfrac
-      - name: Vector float arithmetic co-sim
-        run: python3 tests/cosim.py --vec --fp vecfarith
-      - name: Vector float min, max, sign and compare co-sim
-        run: python3 tests/cosim.py --vec --fp vecfminmax
-      - name: Vector float fused multiply-add co-sim
-        run: python3 tests/cosim.py --vec --fp vecffma
-      - name: Vector float reduction forms co-sim
-        run: python3 tests/cosim.py --vec --fp vecfredall
-      - name: Vector float move and merge co-sim
-        run: python3 tests/cosim.py --vec --fp vecfmove
-      - name: Vector float rounding mode co-sim
-        run: python3 tests/cosim.py --vec --fp vecfround
-      - name: Vector float invalid frm and flags co-sim
-        run: python3 tests/cosim.py --vec --fp vecffrm
-      - name: Vector float widening trap co-sim
-        run: python3 tests/cosim.py --vec --fp vecfwtrap
-      - name: Vector SEW 64 vill co-sim
-        run: python3 tests/cosim.py --vec --fp vecve64
+      - name: Directed co-sims
+        run: |
+          rc=0
+          while read -r args; do
+            echo "== $args =="
+            python3 tests/cosim.py $args || rc=1
+          done < tests/cosim_directed.txt
+          exit $rc
       - name: Draw the random co-sim seed
         run: |
           seed=$(( $(od -An -N4 -tu4 /dev/urandom) % 1000000000 ))
