@@ -14,13 +14,12 @@ module vec_unit
     parameter  int ELEN      = arch_pkg::ELEN,
     parameter  int MUL_LANES = arch_pkg::MulLanes,
     localparam int MaxElems  = VLEN / 8,
-    localparam int VlW       = $clog2(VLEN + 1),
-    localparam int NRegs     = 1 << AWIDTH
+    localparam int VlW       = $clog2(VLEN + 1)
 ) (
 `ifdef RISCV_FORMAL
     output logic [vec_pkg::VecTagW-1:0] dbg_vec_tag,
     output logic                        dbg_vec_retire,
-    output logic [           NRegs-1:0] dbg_vec_wregs,
+    output logic [     (1<<AWIDTH)-1:0] dbg_vec_wregs,
     output logic                        dbg_vec_idle,
     output logic                        dbg_vec_accept,
 `endif
@@ -134,7 +133,6 @@ module vec_unit
   logic      [         AWIDTH-1:0] dec_vd;
   logic      [                4:0] dec_simm;
   logic                            dec_reads_vd;
-  logic                            dec_reads_xreg;
   logic                            dec_writes_xreg;
   logic                            dec_writes_freg;
   logic                            dec_writes_mask;
@@ -344,6 +342,22 @@ module vec_unit
   assign seq_geom_s = vec_geom(seq_op, seq_eew);
   assign cls_ex = vec_class(op_ex);
   assign geom_ex = vec_geom(op_ex, eew_ex);
+
+  logic unused_geom;
+  assign unused_geom = ^{
+    dec_geom_s.mul_rate,
+    dec_geom_s.widen,
+    dec_geom_s.mask_whole,
+    seq_geom_s.widen,
+    geom_ex.d,
+    geom_ex.s1,
+    geom_ex.s2,
+    geom_ex.mul_rate,
+    geom_ex.single_write,
+    geom_ex.mask_dest,
+    geom_ex.mask_whole,
+    geom_ex.mask_src
+  };
 
   // Mask is data
   logic v0_is_data;
@@ -665,7 +679,6 @@ module vec_unit
   assign dec_vd = AWIDTH'(dec.vd);
   assign dec_simm = dec.simm;
   assign dec_reads_vd = dec.reads_vd;
-  assign dec_reads_xreg = dec.reads_xreg;
   assign dec_writes_xreg = dec.writes_xreg;
   assign dec_writes_freg = dec.writes_freg;
   assign dec_writes_mask = dec.writes_mask;
@@ -1172,9 +1185,14 @@ module vec_unit
   logic                    lane_x2;
 
   assign narrow_ex = (eew_ex == VEC_EEW_NARROW);
-  assign wmul_ex = (cls_ex == VEC_CLS_MUL) && geom_ex.widen;
+  assign wmul_ex   = (cls_ex == VEC_CLS_MUL) && geom_ex.widen;
   assign vd_mul_ex = (op_ex == VEC_MADD) || (op_ex == VEC_NMSUB);
-  assign vd_data = rdata3_ex >> d_off_ex;
+  assign vd_data   = rdata3_ex >> d_off_ex;
+
+  if (MUL_LANES * ELEN < VLEN) begin : g_unused_vd
+    logic unused_vd;
+    assign unused_vd = ^vd_data[VLEN-1:MUL_LANES*ELEN];
+  end
   assign imm_ex = ((op_ex == VEC_SSRL) || (op_ex == VEC_SSRA) || narrow_ex) ?
       ELEN'(simm_ex) : {{(ELEN - 5) {simm_ex[4]}}, simm_ex};
   assign mul_op_x2 = vec_pkg::vec_op_e'((op_x2 == VEC_SMUL) ? VEC_MULH : op_x2);
@@ -1197,10 +1215,10 @@ module vec_unit
       (cls_x2 == VEC_CLS_FCMP) || fsum_x2;
 
   for (genvar l = 0; l < MUL_LANES; l++) begin : g_lane
-    logic [     ELEN-1:0] a_w     [Widths];
-    logic [     ELEN-1:0] b_w     [Widths];
-    logic [     ELEN-1:0] s_w     [Widths];
-    logic [     ELEN-1:0] d_w     [Widths];
+    logic [     ELEN-1:0] a_w         [Widths];
+    logic [     ELEN-1:0] b_w         [Widths];
+    logic [     ELEN-1:0] s_w         [Widths];
+    logic [     ELEN-1:0] d_w         [Widths];
     logic [     ELEN-1:0] a_ex;
     logic [     ELEN-1:0] b_ex;
     logic [     ELEN-1:0] c_ex;
@@ -1220,6 +1238,10 @@ module vec_unit
     logic                 sat;
     logic                 idone;
     logic                 fdone;
+    logic                 idiv_busy;
+    logic                 fdiv_busy;
+    logic                 fpl_valid;
+    logic                 unused_lane;
     logic [      FpW-1:0] fdv_res;
     logic [    FlagW-1:0] fdv_flg;
     logic [FlagW+FpW-1:0] fdv_q;
@@ -1299,7 +1321,7 @@ module vec_unit
         .a(a_x2),
         .b(b_x2),
         .result(div_res),
-        .busy(),
+        .busy(idiv_busy),
         .done(idone)
     );
 
@@ -1314,7 +1336,7 @@ module vec_unit
         .b(FpW'(b_x2)),
         .result(fdv_res),
         .fflags(fdv_flg),
-        .busy(),
+        .busy(fdiv_busy),
         .done(fdone)
     );
 
@@ -1348,8 +1370,10 @@ module vec_unit
         .c(vd_data[l*FpW+:FpW]),
         .result(fpl_res),
         .fflags(fpl_flag),
-        .result_valid()
+        .result_valid(fpl_valid)
     );
+
+    assign unused_lane = ^{idiv_busy, fdiv_busy, fpl_valid};
 
     assign {fp_flag[l], fp_res[l]} = fdiv_wb ? fdv_q : {fpl_flag, fpl_res};
 
@@ -1663,6 +1687,15 @@ module vec_unit
   assign xreg_valid = dec_writes_xreg && is_vector;
   assign xreg_result = xres_q;
   assign vec_hold = issue_hold || (csr_wait && !vec_idle);
+
+  logic unused_bits;
+  assign unused_bits = ^{
+    csr_wdata[XLEN-1:VxrmW+1],
+    dec.reads_xreg,
+    elem_count,
+    vsew_x4[vec_pkg::VsewW-1:WSelW],
+    last_wb
+  };
   assign fflags = ((valid_wb && fp_wb) ? fp_flags_or : '0) | fred_flags_wb;
 
 `ifdef RISCV_FORMAL
@@ -1690,9 +1723,9 @@ module vec_unit
   end
 
   // Registers written
-  logic [ NRegs-1:0] wr_mask_q;
-  logic              wr_en;
-  logic [AWIDTH-1:0] wr_addr;
+  logic [$bits(dbg_vec_wregs)-1:0] wr_mask_q;
+  logic                            wr_en;
+  logic [              AWIDTH-1:0] wr_addr;
 
   assign wr_en   = rf_we;
   assign wr_addr = rf_waddr;
@@ -1700,7 +1733,7 @@ module vec_unit
   always_ff @(posedge clk) begin
     if (!rst_n) wr_mask_q <= '0;
     else if (core_en) begin
-      if (retire) wr_mask_q <= wr_en ? (NRegs'(1) << wr_addr) : '0;
+      if (retire) wr_mask_q <= wr_en ? ($bits(wr_mask_q))'(1) << wr_addr : '0;
       else if (wr_en) wr_mask_q[wr_addr] <= 1'b1;
     end
   end
