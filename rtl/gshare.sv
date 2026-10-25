@@ -3,7 +3,8 @@
 module gshare
   import bp_pkg::*;
 #(
-    parameter int XLEN = arch_pkg::XLEN
+    parameter  int XLEN     = arch_pkg::XLEN,
+    localparam int InstrLsb = arch_pkg::InstrLsb
 ) (
     input wire clk,
     input wire core_en,
@@ -20,16 +21,23 @@ module gshare
     input wire [GhistLen-1:0] update_index
 );
 
+  localparam int CtrW = 2;
+  localparam logic [CtrW-1:0] WeakNotTaken = CtrW'(1);
+
+  if (GhistLen < 2) begin : g_ghist_len
+    $error("GhistLen must be at least 2");
+  end
+
   logic [GhistLen-1:0] ghr;
-  logic [         1:0] pht [PhtDepth];
+  logic [    CtrW-1:0] pht [PhtDepth];
 
   // Weakly not taken cold state
-  initial for (int i = 0; i < PhtDepth; i++) pht[i] = 2'b01;
+  initial for (int i = 0; i < PhtDepth; i++) pht[i] = WeakNotTaken;
 
-  assign predict_index = ($bits(predict_index))'(predict_pc >> 2) ^ ghr;
+  assign predict_index = ($bits(predict_index))'(predict_pc >> InstrLsb) ^ ghr;
 
   // 2bit saturating counter
-  assign predict_taken = pht[predict_index][1];
+  assign predict_taken = pht[predict_index][CtrW-1];
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -37,9 +45,9 @@ module gshare
     end else if (core_en) begin
       if (update_valid) begin
         if (update_taken) begin
-          if (pht[update_index] != 2'b11) pht[update_index] <= pht[update_index] + 1;
+          if (pht[update_index] != '1) pht[update_index] <= pht[update_index] + 1;
         end else begin
-          if (pht[update_index] != 2'b00) pht[update_index] <= pht[update_index] - 1;
+          if (pht[update_index] != '0) pht[update_index] <= pht[update_index] - 1;
         end
 
         ghr <= {ghr[GhistLen-2:0], update_taken};
