@@ -16,6 +16,7 @@ module vec_unit_stub
     output logic               dbg_vec_retire,
     output logic [  NRegs-1:0] dbg_vec_wregs,
     output logic               dbg_vec_idle,
+    output logic               dbg_vec_accept,
 `endif
     input  wire                clk,
     input  wire                rst_n,
@@ -75,6 +76,7 @@ module vec_unit_stub
   assign dbg_vec_retire = 1'b0;
   assign dbg_vec_wregs  = '0;
   assign dbg_vec_idle   = 1'b1;
+  assign dbg_vec_accept = 1'b0;
 `endif
   assign mem_req        = 1'b0;
   assign mem_addr       = '0;

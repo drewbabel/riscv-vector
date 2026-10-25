@@ -9,9 +9,12 @@ module vec_issue
     parameter  int VLEN   = arch_pkg::VLEN,
     localparam int VlW    = $clog2(VLEN + 1)
 ) (
-    input wire clk,
-    input wire rst_n,
-    input wire core_en,
+`ifdef RISCV_FORMAL
+    output logic dbg_accept,
+`endif
+    input  wire  clk,
+    input  wire  rst_n,
+    input  wire  core_en,
 
     // Execute stage
     input wire                        instr_valid,
@@ -148,6 +151,9 @@ module vec_issue
   assign launch = q_valid && !e_valid && regs_ready && !(q_port && pipe_busy);
   assign x_wait = (q_valid && q_xreg) || x_pend;
   assign accept = instr_valid && !cancel && !x_wait && !x_spent && (!q_valid || launch);
+`ifdef RISCV_FORMAL
+  assign dbg_accept = accept;
+`endif
   assign x_hold = instr_valid && (x_wait || writes_xreg) && !x_spent;
   assign vec_hold = x_hold || (instr_valid && q_valid && !launch);
   assign vec_idle = !q_valid && !e_valid && !seq_busy && !regs_busy;
