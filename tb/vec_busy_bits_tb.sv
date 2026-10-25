@@ -5,7 +5,7 @@ module vec_busy_bits_tb ();
   localparam int NREGS = arch_pkg::NumRegs;
   localparam int AddrW = $clog2(NREGS);
   localparam int CountW = AddrW + 1;
-  localparam int MinChecks = 22000;
+  localparam int MinChecks = 6400 + 484 * NREGS;
 
   int                checks = 0;
   int                errors = 0;
