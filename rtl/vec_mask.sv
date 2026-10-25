@@ -35,6 +35,11 @@ module vec_mask
     $error("ELEN must be 32 (Zve32f)");
   end
 
+  if (XLEN > ELEN) begin : g_unused_xdata
+    logic unused_xdata;
+    assign unused_xdata = ^xdata[XLEN-1:ELEN];
+  end
+
   // Active mask bits
   logic [DLEN-1:0] live;
   logic [DLEN-1:0] active;
