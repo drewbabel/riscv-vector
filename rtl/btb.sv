@@ -24,13 +24,16 @@ module btb
     input wire            update_is_cond
 );
 
-  logic                 valid      [BtbDepth];
-  logic [   TagLen-1:0] tag        [BtbDepth];
-  logic [     XLEN-1:0] targ       [BtbDepth];
-  logic                 cond       [BtbDepth];
+  logic                 valid         [BtbDepth];
+  logic [   TagLen-1:0] tag           [BtbDepth];
+  logic [     XLEN-1:0] targ          [BtbDepth];
+  logic                 cond          [BtbDepth];
 
   logic [BtbIdxLen-1:0] lookup_idx;
   logic [BtbIdxLen-1:0] update_idx;
+  logic                 unused_pc_lsb;
+
+  assign unused_pc_lsb = ^{lookup_pc[InstrLsb-1:0], update_pc[InstrLsb-1:0]};
 
   assign lookup_idx = lookup_pc[InstrLsb+:BtbIdxLen];
   assign update_idx = update_pc[InstrLsb+:BtbIdxLen];
