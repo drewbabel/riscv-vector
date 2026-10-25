@@ -412,6 +412,16 @@ module vec_unit_tb
         (v | ~(ELEN'((ELEN'(1) << w) - ELEN'(1)))) : (v & ELEN'((ELEN'(1) << w) - ELEN'(1)));
   endfunction
 
+  function automatic int vlmax_of(input logic [2:0] sew, input logic [2:0] lmul);
+    int epr;
+    epr = VLEN >> (3 + sew);
+    return lmul[2] ? (epr >> (3'd0 - lmul)) : (epr << lmul);
+  endfunction
+
+  function automatic int fit(input int n, input logic [2:0] sew, input logic [2:0] lmul);
+    return (n < vlmax_of(sew, lmul)) ? n : vlmax_of(sew, lmul);
+  endfunction
+
   // Element rule
   function automatic logic [ELEN-1:0] ref_op(input vec_op_e o, input int w,
                                              input logic [ELEN-1:0] ra, input logic [ELEN-1:0] rb,
@@ -525,6 +535,7 @@ module vec_unit_tb
     begin
       vsew  = sew;
       vlmul = lmul;
+      len    = VlW'(fit(int'(len), vsew, vlmul));
       vl    = len;
       regs  = lmul[2] ? 1 : (1 << lmul[1:0]);
       case (form)
@@ -551,8 +562,9 @@ module vec_unit_tb
       seed_all();
       vsew  = 3'd0;
       vlmul = 3'd3;
-      vl    = VlW'(70);
-      ref_apply(VEC_ADD, 0, AWIDTH'(8), AWIDTH'(16), AWIDTH'(24), 1'b1, '0, AWIDTH'(0), 8, 8, 70);
+      vl    = VlW'(fit(70, vsew, vlmul));
+      ref_apply(VEC_ADD, 0, AWIDTH'(8), AWIDTH'(16), AWIDTH'(24), 1'b1, '0, AWIDTH'(0), 8, 8,
+                int'(vl));
       issue(enc(6'b000000, 1'b1, AWIDTH'(16), AWIDTH'(8), 3'b000, AWIDTH'(24)));
       vsew  = 3'd2;
       vlmul = 3'd0;
@@ -678,7 +690,7 @@ module vec_unit_tb
         form = int'(1'($urandom));
         sew  = 3'($urandom_range(2));
         lmul = 3'($urandom_range(2));
-        len  = VlW'($urandom_range((VLEN >> sew) * (1 << lmul)));
+        len  = VlW'($urandom_range(vlmax_of(sew, lmul)));
         vmb  = 1'($urandom);
         if (o == VEC_MERGE) vmb = 1'b0;
         run_one(o, form, AWIDTH'(4), AWIDTH'(8), AWIDTH'(16), vmb, XLEN'($urandom),
@@ -745,6 +757,7 @@ module vec_unit_tb
     begin
       vsew    = sew;
       vlmul   = lmul;
+      len     = VlW'(fit(int'(len), vsew, vlmul));
       vl      = len;
       xdata   = b;
       xstride = st;
@@ -831,7 +844,7 @@ module vec_unit_tb
 
       vsew  = 3'd0;
       vlmul = 3'd3;
-      vl    = VlW'(128);
+      vl    = VlW'(VLEN);
       issue(enc(6'b000000, 1'b1, AWIDTH'(16), AWIDTH'(8), 3'b000, AWIDTH'(24)));
       @(negedge clk);
       csr_wait = 1'b1;
@@ -961,7 +974,7 @@ module vec_unit_tb
     begin
       vsew   = 3'd0;
       vlmul  = 3'd0;
-      vl     = VlW'(16);
+      vl     = VlW'(LineB);
       xdata  = XLEN'(16);
       cancel = 1'b1;
       issue(enc_mem(1'b1, 2'd0, 1'b0, 1'b0, 1'b1, AWIDTH'(5)));
@@ -978,14 +991,14 @@ module vec_unit_tb
       ready_pct = 20;
       vsew = 3'd0;
       vlmul = 3'd0;
-      vl = VlW'(16);
+      vl = VlW'(LineB);
       xdata = XLEN'(40);
-      ref_mem(1'b1, 0, 1'b1, AWIDTH'(6), XLEN'(40), XLEN'(1), 16);
+      ref_mem(1'b1, 0, 1'b1, AWIDTH'(6), XLEN'(40), XLEN'(1), LineB);
       issue(enc_mem(1'b1, 2'd0, 1'b0, 1'b0, 1'b1, AWIDTH'(6)));
       check("store pending", XLEN'(store_pending), XLEN'(1));
       check("no load pending", XLEN'(load_pending), XLEN'(0));
       xdata = XLEN'(80);
-      ref_mem(1'b0, 0, 1'b1, AWIDTH'(7), XLEN'(80), XLEN'(1), 16);
+      ref_mem(1'b0, 0, 1'b1, AWIDTH'(7), XLEN'(80), XLEN'(1), LineB);
       issue(enc_mem(1'b0, 2'd0, 1'b0, 1'b0, 1'b1, AWIDTH'(7)));
       check("load pending", XLEN'(load_pending), XLEN'(1));
       drain();
@@ -1327,6 +1340,7 @@ module vec_unit_tb
     regs  = lmul[2] ? 1 : (1 << lmul[1:0]);
     vsew  = sew;
     vlmul = lmul;
+    len    = VlW'(fit(int'(len), vsew, vlmul));
     vl    = len;
     xdata = xd;
     case (o)
@@ -1353,6 +1367,7 @@ module vec_unit_tb
     regs  = lmul[2] ? 1 : (1 << lmul[1:0]);
     vsew  = sew;
     vlmul = lmul;
+    len    = VlW'(fit(int'(len), vsew, vlmul));
     vl    = len;
     xdata = xd;
     f6    = (o == VEC_NSRA) ? 6'b101101 : 6'b101100;
@@ -1385,6 +1400,7 @@ module vec_unit_tb
     regs   = lmul[2] ? 1 : (1 << lmul[1:0]);
     vsew   = sew;
     vlmul  = lmul;
+    len    = VlW'(fit(int'(len), vsew, vlmul));
     vl     = len;
     factor = ((o == VEC_ZEXT4) || (o == VEC_SEXT4)) ? 4 : 2;
     case (o)
@@ -1410,6 +1426,7 @@ module vec_unit_tb
     regs  = lmul[2] ? 1 : (1 << lmul[1:0]);
     vsew  = sew;
     vlmul = lmul;
+    len    = VlW'(fit(int'(len), vsew, vlmul));
     vl    = len;
     wide  = (o == VEC_WREDSUM) || (o == VEC_WREDSUMU);
     f3    = wide ? 3'b000 : 3'b010;
@@ -1436,6 +1453,7 @@ module vec_unit_tb
                              input logic [2:0] sew, input logic [VlW-1:0] len);
     vsew  = sew;
     vlmul = 3'd0;
+    len    = VlW'(fit(int'(len), vsew, vlmul));
     vl    = len;
     xdata = xd;
     if (len != VlW'(0)) grp_set(d, 8 << sew, 0, xd);
@@ -1449,6 +1467,7 @@ module vec_unit_tb
     logic [ELEN-1:0] want;
     vsew  = sew;
     vlmul = 3'd0;
+    len    = VlW'(fit(int'(len), vsew, vlmul));
     vl    = len;
     want  = sext(get_elem(shadow[s2], 8 << sew, 0), 8 << sew);
     issue(enc(6'b010000, 1'b1, s2, 5'b00000, 3'b010, AWIDTH'(7)));
@@ -1618,6 +1637,7 @@ module vec_unit_tb
     begin
       vsew  = sew;
       vlmul = lmul;
+      len   = VlW'(fit(int'(len), vsew, vlmul));
       vl    = len;
       xdata = xd;
       w     = 8 << sew;
@@ -1719,6 +1739,7 @@ module vec_unit_tb
     begin
       vsew  = sew;
       vlmul = lmul;
+      len   = VlW'(fit(int'(len), vsew, vlmul));
       vl    = len;
       xdata = xd;
       w     = 8 << sew;
@@ -1866,7 +1887,7 @@ module vec_unit_tb
                    ))));
       end
       run_mlogic(6'b011001, AWIDTH'(3), AWIDTH'(9), AWIDTH'(21), VlW'(0));
-      run_mlogic(6'b011010, AWIDTH'(3), AWIDTH'(3), AWIDTH'(3), VlW'(128));
+      run_mlogic(6'b011010, AWIDTH'(3), AWIDTH'(3), AWIDTH'(3), VlW'(VLEN));
     end
   endtask  // Automatic
 
@@ -1932,6 +1953,7 @@ module vec_unit_tb
     begin
       vsew  = sew;
       vlmul = lmul;
+      len   = VlW'(fit(int'(len), vsew, vlmul));
       vl    = len;
       w     = 8 << sew;
       count = 0;
@@ -2058,8 +2080,8 @@ module vec_unit_tb
         run_msum(1'b0, AWIDTH'(7), 1'($urandom), VlW'($urandom_range(VLEN)));
       end
       seed_reg(AWIDTH'(7), '0);
-      run_msum(1'b1, AWIDTH'(7), 1'b1, VlW'(128));
-      run_msum(1'b0, AWIDTH'(7), 1'b1, VlW'(128));
+      run_msum(1'b1, AWIDTH'(7), 1'b1, VlW'(VLEN));
+      run_msum(1'b0, AWIDTH'(7), 1'b1, VlW'(VLEN));
     end
   endtask  // Automatic
 
@@ -2275,6 +2297,7 @@ module vec_unit_tb
       csr_poke(VxsatAddr, '0);
       vsew = sew;
       vlmul = lmul;
+      len = VlW'(fit(int'(len), vsew, vlmul));
       vl = len;
       xdata = xd;
       model_lane(o, form, s1, s2, d, vmb, xd, im, w, regs, len, mode, want_sat);
@@ -2340,6 +2363,7 @@ module vec_unit_tb
       regs = lmul[2] ? 1 : (1 << lmul[1:0]);
       vsew = sew;
       vlmul = lmul;
+      len = VlW'(fit(int'(len), vsew, vlmul));
       vl = len;
       xdata = xd;
       for (int i = 0; i < group_elems(w, regs); i++) begin
@@ -2456,6 +2480,7 @@ module vec_unit_tb
     begin
       vsew  = sew;
       vlmul = lmul;
+      len    = VlW'(fit(int'(len), vsew, vlmul));
       vl    = len;
       xdata = sc;
       fdata = sc;
@@ -2552,12 +2577,14 @@ module vec_unit_tb
       seed_all();
       vsew  = 3'd0;
       vlmul = 3'd0;
-      vl    = VlW'(16);
-      ref_apply(VEC_ADD, 0, AWIDTH'(4), AWIDTH'(8), AWIDTH'(12), 1'b1, '0, AWIDTH'(0), 8, 1, 16);
-      ref_slide(1'b0, 0, AWIDTH'(12), AWIDTH'(16), 1'b1, XLEN'(3), 3'd0, 3'd0, 16);
-      ref_apply(VEC_ADD, 0, AWIDTH'(4), AWIDTH'(16), AWIDTH'(20), 1'b1, '0, AWIDTH'(0), 8, 1, 16);
-      ref_slide(1'b1, 1, AWIDTH'(20), AWIDTH'(24), 1'b1, XLEN'(5), 3'd0, 3'd0, 16);
-      ref_apply(VEC_ADD, 0, AWIDTH'(24), AWIDTH'(4), AWIDTH'(26), 1'b1, '0, AWIDTH'(0), 8, 1, 16);
+      vl    = VlW'(LineB);
+      ref_apply(VEC_ADD, 0, AWIDTH'(4), AWIDTH'(8), AWIDTH'(12), 1'b1, '0, AWIDTH'(0), 8, 1, LineB);
+      ref_slide(1'b0, 0, AWIDTH'(12), AWIDTH'(16), 1'b1, XLEN'(3), 3'd0, 3'd0, LineB);
+      ref_apply(VEC_ADD, 0, AWIDTH'(4), AWIDTH'(16), AWIDTH'(20), 1'b1, '0, AWIDTH'(0), 8, 1,
+                LineB);
+      ref_slide(1'b1, 1, AWIDTH'(20), AWIDTH'(24), 1'b1, XLEN'(5), 3'd0, 3'd0, LineB);
+      ref_apply(VEC_ADD, 0, AWIDTH'(24), AWIDTH'(4), AWIDTH'(26), 1'b1, '0, AWIDTH'(0), 8, 1,
+                LineB);
       issue(enc(6'b000000, 1'b1, AWIDTH'(8), AWIDTH'(4), 3'b000, AWIDTH'(12)));
       xdata = XLEN'(3);
       issue(slide_instr(1'b0, 0, AWIDTH'(12), AWIDTH'(16), 1'b1, XLEN'(3)));
@@ -2756,19 +2783,19 @@ module vec_unit_tb
       csr_poke(VxrmAddr, XLEN'(1));
       vsew  = 3'd0;
       vlmul = 3'd0;
-      vl    = VlW'(16);
+      vl    = VlW'(LineB);
       xdata = '0;
       model_lane(VEC_DIV, 0, AWIDTH'(4), AWIDTH'(8), AWIDTH'(12), 1'b1, '0, AWIDTH'(0), 8, 1,
-                 VlW'(16), 2'd1, sat);
-      ref_apply(VEC_ADD, 0, AWIDTH'(5), AWIDTH'(6), AWIDTH'(20), 1'b1, '0, AWIDTH'(0), 8, 1, 16);
+                 VlW'(LineB), 2'd1, sat);
+      ref_apply(VEC_ADD, 0, AWIDTH'(5), AWIDTH'(6), AWIDTH'(20), 1'b1, '0, AWIDTH'(0), 8, 1, LineB);
       model_lane(VEC_MUL, 0, AWIDTH'(12), AWIDTH'(8), AWIDTH'(24), 1'b1, '0, AWIDTH'(0), 8, 1,
-                 VlW'(16), 2'd1, sat);
+                 VlW'(LineB), 2'd1, sat);
       model_lane(VEC_AADD, 0, AWIDTH'(12), AWIDTH'(20), AWIDTH'(28), 1'b1, '0, AWIDTH'(0), 8, 1,
-                 VlW'(16), 2'd1, sat);
+                 VlW'(LineB), 2'd1, sat);
       model_lane(VEC_REMU, 0, AWIDTH'(4), AWIDTH'(12), AWIDTH'(13), 1'b0, '0, AWIDTH'(0), 8, 1,
-                 VlW'(16), 2'd1, sat);
+                 VlW'(LineB), 2'd1, sat);
       model_lane(VEC_DIVU, 0, AWIDTH'(20), AWIDTH'(13), AWIDTH'(14), 1'b1, '0, AWIDTH'(0), 8, 1,
-                 VlW'(16), 2'd1, sat);
+                 VlW'(LineB), 2'd1, sat);
       issue(lane_instr(VEC_DIV, 0, AWIDTH'(4), AWIDTH'(8), AWIDTH'(12), 1'b1, AWIDTH'(0)));
       issue(enc(funct6_of(VEC_ADD), 1'b1, AWIDTH'(6), AWIDTH'(5), 3'b000, AWIDTH'(20)));
       issue(lane_instr(VEC_MUL, 0, AWIDTH'(12), AWIDTH'(8), AWIDTH'(24), 1'b1, AWIDTH'(0)));
@@ -3864,6 +3891,7 @@ module vec_unit_tb
     fsc   = fp_pick();
     vsew  = 3'd2;
     vlmul = lmul;
+    len    = VlW'(fit(int'(len), vsew, vlmul));
     vl    = len;
     frm   = rm;
     fdata = XLEN'(fsc);
@@ -4009,26 +4037,28 @@ module vec_unit_tb
       for (int r = 0; r < 6; r++) begin
         seed_fp();
         vlmul = 3'd0;
-        vl    = VlW'(4);
+        vl    = VlW'(FpElems);
         vsew  = 3'd2;
         want  = '0;
         for (int k = 0; k < 6; k++) begin
           rm[k]  = RmW'($urandom_range(4));
           fsc[k] = fp_pick();
         end
-        model_fp(VEC_FMUL, 0, AWIDTH'(1), AWIDTH'(2), AWIDTH'(10), 1'b1, '0, 1, VlW'(4), rm[0], f);
+        model_fp(VEC_FMUL, 0, AWIDTH'(1), AWIDTH'(2), AWIDTH'(10), 1'b1, '0, 1, VlW'(FpElems),
+                 rm[0], f);
         want = want | f;
-        ref_apply(VEC_ADD, 0, AWIDTH'(3), AWIDTH'(4), AWIDTH'(11), 1'b1, '0, AWIDTH'(0), 32, 1, 4);
-        model_fp(VEC_FMACC, 1, AWIDTH'(0), AWIDTH'(5), AWIDTH'(12), 1'b1, fsc[2], 1, VlW'(4), rm[2],
-                 f);
+        ref_apply(VEC_ADD, 0, AWIDTH'(3), AWIDTH'(4), AWIDTH'(11), 1'b1, '0, AWIDTH'(0), 32, 1,
+                  FpElems);
+        model_fp(VEC_FMACC, 1, AWIDTH'(0), AWIDTH'(5), AWIDTH'(12), 1'b1, fsc[2], 1, VlW'(FpElems),
+                 rm[2], f);
         want = want | f;
         model_lane(VEC_MUL, 0, AWIDTH'(6), AWIDTH'(7), AWIDTH'(13), 1'b1, '0, AWIDTH'(0), 32, 1,
-                   VlW'(4), 2'd0, sat);
-        model_fp(VEC_MFLT, 0, AWIDTH'(10), AWIDTH'(12), AWIDTH'(14), 1'b1, '0, 1, VlW'(4), rm[4],
-                 f);
+                   VlW'(FpElems), 2'd0, sat);
+        model_fp(VEC_MFLT, 0, AWIDTH'(10), AWIDTH'(12), AWIDTH'(14), 1'b1, '0, 1, VlW'(FpElems),
+                 rm[4], f);
         want = want | f;
-        model_fp(VEC_FADD, 1, AWIDTH'(0), AWIDTH'(13), AWIDTH'(15), 1'b1, fsc[5], 1, VlW'(4), rm[5],
-                 f);
+        model_fp(VEC_FADD, 1, AWIDTH'(0), AWIDTH'(13), AWIDTH'(15), 1'b1, fsc[5], 1, VlW'(FpElems),
+                 rm[5], f);
         want = want | f;
         flags_seen = '0;
         frm = rm[0];
@@ -4062,18 +4092,20 @@ module vec_unit_tb
         seed_fp();
         vsew  = 3'd2;
         vlmul = 3'd3;
-        vl    = VlW'(32);
+        vl    = VlW'(GroupRegs * FpElems);
         frm   = RmW'(r);
-        model_fp(VEC_FADD, 0, AWIDTH'(16), AWIDTH'(24), AWIDTH'(8), 1'b1, '0, 8, VlW'(32), 3'(r),
-                 want);
-        ref_apply(VEC_ADD, 0, AWIDTH'(1), AWIDTH'(2), AWIDTH'(3), 1'b1, '0, AWIDTH'(0), 32, 1, 4);
+        model_fp(VEC_FADD, 0, AWIDTH'(16), AWIDTH'(24), AWIDTH'(8), 1'b1, '0, 8,
+                 VlW'(GroupRegs * FpElems), 3'(r), want);
+        ref_apply(VEC_ADD, 0, AWIDTH'(1), AWIDTH'(2), AWIDTH'(3), 1'b1, '0, AWIDTH'(0), 32, 1,
+                  FpElems);
         model_lane(VEC_MUL, 0, AWIDTH'(4), AWIDTH'(5), AWIDTH'(6), 1'b1, '0, AWIDTH'(0), 32, 1,
-                   VlW'(4), 2'd0, sat);
-        ref_apply(VEC_XOR, 0, AWIDTH'(1), AWIDTH'(2), AWIDTH'(7), 1'b1, '0, AWIDTH'(0), 32, 1, 4);
+                   VlW'(FpElems), 2'd0, sat);
+        ref_apply(VEC_XOR, 0, AWIDTH'(1), AWIDTH'(2), AWIDTH'(7), 1'b1, '0, AWIDTH'(0), 32, 1,
+                  FpElems);
         flags_seen = '0;
         issue(fp_encode(VEC_FADD, 0, AWIDTH'(16), AWIDTH'(24), AWIDTH'(8), 1'b1));
         vlmul = 3'd0;
-        vl    = VlW'(4);
+        vl    = VlW'(FpElems);
         issue(enc(6'b000000, 1'b1, AWIDTH'(2), AWIDTH'(1), 3'b000, AWIDTH'(3)));
         issue(lane_instr(VEC_MUL, 0, AWIDTH'(4), AWIDTH'(5), AWIDTH'(6), 1'b1, AWIDTH'(0)));
         issue(enc(6'b001011, 1'b1, AWIDTH'(2), AWIDTH'(1), 3'b000, AWIDTH'(7)));
@@ -4098,22 +4130,27 @@ module vec_unit_tb
       for (int r = 0; r < 8; r++) begin
         seed_fp();
         vlmul = 3'd0;
-        vl    = VlW'(4);
+        vl    = VlW'(FpElems);
         vsew  = 3'd2;
         rm    = RmW'($urandom_range(4));
         fsc   = fp_pick();
         vmb   = 1'(r);
         want  = '0;
-        model_fp(VEC_FDIV, 0, AWIDTH'(1), AWIDTH'(2), AWIDTH'(10), vmb, '0, 1, VlW'(4), rm, f);
+        model_fp(VEC_FDIV, 0, AWIDTH'(1), AWIDTH'(2), AWIDTH'(10), vmb, '0, 1, VlW'(FpElems), rm,
+                 f);
         want = want | f;
-        ref_apply(VEC_ADD, 0, AWIDTH'(3), AWIDTH'(4), AWIDTH'(11), 1'b1, '0, AWIDTH'(0), 32, 1, 4);
-        model_fp(VEC_FSQRT, 0, AWIDTH'(0), AWIDTH'(5), AWIDTH'(12), vmb, '0, 1, VlW'(4), rm, f);
+        ref_apply(VEC_ADD, 0, AWIDTH'(3), AWIDTH'(4), AWIDTH'(11), 1'b1, '0, AWIDTH'(0), 32, 1,
+                  FpElems);
+        model_fp(VEC_FSQRT, 0, AWIDTH'(0), AWIDTH'(5), AWIDTH'(12), vmb, '0, 1, VlW'(FpElems), rm,
+                 f);
         want = want | f;
         model_lane(VEC_MUL, 0, AWIDTH'(6), AWIDTH'(7), AWIDTH'(13), 1'b1, '0, AWIDTH'(0), 32, 1,
-                   VlW'(4), 2'd0, sat);
-        model_fp(VEC_FRDIV, 1, AWIDTH'(0), AWIDTH'(10), AWIDTH'(14), 1'b1, fsc, 1, VlW'(4), rm, f);
+                   VlW'(FpElems), 2'd0, sat);
+        model_fp(VEC_FRDIV, 1, AWIDTH'(0), AWIDTH'(10), AWIDTH'(14), 1'b1, fsc, 1, VlW'(FpElems),
+                 rm, f);
         want = want | f;
-        model_fp(VEC_FADD, 0, AWIDTH'(14), AWIDTH'(12), AWIDTH'(15), 1'b1, '0, 1, VlW'(4), rm, f);
+        model_fp(VEC_FADD, 0, AWIDTH'(14), AWIDTH'(12), AWIDTH'(15), 1'b1, '0, 1, VlW'(FpElems), rm,
+                 f);
         want = want | f;
         flags_seen = '0;
         frm = rm;
@@ -4269,6 +4306,7 @@ module vec_unit_tb
     logic [FlagW-1:0] want;
     vsew  = (e == VEC_EEW_SAME) ? 3'd2 : 3'd1;
     vlmul = lmul;
+    len    = VlW'(fit(int'(len), vsew, vlmul));
     vl    = len;
     frm   = rm;
     model_cvt(o, e, s2, d, vmb, len, rm, want);
@@ -4419,6 +4457,7 @@ module vec_unit_tb
       fsc   = fp_pick();
       vsew  = 3'd2;
       vlmul = lmul;
+      len    = VlW'(fit(int'(len), vsew, vlmul));
       vl    = len;
       frm   = RmW'($urandom_range(4));
       fdata = fsc;
@@ -4447,6 +4486,7 @@ module vec_unit_tb
       fsc   = fp_pick();
       vsew  = 3'd2;
       vlmul = lmul;
+      len    = VlW'(fit(int'(len), vsew, vlmul));
       vl    = len;
       fdata = fsc;
       xdata = XLEN'($urandom);
@@ -4486,6 +4526,7 @@ module vec_unit_tb
     begin
       vsew  = 3'd2;
       vlmul = lmul;
+      len    = VlW'(fit(int'(len), vsew, vlmul));
       vl    = len;
       want  = shadow[s2][FLEN-1:0];
       flags_seen = '0;
@@ -4602,6 +4643,7 @@ module vec_unit_tb
     regs  = lmul[2] ? 1 : (1 << lmul[1:0]);
     vsew  = 3'd2;
     vlmul = lmul;
+    len    = VlW'(fit(int'(len), vsew, vlmul));
     vl    = len;
     frm   = rm;
     ref_fred(o, s1, s2, d, vmb, regs, int'(len), rm, want);
@@ -4753,26 +4795,27 @@ module vec_unit_tb
         seed_fred();
         vsew  = 3'd2;
         vlmul = 3'd0;
-        vl    = VlW'(4);
+        vl    = VlW'(FpElems);
         frm   = RmW'(r % 5);
         want  = '0;
-        model_fp(VEC_FMUL, 0, AWIDTH'(1), AWIDTH'(2), AWIDTH'(10), 1'b1, '0, 1, VlW'(4), 3'(r % 5),
-                 f);
+        model_fp(VEC_FMUL, 0, AWIDTH'(1), AWIDTH'(2), AWIDTH'(10), 1'b1, '0, 1, VlW'(FpElems),
+                 3'(r % 5), f);
         want = want | f;
-        ref_fred(VEC_FREDOSUM, AWIDTH'(3), AWIDTH'(10), AWIDTH'(11), 1'b1, 1, 4, frm, f);
+        ref_fred(VEC_FREDOSUM, AWIDTH'(3), AWIDTH'(10), AWIDTH'(11), 1'b1, 1, FpElems, frm, f);
         want = want | f;
-        ref_apply(VEC_ADD, 0, AWIDTH'(4), AWIDTH'(5), AWIDTH'(12), 1'b1, '0, AWIDTH'(0), 32, 1, 4);
-        ref_fred(VEC_FMAX, AWIDTH'(11), AWIDTH'(6), AWIDTH'(13), 1'b0, 1, 4, frm, f);
+        ref_apply(VEC_ADD, 0, AWIDTH'(4), AWIDTH'(5), AWIDTH'(12), 1'b1, '0, AWIDTH'(0), 32, 1,
+                  FpElems);
+        ref_fred(VEC_FMAX, AWIDTH'(11), AWIDTH'(6), AWIDTH'(13), 1'b0, 1, FpElems, frm, f);
         want = want | f;
         model_lane(VEC_MUL, 0, AWIDTH'(7), AWIDTH'(8), AWIDTH'(14), 1'b1, '0, AWIDTH'(0), 32, 1,
-                   VlW'(4), 2'd0, sat);
-        ref_fred(VEC_FREDUSUM, AWIDTH'(13), AWIDTH'(14), AWIDTH'(15), 1'b1, 1, 4, frm, f);
+                   VlW'(FpElems), 2'd0, sat);
+        ref_fred(VEC_FREDUSUM, AWIDTH'(13), AWIDTH'(14), AWIDTH'(15), 1'b1, 1, FpElems, frm, f);
         want = want | f;
-        ref_fred(VEC_FREDOSUM, AWIDTH'(15), AWIDTH'(10), AWIDTH'(16), 1'b0, 1, 4, frm, f);
+        ref_fred(VEC_FREDOSUM, AWIDTH'(15), AWIDTH'(10), AWIDTH'(16), 1'b0, 1, FpElems, frm, f);
         want = want | f;
-        ref_fred(VEC_FMIN, AWIDTH'(3), AWIDTH'(2), AWIDTH'(17), 1'b1, 1, 4, frm, f);
+        ref_fred(VEC_FMIN, AWIDTH'(3), AWIDTH'(2), AWIDTH'(17), 1'b1, 1, FpElems, frm, f);
         want = want | f;
-        ref_reduce(VEC_REDSUM, AWIDTH'(1), AWIDTH'(2), AWIDTH'(18), 1'b1, 32, 1, 4, 1'b0);
+        ref_reduce(VEC_REDSUM, AWIDTH'(1), AWIDTH'(2), AWIDTH'(18), 1'b1, 32, 1, FpElems, 1'b0);
         flags_seen = '0;
         issue(fp_encode(VEC_FMUL, 0, AWIDTH'(1), AWIDTH'(2), AWIDTH'(10), 1'b1));
         issue(fred_encode(VEC_FREDOSUM, AWIDTH'(3), AWIDTH'(10), AWIDTH'(11), 1'b1));
