@@ -4,7 +4,7 @@ module dmem
   import cache_pkg::*;
 #(
     parameter  int XLEN     = arch_pkg::XLEN,
-    parameter  int DEPTH    = 64,
+    parameter  int DEPTH    = arch_pkg::SimMemWords,
     localparam int Lines    = DEPTH / LineWords,
     localparam int LineIdxW = $clog2(Lines)
 ) (
