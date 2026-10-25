@@ -222,6 +222,7 @@ module datapath
   logic                                  is_ecall;
   logic                                  is_ebreak;
   logic                                  is_mret;
+  logic                                  sys_illegal_id;
   logic                                  exc_illegal;
   logic                   [        31:0] instr_ex;
   logic                                  csr_access_ex;
@@ -486,6 +487,7 @@ module datapath
       .is_ecall     (is_ecall),
       .is_ebreak    (is_ebreak),
       .is_mret      (is_mret),
+      .illegal      (sys_illegal_id),
       .is_muldiv    (is_muldiv),
       .muldiv_op    (muldiv_op)
   );
@@ -502,7 +504,7 @@ module datapath
     endcase
   end
 
-  assign exc_illegal = !opcode_known_id || fp_illegal_d;
+  assign exc_illegal = !opcode_known_id || fp_illegal_d || sys_illegal_id;
 
   fp_decode u_fp_decode (
       .instr      (instr_id),
