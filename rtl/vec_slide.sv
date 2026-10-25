@@ -69,9 +69,8 @@ module vec_slide
   assign m = OffW'(amount << vsew);
 
   // Group geometry
-  assign vlmax = vlmul[2] ? (SumW'(Bytes >> vsew) >> (3'd0 - vlmul)) :
-      (SumW'(Bytes >> vsew) << vlmul);
-  assign last_reg = vlmul[2] ? '0 : AWIDTH'((1 << vlmul[1:0]) - 1);
+  assign vlmax = SumW'(vec_group_elems(Bytes >> vsew, vlmul));
+  assign last_reg = AWIDTH'(vec_group_regs(4'($signed(vlmul))) - 1);
   assign base = SumW'(r) << elem_log2;
 
   // Source registers
@@ -122,7 +121,7 @@ module vec_slide
   assign wen   = busy && (|wstrb);
   assign waddr = vd + r;
 
-  // Walk the registers
+  // Walk registers
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       r    <= '0;
