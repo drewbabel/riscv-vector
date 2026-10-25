@@ -245,7 +245,7 @@ module vec_sat_lane_tb
   end
 
   function automatic logic [ELEN-1:0] rand_elem();
-    return ELEN'({$urandom, $urandom});
+    return ELEN'({32'($urandom), 32'($urandom)});
   endfunction
 
   // Width helpers

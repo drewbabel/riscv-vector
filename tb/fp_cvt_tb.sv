@@ -146,7 +146,7 @@ module fp_cvt_bench
         ref_f2i_half(FLEN'(x), is_unsigned, XLEN'(r), f, res_half, flags_half);
         test_cvt(src, to_int, is_unsigned, 1'b1, rm, x, OpW'(res_half), flags_half);
       end else begin
-        x_half = {(OpW - HalfW)'({$urandom, $urandom}), x[HalfW-1:0]};
+        x_half = {(OpW - HalfW)'({32'($urandom), 32'($urandom)}), x[HalfW-1:0]};
         test_cvt(src, to_int, is_unsigned, 1'b1, rm, x_half, OpW'(i2f_half(x[HalfW-1:0], is_unsigned
                  )), FlagNone);
       end
@@ -166,7 +166,7 @@ module fp_cvt_bench
   task automatic sweep_i2f_half(input logic uns);
     logic [OpW-1:0] x;
     for (int i = 0; i < 2 ** HalfW; i++) begin
-      x = {(OpW - HalfW)'({$urandom, $urandom}), HalfW'(i)};
+      x = {(OpW - HalfW)'({32'($urandom), 32'($urandom)}), HalfW'(i)};
       test_cvt($sformatf("%s sweep16 %s %h", FMT, uns ? "unsigned" : "signed", HalfW'(i)), 1'b0,
                uns, 1'b1, modes[i%$size(modes)], x, OpW'(i2f_half(HalfW'(i), uns)), FlagNone);
     end

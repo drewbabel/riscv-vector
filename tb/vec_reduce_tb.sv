@@ -219,7 +219,7 @@ module vec_reduce_tb ();
 
   function automatic logic [DLEN-1:0] rand_data();
     rand_data = '0;
-    for (int i = 0; i < DLEN; i += ELEN) rand_data[i+:ELEN] = ELEN'({$urandom, $urandom});
+    for (int i = 0; i < DLEN; i += ELEN) rand_data[i+:ELEN] = ELEN'({32'($urandom), 32'($urandom)});
   endfunction
 
   function automatic int sew_bits();
