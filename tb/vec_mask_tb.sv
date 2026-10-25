@@ -238,7 +238,11 @@ module vec_mask_tb
         vl       = VlW'($urandom_range(DLEN));
         if (r % 5 == 0) vs2_data = '0;
         for (int k = 0; k < 3; k++) begin
-          op = (k == 0) ? VEC_MSBF : ((k == 1) ? VEC_MSIF : VEC_MSOF);
+          case (k)
+            0: op = VEC_MSBF;
+            1: op = VEC_MSIF;
+            default: op = VEC_MSOF;
+          endcase
           #1;
           f    = ref_first();
           want = '0;

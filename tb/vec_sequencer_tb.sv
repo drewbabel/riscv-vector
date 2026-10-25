@@ -371,7 +371,11 @@ module vec_sequencer_tb ();
           int vmax;
           int len;
           vmax = (VLEN / (8 << sew)) * (1 << lm);
-          len  = t == 0 ? vmax : (t == 1 ? vmax / 2 : 1);
+          case (t)
+            0: len = vmax;
+            1: len = vmax / 2;
+            default: len = 1;
+          endcase
           set_plain();
           run_regs(1, 8, 16, 1'b0, len, 3'(sew), 3'(lm), 1'b1, '1);
           set_shape(VEC_REL_SAME, VEC_REL_SAME, VEC_REL_SAME, 1'b1, 1'b0, 1'b0);
