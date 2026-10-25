@@ -28,6 +28,11 @@ module gpio #(
 
   assign sw_sel = addr[WordLsb];
 
+  if (WIDTH < XLEN) begin : g_wdata_high
+    logic unused_wdata_high;
+    assign unused_wdata_high = ^wdata[XLEN-1:WIDTH];
+  end
+
   always_ff @(posedge clk) begin
     if (!rst_n) led_reg <= '0;
     else if (core_en && sel && !sw_sel && |wstrb) led_reg <= wdata[WIDTH-1:0];
