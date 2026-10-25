@@ -1618,6 +1618,7 @@ def main():
                     f.write(asm)
                 flags = (
                     ("--vec " if VECTOR else "")
+                    + ("--fp " if FP else "")
                     + ("--stall " if STALL else "")
                     + ("--irq " if IRQ else "")
                 )
