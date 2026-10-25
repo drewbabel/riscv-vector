@@ -289,10 +289,55 @@ jobs:
           if [ "$base" = "$(git rev-parse HEAD)" ]; then base=HEAD^1; fi
           python3 tests/rules/check.py --base "$base"
 
+  sweep-list:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      groups: ${{ steps.list.outputs.groups }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Split the parameter sweep into groups
+        id: list
+        run: |
+          groups=$(python3 tests/rules/sweep.py --list 16 | python3 -c "import sys, json; g=json.load(sys.stdin); h=[x for x in g if chr(35) in x]; l=[x for x in g if chr(35) not in x]; b=[h[i::8] for i in range(8)]; print(json.dumps(l + [' '.join(x) for x in b if x]))")
+          echo "$groups"
+          echo "groups=$groups" >> "$GITHUB_OUTPUT"
+
+  sweep:
+    needs: sweep-list
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.sweep-list.outputs.groups) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - uses: ./.github/actions/riscv-toolchain
+        with:
+          extra-packages: device-tree-compiler libfdt-dev
+      - uses: ./.github/actions/spike
+        with:
+          sha: ${{ env.SPIKE_SHA }}
+      - name: Install sv2v
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://github.com/zachjs/sv2v/releases/download/$SV2V/sv2v-Linux.zip -o sv2v.zip
+          unzip -j sv2v.zip -d "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Generate the TestFloat reference files
+        run: make testfloat
+      - name: Sweep the group
+        run: python3 tests/rules/sweep.py ${{ matrix.group }}
+
   ci-gate:
     if: always()
-    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths, rules]
+    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths, rules, sweep-list, sweep]
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Verify all CI jobs succeeded
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
