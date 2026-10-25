@@ -2,7 +2,7 @@
 
 module vec_sat_lane
   import vec_pkg::*;
-  import csr_pkg::VxrmW, csr_pkg::VxrmRnu, csr_pkg::VxrmRne, csr_pkg::VxrmRdn;
+  import csr_pkg::VxrmW, csr_pkg::VxrmRnu, csr_pkg::VxrmRne, csr_pkg::VxrmRdn, csr_pkg::VxrmRod;
 #(
     parameter int ELEN = arch_pkg::ELEN
 ) (
@@ -108,7 +108,8 @@ module vec_sat_lane
       VxrmRnu: round_inc = (dd != '0) && val[dd-1];
       VxrmRne: round_inc = (dd != '0) && val[dd-1] && (((val & under) != '0) || val[IdxW'(dd)]);
       VxrmRdn: round_inc = 1'b0;
-      default: round_inc = !val[IdxW'(dd)] && ((val & below) != '0);
+      VxrmRod: round_inc = !val[IdxW'(dd)] && ((val & below) != '0);
+      default: round_inc = 1'b0;
     endcase
   endfunction
 
