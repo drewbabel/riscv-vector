@@ -13,7 +13,7 @@ module vec_sequencer_tb ();
   localparam int OffW = $clog2(VLEN);
   localparam int CntW = $clog2(MaxElems + 1);
   localparam int IdleTimeout = 2 * VLEN;
-  localparam int MinChecks = 41000;
+  localparam int MinChecks = 16600 + 141 * VLEN + (206 * VLEN) / MulLanes;
 
   int checks = 0;
   int errors = 0;
