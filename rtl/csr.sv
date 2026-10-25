@@ -3,10 +3,13 @@
 module csr
   import csr_pkg::*;
 #(
-    parameter  int XLEN    = arch_pkg::XLEN,
-    parameter  int VLEN    = arch_pkg::VLEN,
-    localparam int VlW     = $clog2(VLEN + 1),
-    localparam int VstartW = $clog2(VLEN)
+    parameter  int XLEN     = arch_pkg::XLEN,
+    parameter  int VLEN     = arch_pkg::VLEN,
+    localparam int VlW      = $clog2(VLEN + 1),
+    localparam int VstartW  = $clog2(VLEN),
+    localparam int RegAddrW = arch_pkg::RegAddrW,
+    localparam int Funct3W  = opcode_pkg::Funct3W,
+    localparam int InstrLsb = arch_pkg::InstrLsb
 ) (
 `ifdef RISCV_FORMAL
     output logic [   XLEN-1:0] dbg_csr_wdata,
@@ -33,11 +36,11 @@ module csr
     input  wire                rst_n,
 
     // Zicsr access
-    input wire            csr_access,
-    input wire [    11:0] csr_addr,
-    input wire [     2:0] funct3,
-    input wire [XLEN-1:0] rs1_data,
-    input wire [     4:0] zimm,
+    input wire                csr_access,
+    input wire [CsrAddrW-1:0] csr_addr,
+    input wire [ Funct3W-1:0] funct3,
+    input wire [    XLEN-1:0] rs1_data,
+    input wire [RegAddrW-1:0] zimm,
 
     // Trapped-instruction context
     input wire [XLEN-1:0] pc,
@@ -92,6 +95,10 @@ module csr
     output logic       vstart_set
 );
 
+  if (XLEN != 32) begin : g_xlen
+    $error("csr implements RV32 only");
+  end
+
   logic [   XLEN-1:0] mstatus;
   logic [   XLEN-1:0] mtvec;
   logic [   XLEN-1:0] mepc;
@@ -117,6 +124,8 @@ module csr
   logic               vec_csr_addr;
   logic               fp_csr_addr;
   logic               exc_ro_write;
+  logic [ CsrRoW-1:0] csr_access_bits;
+  logic [   XLEN-1:0] mtvec_base;
   logic               exc_vs_off;
   logic               exc_fs_off;
   logic               illegal_any;
@@ -128,8 +137,10 @@ module csr
   logic               timer_ready;
   logic               ext_ready;
 
-  assign csr_wsrc  = (funct3[2]) ? {{(XLEN - 5) {1'b0}}, zimm} : rs1_data;
+  assign csr_wsrc = (funct3[2]) ? XLEN'(zimm) : rs1_data;
   assign csr_write = !funct3[1] || zimm != 0;
+  assign csr_access_bits = csr_addr[CsrAddrW-1-:CsrRoW];
+  assign mtvec_base = {mtvec[XLEN-1:MtvecModeW], MtvecModeW'(0)};
   always_comb begin
     case (funct3)
       Funct3Csrrw, Funct3Csrrwi: csr_wdata = csr_wsrc;
@@ -144,7 +155,7 @@ module csr
       exc_load_misaligned | exc_store_misaligned | timer_ready | ext_ready;
   // Reject if trap, or if set/clear with zero source
   assign csr_write_en = csr_access && !trap_taken && csr_write;
-  assign trap_vector = {mtvec[XLEN-1:2], 2'b00};  // Divide by 4 = remove last 2 bits
+  assign trap_vector = mtvec_base;
   assign mret_taken = is_mret;
   assign mepc_out = mepc;
 
@@ -162,7 +173,7 @@ module csr
       ((csr_addr == VxsatAddr) || (csr_addr == VxrmAddr) || (csr_addr == VcsrAddr));
   assign vec_csr_waddr = csr_addr;
   assign vec_csr_wdata = csr_wdata;
-  assign exc_ro_write = csr_access && (csr_addr[11:10] == 2'b11) && csr_write;
+  assign exc_ro_write = csr_access && (csr_access_bits == CsrRoAccess) && csr_write;
   assign exc_vs_off = (is_vec_instr || (csr_access && vec_csr_addr)) &&
       (mstatus[MstatusVsLo+1:MstatusVsLo] == VsOff);
   assign exc_fs_off = (is_fp_instr || (csr_access && fp_csr_addr)) &&
@@ -305,7 +316,7 @@ module csr
           MieAddr:       mie <= csr_wdata;
           MtvecAddr:     mtvec <= csr_wdata;
           MscratchAddr:  mscratch <= csr_wdata;
-          MepcAddr:      mepc <= {csr_wdata[XLEN-1:2], 2'b00};  // mepc word aligned
+          MepcAddr:      mepc <= {csr_wdata[XLEN-1:InstrLsb], InstrLsb'(0)};  // mepc word aligned
           McauseAddr:    mcause <= csr_wdata;
           MtvalAddr:     mtval <= csr_wdata;
           // Read only
