@@ -13,7 +13,7 @@ module vec_alu_tb
   localparam int VsewW = 3;
   localparam int SimmW = arch_pkg::RegAddrW;
   localparam int SweepRounds = 12;
-  localparam int MinChecks = 40000;
+  localparam int MinChecks = 2500 * MaxElems;
 
   int checks = 0;
   int errors = 0;
