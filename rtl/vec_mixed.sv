@@ -3,8 +3,11 @@
 module vec_mixed
   import vec_pkg::*;
 #(
-    parameter int DLEN = arch_pkg::VLEN,
-    parameter int XLEN = arch_pkg::XLEN
+    parameter  int DLEN   = arch_pkg::VLEN,
+    parameter  int ELEN   = arch_pkg::ELEN,
+    parameter  int XLEN   = arch_pkg::XLEN,
+    localparam int Widths = $clog2(ELEN / 8) + 1,
+    localparam int SelW   = $clog2(Widths)
 ) (
     input  wire vec_op_e             op,
     input  wire vec_src_e            src,
@@ -17,9 +20,11 @@ module vec_mixed
     output logic          [DLEN-1:0] result
 );
 
-  logic [  DLEN-1:0] res8;
-  logic [  DLEN-1:0] res16;
-  logic [  DLEN-1:0] res32;
+  if ((ELEN < 16) || (ELEN > DLEN) || (ELEN != (8 << (Widths - 1)))) begin : g_elen_error
+    $error("ELEN must be a power of two from 16 to DLEN");
+  end
+
+  logic [DLEN-1:0] res_w[Widths];
 
   logic [2*DLEN-1:0] vs2_pad;
   logic [2*DLEN-1:0] vs1_pad;
@@ -33,6 +38,7 @@ module vec_mixed
   logic src_signed;
   logic quarter;
   logic wide_a;
+  logic is_vv;
 
   assign is_narrow = (op == VEC_NSRL) || (op == VEC_NSRA);
   assign is_ext = (op == VEC_ZEXT2) || (op == VEC_ZEXT4) || (op == VEC_SEXT2) || (op == VEC_SEXT4);
@@ -40,8 +46,9 @@ module vec_mixed
   assign src_signed = (op == VEC_WADD) || (op == VEC_WSUB);
   assign quarter = (op == VEC_ZEXT4) || (op == VEC_SEXT4);
   assign wide_a = (eew == VEC_EEW_WIDEN_W);
+  assign is_vv = (src == VEC_SRC_VV);
 
-  for (genvar g = 0; g < 3; g++) begin : g_dw
+  for (genvar g = 0; g < Widths; g++) begin : g_dw
     localparam int Dw = 8 << g;
     localparam int Half = (Dw > 8) ? (Dw / 2) : 1;
     localparam int Quart = (Dw > 16) ? (Dw / 4) : 1;
@@ -59,29 +66,37 @@ module vec_mixed
       logic [   Dw-1:0] extended;
       logic [ Half-1:0] b_half;
       logic [Quart-1:0] a_quart;
+      logic [ Half-1:0] a_half;
 
       // Source slices
-      assign b_half = (src == VEC_SRC_VV) ? vs1_pad[e*Half+:Half] : xdata[0+:Half];
+      assign b_half = is_vv ? vs1_pad[e*Half+:Half] : xdata[0+:Half];
       assign a_quart = vs2_pad[e*Quart+:Quart];
+      assign a_half = vs2_pad[e*Half+:Half];
       assign wsrc = vs2_pad[e*Wide+:Wide];
 
       // Widened operands
-      assign a = wide_a ? vs2_pad[e*Dw+:Dw] : (src_signed ? Dw'($signed(
-          vs2_pad[e*Half+:Half]
-      )) : Dw'(vs2_pad[e*Half+:Half]));
+      always_comb begin
+        if (wide_a) a = vs2_pad[e*Dw+:Dw];
+        else if (src_signed) a = Dw'($signed(a_half));
+        else a = Dw'(a_half);
+      end
       assign b = src_signed ? Dw'($signed(b_half)) : Dw'(b_half);
 
       // Shift amount
-      assign shamt = (src == VEC_SRC_VV) ?
-          Shamt'(vs1_pad[e*Dw+:Dw]) : ((src == VEC_SRC_VI) ? Shamt'(simm) : Shamt'(xdata));
+      always_comb begin
+        if (is_vv) shamt = Shamt'(vs1_pad[e*Dw+:Dw]);
+        else if (src == VEC_SRC_VI) shamt = Shamt'(simm);
+        else shamt = Shamt'(xdata);
+      end
       assign shifted = (op == VEC_NSRA) ? Dw'($signed(wsrc) >>> shamt) : Dw'(wsrc >> shamt);
 
       // Extended element
-      assign extended = quarter ? (ext_signed ? Dw'($signed(
-          a_quart
-      )) : Dw'(a_quart)) : (ext_signed ? Dw'($signed(
-          vs2_pad[e*Half+:Half]
-      )) : Dw'(vs2_pad[e*Half+:Half]));
+      always_comb begin
+        if (quarter && ext_signed) extended = Dw'($signed(a_quart));
+        else if (quarter) extended = Dw'(a_quart);
+        else if (ext_signed) extended = Dw'($signed(a_half));
+        else extended = Dw'(a_half);
+      end
 
       // One element
       always_comb begin
@@ -96,26 +111,14 @@ module vec_mixed
       end
     end
 
-    if (Dw == 8) begin : g_w8
-      assign res8 = res;
-    end else if (Dw == 16) begin : g_w16
-      assign res16 = res;
-    end else begin : g_w32
-      assign res32 = res;
-    end
+    assign res_w[g] = res;
   end
 
   // Destination width
-  logic [1:0] dsel;
-  assign dsel = (is_narrow || is_ext) ? 2'(vsew[1:0]) : 2'(vsew[1:0] + 2'd1);
+  logic [SelW-1:0] dsel;
+  assign dsel   = SelW'(vsew) + SelW'(!(is_narrow || is_ext));
 
-  always_comb begin
-    case (dsel)
-      2'd0:    result = res8;
-      2'd1:    result = res16;
-      default: result = res32;
-    endcase
-  end
+  assign result = res_w[vec_sew_index(3'(dsel), Widths)];
 
 endmodule
 
