@@ -2,15 +2,14 @@
 
 module fp_add_tb ();
 
-  localparam int MinChecks = 464000;
+  localparam int MinChecks = 940000;
   localparam int MinStall  = 4000;
   localparam int MinHold   = 1000;
 
-  int checks;
-  int stall_checks;
-  int hold_checks;
-  int errors;
-  int max_errors;
+  int checks = 0;
+  int stall_checks = 0;
+  int hold_checks = 0;
+  int errors = 0;
 
   fp_add_bench #(
       .EXP_W (8),
@@ -45,9 +44,8 @@ module fp_add_tb ();
     stall_checks = f32_bench.stall_checks + f64_bench.stall_checks + f16_bench.stall_checks;
     hold_checks = f32_bench.hold_checks + f64_bench.hold_checks + f16_bench.hold_checks;
     errors = f32_bench.errors + f64_bench.errors + f16_bench.errors;
-    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $display("PASS: %0d checks, %0d stall checks, %0d hold checks", checks, stall_checks,
-             hold_checks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask  // Automatic
 
@@ -56,14 +54,6 @@ module fp_add_tb ();
     $dumpvars(0, f32_bench);
     wait (f32_bench.done && f64_bench.done && f16_bench.done);
     do_verdict();
-  end
-
-  initial begin
-    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
-      wait (f32_bench.errors + f64_bench.errors + f16_bench.errors >= max_errors);
-      $fatal(1, "TB STOPPED: %0d mismatches",
-             f32_bench.errors + f64_bench.errors + f16_bench.errors);
-    end
   end
 
 endmodule
@@ -78,9 +68,10 @@ module fp_add_bench
     localparam int    FLEN   = 1 + EXP_W + FRAC_W
 ) ();
 
-  localparam int ShowErrors = 20;
   localparam int Latency = FpAddLatency;
   localparam int StallOps = 1000;
+  localparam int FlagW = $bits(FlagNv);
+  localparam int RmW = $bits(RmRne);
   localparam string TfDir = "build/testfloat/";
   localparam logic [FLEN-1:0] PosInf = {1'b0, {EXP_W{1'b1}}, {FRAC_W{1'b0}}};
   localparam logic [FLEN-1:0] One = {2'b00, {(EXP_W - 1) {1'b1}}, {FRAC_W{1'b0}}};
@@ -90,33 +81,28 @@ module fp_add_bench
   int stall_checks = 0;
   int hold_checks = 0;
   int errors = 0;
+  int max_errors = 0;
   logic done = 1'b0;
   logic stalling = 1'b0;
 
-  logic clk;
-  logic rst_n = 1'b0;
-  logic core_en = 1'b1;
-  logic sub = 1'b0;
-  logic [2:0] rm = RmRne;
-  logic [FLEN-1:0] a = '0;
-  logic [FLEN-1:0] b = '0;
+  logic clk = 1'b0;
+  logic rst_n;
+  logic core_en;
+  logic sub;
+  logic [RmW-1:0] rm;
+  logic [FLEN-1:0] a;
+  logic [FLEN-1:0] b;
   logic [FLEN-1:0] result;
-  logic [4:0] fflags;
+  logic [FlagW-1:0] fflags;
 
   logic pend_valid[$];
-  string pend_path[$];
-  int pend_line[$];
-  logic pend_sub[$];
-  logic [2:0] pend_rm[$];
-  logic [FLEN-1:0] pend_a[$];
-  logic [FLEN-1:0] pend_b[$];
+  string pend_name[$];
   logic [FLEN-1:0] pend_res[$];
-  logic [4:0] pend_flags[$];
+  logic [FlagW-1:0] pend_flags[$];
 
-  initial begin
-    clk = 1'b0;
-    forever #5 clk = ~clk;
-  end
+  initial void'($value$plusargs("max_errors=%d", max_errors));
+
+  always #5 clk = ~clk;
 
   fp_add #(
       .ExpW (EXP_W),
@@ -133,86 +119,70 @@ module fp_add_bench
       .fflags(fflags)
   );
 
-  function automatic logic [FLEN-1:0] rand_bits();
-    rand_bits = FLEN'({$urandom, $urandom});
-  endfunction
+  task automatic check(input string name, input logic [FLEN-1:0] got, input logic [FLEN-1:0] exp);
+    checks++;
+    if (got !== exp) begin
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
+  endtask  // Automatic
 
   task automatic do_reset();
-    @(negedge clk);
     rst_n = 1'b0;
+    core_en = 1'b1;
+    sub = 1'b0;
+    rm = RmRne;
+    a = '0;
+    b = '0;
     repeat (2) @(posedge clk);
     @(negedge clk);
     rst_n = 1'b1;
   endtask  // Automatic
 
+  function automatic logic [FLEN-1:0] rand_bits();
+    rand_bits = FLEN'({$urandom, $urandom});
+  endfunction
+
   task automatic retire();
-    string path;
-    int line;
     logic valid;
-    logic op_sub;
-    logic [2:0] op_rm;
-    logic [FLEN-1:0] op_a;
-    logic [FLEN-1:0] op_b;
+    string name;
     logic [FLEN-1:0] exp_res;
-    logic [4:0] exp_flags;
+    logic [FlagW-1:0] exp_flags;
     if (pend_valid.size() < Latency) return;
     valid = pend_valid.pop_front();
-    path = pend_path.pop_front();
-    line = pend_line.pop_front();
-    op_sub = pend_sub.pop_front();
-    op_rm = pend_rm.pop_front();
-    op_a = pend_a.pop_front();
-    op_b = pend_b.pop_front();
+    name = pend_name.pop_front();
     exp_res = pend_res.pop_front();
     exp_flags = pend_flags.pop_front();
     if (!valid) return;
     if (stalling) stall_checks++;
-    else checks++;
-    if (result !== exp_res || fflags !== exp_flags) begin
-      errors++;
-      if (errors <= ShowErrors)
-        $display(
-            "FAIL %s:%0d sub=%0d rm=%0d a=%h b=%h exp %h/%b got %h/%b",
-            path,
-            line,
-            op_sub,
-            op_rm,
-            op_a,
-            op_b,
-            exp_res,
-            exp_flags,
-            result,
-            fflags
-        );
-    end
+    check({name, " result"}, result, exp_res);
+    check({name, " flags"}, FLEN'(fflags), FLEN'(exp_flags));
   endtask  // Automatic
 
   task automatic stall();
-    logic [FLEN-1:0] held_res;
-    logic [4:0] held_flags;
+    logic [ FLEN-1:0] held_res;
+    logic [FlagW-1:0] held_flags;
     while (stalling && 1'($urandom)) begin
       held_res = result;
       held_flags = fflags;
       core_en = 1'b0;
       sub = 1'($urandom);
-      rm = 3'($urandom);
+      rm = RmW'($urandom);
       a = rand_bits();
       b = rand_bits();
       @(negedge clk);
       hold_checks++;
-      if (result !== held_res || fflags !== held_flags) begin
-        errors++;
-        if (errors <= ShowErrors)
-          $display("FAIL hold: exp %h/%b got %h/%b", held_res, held_flags, result, fflags);
-      end
+      check("hold result", result, held_res);
+      check("hold flags", FLEN'(fflags), FLEN'(held_flags));
     end
     core_en = 1'b1;
   endtask  // Automatic
 
-  task automatic issue(input logic valid, input string path, input int line, input logic op_sub,
-                       input logic [2:0] op_rm, input logic [FLEN-1:0] op_a,
+  task automatic issue(input logic valid, input string name, input logic op_sub,
+                       input logic [RmW-1:0] op_rm, input logic [FLEN-1:0] op_a,
                        input logic [FLEN-1:0] op_b, input logic [FLEN-1:0] exp_res,
-                       input logic [4:0] exp_flags);
+                       input logic [FlagW-1:0] exp_flags);
     @(negedge clk);
     retire();
     stall();
@@ -221,36 +191,32 @@ module fp_add_bench
     a   = op_a;
     b   = op_b;
     pend_valid.push_back(valid);
-    pend_path.push_back(path);
-    pend_line.push_back(line);
-    pend_sub.push_back(op_sub);
-    pend_rm.push_back(op_rm);
-    pend_a.push_back(op_a);
-    pend_b.push_back(op_b);
+    pend_name.push_back(name);
     pend_res.push_back(exp_res);
     pend_flags.push_back(exp_flags);
   endtask  // Automatic
 
-  task automatic check(input string path, input int line, input logic op_sub,
-                       input logic [2:0] op_rm, input logic [FLEN-1:0] op_a,
-                       input logic [FLEN-1:0] op_b, input logic [FLEN-1:0] exp_res,
-                       input logic [4:0] exp_flags);
-    issue(1'b1, path, line, op_sub, op_rm, op_a, op_b, exp_res, exp_flags);
+  task automatic send(input string path, input int line, input logic op_sub,
+                      input logic [RmW-1:0] op_rm, input logic [FLEN-1:0] op_a,
+                      input logic [FLEN-1:0] op_b, input logic [FLEN-1:0] exp_res,
+                      input logic [FlagW-1:0] exp_flags);
+    issue(1'b1, $sformatf("%s:%0d sub=%0d rm=%0d a=%h b=%h", path, line, op_sub, op_rm, op_a, op_b),
+          op_sub, op_rm, op_a, op_b, exp_res, exp_flags);
   endtask  // Automatic
 
   task automatic drain();
     repeat (Latency) begin
-      issue(1'b0, "", 0, 1'($urandom), 3'($urandom), rand_bits(), rand_bits(), '0, '0);
+      issue(1'b0, "", 1'($urandom), RmW'($urandom), rand_bits(), rand_bits(), '0, '0);
     end
   endtask  // Automatic
 
-  task automatic run_file(input string path, input logic op_sub, input logic [2:0] op_rm);
+  task automatic run_file(input string path, input logic op_sub, input logic [RmW-1:0] op_rm);
     int fd;
     int line;
     logic [FLEN-1:0] fa;
     logic [FLEN-1:0] fb;
     logic [FLEN-1:0] exp_res;
-    logic [4:0] exp_flags;
+    logic [FlagW-1:0] exp_flags;
     fd = $fopen(path, "r");
     if (fd == 0) $fatal(1, "TB MISSING FILE: %s (run make testfloat)", path);
     line = 0;
@@ -258,7 +224,7 @@ module fp_add_bench
         fd, "%h %h %h %h\n", fa, fb, exp_res, exp_flags
     ) == 4) begin
       line++;
-      check(path, line, op_sub, op_rm, fa, fb, exp_res, exp_flags);
+      send(path, line, op_sub, op_rm, fa, fb, exp_res, exp_flags);
     end
     if (!$feof(fd)) $fatal(1, "TB BAD LINE: %s:%0d", path, line + 1);
     $fclose(fd);
@@ -266,19 +232,19 @@ module fp_add_bench
     $display("%s: %0d lines", path, line);
   endtask  // Automatic
 
-  task automatic run_stall_file(input string path, input logic op_sub, input logic [2:0] op_rm);
+  task automatic run_stall_file(input string path, input logic op_sub, input logic [RmW-1:0] op_rm);
     int fd;
     int line;
     logic [FLEN-1:0] fa;
     logic [FLEN-1:0] fb;
     logic [FLEN-1:0] exp_res;
-    logic [4:0] exp_flags;
+    logic [FlagW-1:0] exp_flags;
     fd = $fopen(path, "r");
     if (fd == 0) $fatal(1, "TB MISSING FILE: %s (run make testfloat)", path);
     for (line = 1; line <= StallOps; line++) begin
       if ($fscanf(fd, "%h %h %h %h\n", fa, fb, exp_res, exp_flags) != 4)
         $fatal(1, "TB BAD LINE: %s:%0d", path, line);
-      check(path, line, op_sub, op_rm, fa, fb, exp_res, exp_flags);
+      send(path, line, op_sub, op_rm, fa, fb, exp_res, exp_flags);
     end
     $fclose(fd);
   endtask  // Automatic
@@ -296,11 +262,15 @@ module fp_add_bench
 
   task automatic run_nan_bits();
     for (int i = 0; i < FRAC_W; i++) begin
-      check({FMT, " nan_bits_a"}, i, 1'b0, RmRne, PosInf | (FLEN'(1) << i), One, CanonNan,
-            (i != FRAC_W - 1) ? FlagNv : '0);
-      check({FMT, " nan_bits_b"}, i, 1'b0, RmRne, One, PosInf | (FLEN'(1) << i), CanonNan,
-            (i != FRAC_W - 1) ? FlagNv : '0);
+      send({FMT, " nan_bits_a"}, i, 1'b0, RmRne, PosInf | (FLEN'(1) << i), One, CanonNan,
+           (i != FRAC_W - 1) ? FlagNv : '0);
+      send({FMT, " nan_bits_b"}, i, 1'b0, RmRne, One, PosInf | (FLEN'(1) << i), CanonNan,
+           (i != FRAC_W - 1) ? FlagNv : '0);
     end
+  endtask  // Automatic
+
+  task automatic mark_done();
+    done = 1'b1;
   endtask  // Automatic
 
   initial begin
@@ -321,7 +291,7 @@ module fp_add_bench
     run_nan_bits();
     drain();
     run_stalls();
-    done = 1'b1;
+    mark_done();
   end
 
 endmodule
