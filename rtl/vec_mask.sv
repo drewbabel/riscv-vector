@@ -149,7 +149,7 @@ module vec_mask
     endcase
   end
 
-  // Carry and borrow in
+  // Carry borrow in
   logic [MaxElems-1:0] cin;
   assign cin = vm ? '0 : mask_bits;
 
