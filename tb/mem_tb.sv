@@ -3,8 +3,58 @@
 module mem_tb ();
 
   localparam int MinChecks = 12;
+
+  int checks;
+  int errors;
+  int max_errors;
+  int live_errors;
+
+  mem_bench #(.DEPTH(1024)) depth1024_bench ();
+
+  mem_bench #(.DEPTH(8192)) depth8192_bench ();
+
+  mem_bench #(.DEPTH(32768)) depth32768_bench ();
+
+  task automatic check_floor(input string name, input int got, input int floor);
+    if (got < floor)
+      $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    checks = depth1024_bench.checks + depth8192_bench.checks + depth32768_bench.checks;
+    errors = depth1024_bench.errors + depth8192_bench.errors + depth32768_bench.errors;
+    check_floor("depth1024_bench", depth1024_bench.checks, MinChecks);
+    check_floor("depth8192_bench", depth8192_bench.checks, MinChecks);
+    check_floor("depth32768_bench", depth32768_bench.checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("mem_tb.vcd");
+    $dumpvars(0, mem_tb);
+    wait (depth1024_bench.done && depth8192_bench.done && depth32768_bench.done);
+    do_verdict();
+  end
+
+  always_comb
+    live_errors = depth1024_bench.errors + depth8192_bench.errors + depth32768_bench.errors;
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (live_errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", live_errors);
+    end
+  end
+
+endmodule
+
+module mem_bench #(
+    parameter int DEPTH = 8192
+) ();
+
   localparam int XLEN = arch_pkg::XLEN;
-  localparam int DEPTH = 8192;
   localparam int StrbW = XLEN / 8;
   localparam logic [StrbW-1:0] Lane1 = StrbW'(1) << 1;
   localparam logic [XLEN-1:0] TopAddr = XLEN'((DEPTH - 1) * StrbW);
@@ -12,6 +62,7 @@ module mem_tb ();
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  logic done = 1'b0;
 
   logic clk = 1'b0;
   logic core_en;
@@ -42,7 +93,7 @@ module mem_tb ();
     checks++;
     if (got !== exp) begin
       errors++;
-      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      $display("FAIL %m %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
@@ -123,19 +174,14 @@ module mem_tb ();
     check_data("stalled write ignored", XLEN'('h30), XLEN'('hCAFE_BABE));
   endtask  // Automatic
 
-  task automatic do_verdict();
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
+  task automatic finish();
+    @(negedge clk);
+    done = 1'b1;
   endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
-    $dumpfile("mem_tb.vcd");
-    $dumpvars(0, mem_tb);
     do_reset();
 
     test_byte_lanes();
@@ -143,7 +189,7 @@ module mem_tb ();
     test_top_word();
     test_core_stall();
 
-    do_verdict();
+    finish();
   end
 
 endmodule
