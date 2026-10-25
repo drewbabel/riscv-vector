@@ -4,16 +4,20 @@ module alu_tb
   import alu_pkg::*;
 ();
 
-  int checks = 0;
-  int error_count = 0;
-  int max_errors = 0;
+  localparam int MinChecks = 12000;
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int SHAMT = $clog2(XLEN);
+  localparam logic [XLEN-1:0] MinNeg = {1'b1, {(XLEN - 1) {1'b0}}};
+  localparam logic [XLEN-1:0] MaxPos = ~MinNeg;
+  localparam logic [XLEN-1:0] Pattern = XLEN'('h1234_5678);
 
-  localparam int XLEN  = arch_pkg::XLEN;
-  localparam int SHAMT = $clog2(XLEN);    // Shift-amount width
+  int checks = 0;
+  int errors = 0;
+  int max_errors = 0;
 
   logic [XLEN-1:0] a;
   logic [XLEN-1:0] b;
-  alu_pkg::alu_op_e alu_op;
+  alu_op_e alu_op;
   logic [XLEN-1:0] result;
   logic zero;
   logic lt;
@@ -31,113 +35,107 @@ module alu_tb
       .ltu(ltu)
   );
 
-  // Golden reference
-  function automatic logic [XLEN-1:0] alu_ref(input logic [XLEN-1:0] a, input logic [XLEN-1:0] b,
-                                              input alu_pkg::alu_op_e op);
-    case (op)
-      ALU_ADD:  return a + b;
-      ALU_SUB:  return a - b;
-      ALU_SLL:  return a << b[SHAMT-1:0];
-      ALU_SLT:  return ($signed(a) < $signed(b)) ? 1 : 0;
-      ALU_SLTU: return (a < b) ? 1 : 0;
-      ALU_XOR:  return a ^ b;
-      ALU_SRL:  return a >> b[SHAMT-1:0];
-      ALU_SRA:  return $signed(a) >>> b[SHAMT-1:0];
-      ALU_OR:   return a | b;
-      ALU_AND:  return a & b;
-      default:  return '0;
-    endcase
-  endfunction
-
-  function automatic logic zero_ref(input logic [XLEN-1:0] value);
-    return (value == '0);
-  endfunction
-
-  function automatic logic lt_ref(input logic [XLEN-1:0] a, input logic [XLEN-1:0] b,
-                                  input alu_pkg::alu_op_e op, input logic [XLEN-1:0] result_ref);
-    return (op == ALU_SLT) ? result_ref[0] : ($signed(a) < $signed(b));
-  endfunction
-
-  function automatic logic ltu_ref(input logic [XLEN-1:0] a, input logic [XLEN-1:0] b,
-                                   input alu_pkg::alu_op_e op, input logic [XLEN-1:0] result_ref);
-    return (op == ALU_SLTU) ? result_ref[0] : (a < b);
-  endfunction
-
-  task automatic check_flag(input string flag_name, input logic [XLEN-1:0] got,
-                            input logic [XLEN-1:0] exp);
+  task automatic check(input string name, input logic [XLEN-1:0] got, input logic [XLEN-1:0] exp);
     checks++;
     if (got !== exp) begin
-      error_count++;
-      $display("ALU %s mismatch op=%0d a=%h b=%h exp=%h got=%h", flag_name, alu_op, a, b, exp, got);
-      if (error_count == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", error_count);
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
-  endtask
+  endtask  // Automatic
 
   task automatic check_case(input logic [XLEN-1:0] a_in, input logic [XLEN-1:0] b_in,
-                            input alu_pkg::alu_op_e op_in);
-    logic [XLEN-1:0] result_ref;
-    logic zero_exp;
-    logic lt_ref_val;
-    logic ltu_ref_val;
-
+                            input alu_op_e op_in);
+    logic [XLEN-1:0] exp;
+    string tag;
     a = a_in;
     b = b_in;
     alu_op = op_in;
-    #1;  // let DUT settle before sampling outputs
+    #1;
+    exp = alu_ref(a_in, b_in, op_in);
+    tag = $sformatf("%s a=%h b=%h", op_in.name(), a_in, b_in);
+    check({tag, " result"}, result, exp);
+    check({tag, " zero"}, XLEN'(zero), XLEN'(exp == '0));
+    check({tag, " lt"}, XLEN'(lt), XLEN'(lt_ref(a_in, b_in, op_in, exp)));
+    check({tag, " ltu"}, XLEN'(ltu), XLEN'(ltu_ref(a_in, b_in, op_in, exp)));
+  endtask  // Automatic
 
-    result_ref = alu_ref(a_in, b_in, op_in);
-    zero_exp = zero_ref(result_ref);
-    lt_ref_val = lt_ref(a_in, b_in, op_in, result_ref);
-    ltu_ref_val = ltu_ref(a_in, b_in, op_in, result_ref);
+  task automatic test_directed();
+    check_case('0, '0, ALU_ADD);
+    check_case('1, '1, ALU_AND);
+    check_case(Pattern, Pattern, ALU_SUB);
+    check_case(Pattern, XLEN'(1), ALU_ADD);
+    check_case(XLEN'(1), '0, ALU_SLL);
+    check_case(Pattern, XLEN'(XLEN - 1), ALU_SLL);
+    check_case(Pattern, ~XLEN'('hFA), ALU_SLL);
+    check_case(MinNeg | XLEN'(1), XLEN'(4), ALU_SRA);
+    check_case(MinNeg | XLEN'(1), XLEN'(4), ALU_SRL);
+    check_case(MaxPos, MinNeg, ALU_SLT);
+    check_case(MaxPos, MinNeg, ALU_SLTU);
+    check_case(Pattern, '0, ALU_OR);
+    check_case('1, '0, ALU_OR);
+  endtask  // Automatic
 
-    check_flag("result", result, result_ref);
-    check_flag("zero", {{(XLEN - 1) {1'b0}}, zero}, {{(XLEN - 1) {1'b0}}, zero_exp});
-    check_flag("lt", {{(XLEN - 1) {1'b0}}, lt}, {{(XLEN - 1) {1'b0}}, lt_ref_val});
-    check_flag("ltu", {{(XLEN - 1) {1'b0}}, ltu}, {{(XLEN - 1) {1'b0}}, ltu_ref_val});
-  endtask
+  task automatic random_sweep(input int n);
+    repeat (n)
+      check_case(XLEN'($urandom), XLEN'($urandom), alu_op_e'($urandom_range(int'(ALU_AND))));
+  endtask  // Automatic
 
-  task automatic verdict();
-    if (error_count == 0) begin
-      $display("PASS: %0d checks, %0d mismatches", checks, error_count);
-    end else begin
-      $fatal(1, "FAIL: %0d mismatches, %0d checks", error_count, checks);
-    end
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
-  endtask
+  endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
+
+  task automatic do_reset();
+    a = '0;
+    b = '0;
+    alu_op = alu_pkg::alu_op_e'(0);
+    #1;
+  endtask  // Automatic
 
   initial begin
     $dumpfile("alu_tb.vcd");
     $dumpvars(0, alu_tb);
+    do_reset();
 
-    // Directed corner cases
-    check_case(32'h0000_0000, 32'h0000_0000, ALU_ADD);
-    check_case(32'hFFFF_FFFF, 32'hFFFF_FFFF, ALU_AND);
+    test_directed();
+    random_sweep(3000);
 
-    check_case(32'h1234_5678, 32'h1234_5678, ALU_SUB);
-    check_case(32'h1234_5678, 32'h0000_0001, ALU_ADD);
-
-    check_case(32'h0000_0001, 32'h0000_0000, ALU_SLL);
-    check_case(32'h1234_5678, 32'h0000_001F, ALU_SLL);
-    check_case(32'h1234_5678, 32'hFFFF_FF05, ALU_SLL);
-
-    check_case(32'h8000_0001, 32'h0000_0004, ALU_SRA);
-    check_case(32'h8000_0001, 32'h0000_0004, ALU_SRL);
-
-    check_case(32'h7FFF_FFFF, 32'h8000_0000, ALU_SLT);
-    check_case(32'h7FFF_FFFF, 32'h8000_0000, ALU_SLTU);
-
-    check_case(32'h1234_5678, 32'h0000_0000, ALU_OR);
-    check_case(32'hFFFF_FFFF, 32'h0000_0000, ALU_OR);
-
-    // Randomized sweep
-    repeat (3000) begin
-      check_case($urandom, $urandom, alu_pkg::alu_op_e'($urandom_range(0, 9)));
-    end
-
-    verdict();
+    do_verdict();
   end
+
+  // Golden reference
+  function automatic logic [XLEN-1:0] alu_ref(input logic [XLEN-1:0] x, input logic [XLEN-1:0] y,
+                                              input alu_op_e op);
+    case (op)
+      ALU_ADD:  return x + y;
+      ALU_SUB:  return x - y;
+      ALU_SLL:  return x << y[SHAMT-1:0];
+      ALU_SLT:  return XLEN'($signed(x) < $signed(y));
+      ALU_SLTU: return XLEN'(x < y);
+      ALU_XOR:  return x ^ y;
+      ALU_SRL:  return x >> y[SHAMT-1:0];
+      ALU_SRA:  return $signed(x) >>> y[SHAMT-1:0];
+      ALU_OR:   return x | y;
+      ALU_AND:  return x & y;
+      default:  return '0;
+    endcase
+  endfunction
+
+  function automatic logic lt_ref(input logic [XLEN-1:0] x, input logic [XLEN-1:0] y,
+                                  input alu_op_e op, input logic [XLEN-1:0] exp);
+    return (op == ALU_SLT) ? exp[0] : ($signed(x) < $signed(y));
+  endfunction
+
+  function automatic logic ltu_ref(input logic [XLEN-1:0] x, input logic [XLEN-1:0] y,
+                                   input alu_op_e op, input logic [XLEN-1:0] exp);
+    return (op == ALU_SLTU) ? exp[0] : (x < y);
+  endfunction
 
 endmodule
 
