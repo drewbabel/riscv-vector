@@ -41,7 +41,7 @@ RTL = [os.path.join(ROOT, "rtl", p) for p in PKGS] + [
 RVGCC = "riscv64-elf-gcc"
 SIM = os.path.join(BUILD, "cosim_sim")
 
-SCALAR_MARCH = "rv32im"
+SCALAR_MARCH = "rv32im_zicsr"
 VECTOR_MARCH = "rv32im_zve32x_zvl128b"  # Zvl128b or VLEN reads 32
 VECTOR = False
 FP_MARCH = "rv32imf_zicsr"
@@ -79,7 +79,7 @@ def march():
         return FP_MARCH
     if VECTOR:
         return VECTOR_MARCH
-    return SCALAR_MARCH + ("_zicsr" if IRQ else "")
+    return SCALAR_MARCH
 
 
 def gcc_common():
