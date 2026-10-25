@@ -3,8 +3,11 @@
 module top
   import cache_pkg::*;
 #(
-    parameter int XLEN  = arch_pkg::XLEN,
-    parameter int DEPTH = 64
+    parameter int XLEN      = arch_pkg::XLEN,
+    parameter int VLEN      = arch_pkg::VLEN,
+    parameter int ELEN      = arch_pkg::ELEN,
+    parameter int MUL_LANES = arch_pkg::MulLanes,
+    parameter int DEPTH     = 64
 ) (
     input  wire             clk,
     input  wire             rst_n,
@@ -14,14 +17,17 @@ module top
     output logic            mem_write
 );
 
-  logic [XLEN-1:0] instr;
+  logic [31:0] instr;
   logic [LineBits-1:0] read_data;
   logic [LineBytes-1:0] store_wstrb;
   logic [LineBits-1:0] store_data;
   logic [XLEN-1:0] mem_addr;
 
   riscv_pipelined #(
-      .XLEN(XLEN)
+      .XLEN     (XLEN),
+      .VLEN     (VLEN),
+      .ELEN     (ELEN),
+      .MUL_LANES(MUL_LANES)
   ) riscv_pipelined_inst (
 `ifdef RISCV_FORMAL
       .dbg_valid     (),
