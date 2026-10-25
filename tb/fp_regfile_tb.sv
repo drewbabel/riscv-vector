@@ -2,14 +2,48 @@
 
 module fp_regfile_tb ();
 
-  localparam int AWIDTH = arch_pkg::RegAddrW;
-  localparam int FLEN = fp_pkg::FLEN;
-  localparam int Depth = 2 ** AWIDTH;
   localparam int MinChecks = 12000;
 
   int checks = 0;
   int errors = 0;
+
+  fp_regfile_bench #(.FLEN(16)) f16_bench ();
+
+  fp_regfile_bench #(.FLEN(32)) f32_bench ();
+
+  fp_regfile_bench #(.FLEN(64)) f64_bench ();
+
+  task automatic do_verdict();
+    checks = f16_bench.checks + f32_bench.checks + f64_bench.checks;
+    errors = f16_bench.errors + f32_bench.errors + f64_bench.errors;
+    if (f16_bench.checks < MinChecks || f32_bench.checks < MinChecks ||
+        f64_bench.checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d per width", checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("fp_regfile_tb.vcd");
+    $dumpvars(0, f32_bench);
+    wait (f16_bench.done && f32_bench.done && f64_bench.done);
+    do_verdict();
+  end
+
+endmodule
+
+module fp_regfile_bench #(
+    parameter int FLEN = fp_pkg::FLEN
+) ();
+
+  localparam int AWIDTH = arch_pkg::RegAddrW;
+  localparam int Depth  = 2 ** AWIDTH;
+
+  int checks = 0;
+  int errors = 0;
   int max_errors = 0;
+  logic done = 1'b0;
 
   logic clk = 1'b0;
   logic rst_n = 1'b1;
@@ -79,6 +113,13 @@ module fp_regfile_tb ();
     rst_n = 1'b1;
   endtask  // Automatic
 
+  function automatic logic [FLEN-1:0] rand_word();
+    logic [FLEN-1:0] w;
+    w = '0;
+    for (int i = 0; i < FLEN; i += 32) w = (w << 32) | FLEN'($urandom);
+    return w;
+  endfunction
+
   function automatic logic [FLEN-1:0] exp_read(input logic [AWIDTH-1:0] ra);
     if (we2 && waddr2 == ra) return wdata2;
     if (we && waddr == ra) return wdata;
@@ -146,13 +187,13 @@ module fp_regfile_tb ();
 
   task automatic fill();
     for (int r = 0; r < Depth; r++)
-      step(1'b1, AWIDTH'(r), FLEN'($urandom), AWIDTH'(r), AWIDTH'((r + 1) % Depth), AWIDTH'(r ^ 5),
+      step(1'b1, AWIDTH'(r), rand_word(), AWIDTH'(r), AWIDTH'((r + 1) % Depth), AWIDTH'(r ^ 5),
            "fill");
   endtask  // Automatic
 
   task automatic random_steps(input int n);
     repeat (n)
-      step(1'($urandom), AWIDTH'($urandom), FLEN'($urandom), AWIDTH'($urandom), AWIDTH'($urandom),
+      step(1'($urandom), AWIDTH'($urandom), rand_word(), AWIDTH'($urandom), AWIDTH'($urandom),
            AWIDTH'($urandom), "random");
   endtask  // Automatic
 
@@ -168,24 +209,18 @@ module fp_regfile_tb ();
 
   task automatic random_two_port(input int n);
     repeat (n)
-      step_two(1'($urandom), AWIDTH'($urandom), FLEN'($urandom), 1'($urandom), AWIDTH'($urandom),
-               FLEN'($urandom), AWIDTH'($urandom), AWIDTH'($urandom), AWIDTH'($urandom),
+      step_two(1'($urandom), AWIDTH'($urandom), rand_word(), 1'($urandom), AWIDTH'($urandom),
+               rand_word(), AWIDTH'($urandom), AWIDTH'($urandom), AWIDTH'($urandom),
                "random_two_port");
   endtask  // Automatic
 
-  task automatic do_verdict();
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
+  task automatic mark_done();
+    done = 1'b1;
   endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
-    $dumpfile("fp_regfile_tb.vcd");
-    $dumpvars(0, fp_regfile_tb);
     do_reset();
 
     read_all("reset");
@@ -199,7 +234,7 @@ module fp_regfile_tb ();
     do_reset();
     read_all("rereset");
 
-    do_verdict();
+    mark_done();
   end
 
   always @(posedge clk) begin
