@@ -3,42 +3,61 @@
 module board_top
   import cache_pkg::*;
 #(
-    parameter int XLEN         = arch_pkg::XLEN,
-    parameter int DEPTH        = 4194304,
-    parameter int ClkDiv       = arch_pkg::ClkDiv,
-    parameter int BoardClkHz   = arch_pkg::BoardClkHz,
-    parameter bit UNCACHED     = 1'b0,
-    parameter bit GSHARE_EN    = 1'b1,
-    parameter bit SINGLE_CYCLE = 1'b0
+    parameter  int XLEN         = arch_pkg::XLEN,
+    parameter  int VLEN         = arch_pkg::VLEN,
+    parameter  int ELEN         = arch_pkg::ELEN,
+    parameter  int MUL_LANES    = arch_pkg::MulLanes,
+    parameter  int DEPTH        = 4194304,
+    parameter  int ClkDiv       = arch_pkg::ClkDiv,
+    parameter  int BoardClkHz   = arch_pkg::BoardClkHz,
+    parameter  bit UNCACHED     = 1'b0,
+    parameter  bit GSHARE_EN    = 1'b1,
+    parameter  bit SINGLE_CYCLE = 1'b0,
+    localparam int GpioW        = 8
 ) (
-    input  wire         clk,
-    input  wire         rst,
-    input  wire  [ 7:0] sw,
-    output logic [ 7:0] led,
-    input  wire         uart_rx,
-    output logic        uart_tx,
+    input  wire              clk,
+    input  wire              rst,
+    input  wire  [GpioW-1:0] sw,
+    output logic [GpioW-1:0] led,
+    input  wire              uart_rx,
+    output logic             uart_tx,
     // DDR3
-    output logic [14:0] ddr3_addr,
-    output logic [ 2:0] ddr3_ba,
-    output logic        ddr3_ras_n,
-    output logic        ddr3_cas_n,
-    output logic        ddr3_we_n,
-    output logic        ddr3_reset_n,
-    output logic [ 0:0] ddr3_ck_p,
-    output logic [ 0:0] ddr3_ck_n,
-    output logic [ 0:0] ddr3_cke,
-    output logic [ 0:0] ddr3_odt,
-    output logic [ 1:0] ddr3_dm,
-    inout  wire  [15:0] ddr3_dq,
-    inout  wire  [ 1:0] ddr3_dqs_p,
-    inout  wire  [ 1:0] ddr3_dqs_n
+    output logic [     14:0] ddr3_addr,
+    output logic [      2:0] ddr3_ba,
+    output logic             ddr3_ras_n,
+    output logic             ddr3_cas_n,
+    output logic             ddr3_we_n,
+    output logic             ddr3_reset_n,
+    output logic [      0:0] ddr3_ck_p,
+    output logic [      0:0] ddr3_ck_n,
+    output logic [      0:0] ddr3_cke,
+    output logic [      0:0] ddr3_odt,
+    output logic [      1:0] ddr3_dm,
+    inout  wire  [     15:0] ddr3_dq,
+    inout  wire  [      1:0] ddr3_dqs_p,
+    inout  wire  [      1:0] ddr3_dqs_n
 );
 
-  localparam int AppAddrWidth = 29;
+  localparam int AppAddrWidth = arch_pkg::MigAddrW;
+  localparam int AppCmdW = arch_pkg::MigCmdW;
   localparam int MaskBits = LineBits / 8;
+  localparam int DataBits = arch_pkg::UartDataBits;
+  localparam int TagW = arch_pkg::PeriphTagW;
+  localparam int PorW = 4;
+  localparam logic [GpioW-1:0] LoadPattern = {(GpioW / 2) {2'b01}};
+
+  localparam int MigSysClkHz = 100_000_000;
+  localparam int MigRefClkHz = 200_000_000;
+  localparam int PllVcoHz = 1_000_000_000;
+  localparam int PllMult = PllVcoHz / BoardClkHz;
+  localparam real ClkInPeriodNs = 1.0e9 / BoardClkHz;
+
+  if ((PllVcoHz % BoardClkHz != 0) || (PllMult < 2) || (PllMult > 64)) begin : g_pll
+    $error("BoardClkHz must divide the 1 GHz PLL VCO");
+  end
 
   logic                    rst_n;
-  logic [        XLEN-1:0] instr;
+  logic [            31:0] instr;
   logic [        XLEN-1:0] pc;
   logic [        XLEN-1:0] mem_addr;
   logic [      XLEN/8-1:0] store_wstrb;
@@ -55,15 +74,15 @@ module board_top
   logic                    timer_irq;
   logic                    ext_irq;
   logic                    tx_valid;
-  logic [             7:0] tx_byte;
-  logic [             7:0] led_raw;
+  logic [    DataBits-1:0] tx_byte;
+  logic [       GpioW-1:0] led_raw;
 
   logic                    core_rst_n;
   logic                    loading;
   logic                    boot_we;
   logic [        XLEN-1:0] boot_waddr;
   logic [        XLEN-1:0] boot_wdata;
-  logic [             7:0] rx_byte;
+  logic [    DataBits-1:0] rx_byte;
   logic                    rx_valid_w;
 
   logic [        XLEN-1:0] pmu_rdata;
@@ -95,10 +114,11 @@ module board_top
   logic [    LineBits-1:0] dc_mem_rdata;
   logic                    dc_mem_ready;
 
-  logic [            31:0] ic_hits;
-  logic [            31:0] ic_misses;
-  logic [            31:0] dc_hits;
-  logic [            31:0] dc_misses;
+  logic [        XLEN-1:0] ic_hits;
+  logic [        XLEN-1:0] ic_misses;
+  logic [        XLEN-1:0] dc_hits;
+  logic [        XLEN-1:0] dc_misses;
+  logic [        TagW-1:0] periph_tag;
 
   // Controller clocks
   logic                    pll_fb;
@@ -115,7 +135,7 @@ module board_top
   logic                    calib_done;
 
   logic [AppAddrWidth-1:0] app_addr;
-  logic [             2:0] app_cmd;
+  logic [     AppCmdW-1:0] app_cmd;
   logic                    app_en;
   logic                    app_rdy;
   logic [    LineBits-1:0] app_wdf_data;
@@ -130,10 +150,10 @@ module board_top
   logic core_en;
 
   PLLE2_BASE #(
-      .CLKIN1_PERIOD (10.000),
-      .CLKFBOUT_MULT (10),
-      .CLKOUT0_DIVIDE(10),
-      .CLKOUT1_DIVIDE(5)
+      .CLKIN1_PERIOD (ClkInPeriodNs),
+      .CLKFBOUT_MULT (PllMult),
+      .CLKOUT0_DIVIDE(PllVcoHz / MigSysClkHz),
+      .CLKOUT1_DIVIDE(PllVcoHz / MigRefClkHz)
   ) pll_inst (
       .CLKIN1  (clk),
       .CLKFBIN (pll_fb),
@@ -215,20 +235,21 @@ module board_top
   );
 
   // Power on reset
-  logic [3:0] por = '0;
-  always_ff @(posedge core_clk) if (core_en && !por[3]) por <= por + 1'b1;
+  logic [PorW-1:0] por = '0;
+  always_ff @(posedge core_clk) if (core_en && !por[PorW-1]) por <= por + 1'b1;
 
   // Calibration holds reset
-  assign rst_n      = por[3] & ~ui_rst & ~rst & calib_done;
+  assign rst_n      = por[PorW-1] & ~ui_rst & ~rst & calib_done;
 
   // Load holds reset
   assign core_rst_n = rst_n & ~loading;
 
   // Decode on mem_addr
-  assign clint_sel  = mem_addr[XLEN-1:XLEN-8] == arch_pkg::ClintTag;
-  assign gpio_sel   = mem_addr[XLEN-1:XLEN-8] == arch_pkg::GpioTag;
-  assign uart_sel   = mem_addr[XLEN-1:XLEN-8] == arch_pkg::UartTag;
-  assign pmu_sel    = mem_addr[XLEN-1:XLEN-8] == arch_pkg::PmuTag;
+  assign periph_tag = mem_addr[XLEN-1-:TagW];
+  assign clint_sel  = periph_tag == arch_pkg::ClintTag;
+  assign gpio_sel   = periph_tag == arch_pkg::GpioTag;
+  assign uart_sel   = periph_tag == arch_pkg::UartTag;
+  assign pmu_sel    = periph_tag == arch_pkg::PmuTag;
   assign periph_sel = clint_sel || gpio_sel || uart_sel || pmu_sel;
 
   // Peripheral read mux
@@ -242,7 +263,7 @@ module board_top
 
   assign dmem_ready = periph_sel ? 1'b1 : dc_ready;
 
-  assign led = loading ? 8'h55 : led_raw;
+  assign led = loading ? LoadPattern : led_raw;
 
   pmu #(
       .XLEN(XLEN),
@@ -258,7 +279,7 @@ module board_top
 
   gpio #(
       .XLEN (XLEN),
-      .WIDTH(8)
+      .WIDTH(GpioW)
   ) gpio_inst (
       .clk    (core_clk),
       .core_en(core_en),
@@ -274,7 +295,8 @@ module board_top
 
   uart_rx #(
       .CLK_FREQ_HZ(CoreClkHz),
-      .BAUD_RATE  (arch_pkg::BaudRate)
+      .BAUD_RATE  (arch_pkg::BaudRate),
+      .DATA_BITS  (DataBits)
   ) uart_rx_inst (
       .clk      (core_clk),
       .core_en  (core_en),
@@ -287,7 +309,8 @@ module board_top
 
   uart_tx #(
       .CLK_FREQ_HZ(CoreClkHz),
-      .BAUD_RATE  (arch_pkg::BaudRate)
+      .BAUD_RATE  (arch_pkg::BaudRate),
+      .DATA_BITS  (DataBits)
   ) uart_tx_inst (
       .clk      (core_clk),
       .core_en  (core_en),
@@ -299,7 +322,8 @@ module board_top
   );
 
   uart_ctrl #(
-      .XLEN(XLEN)
+      .XLEN     (XLEN),
+      .DATA_BITS(DataBits)
   ) uart_ctrl_inst (
       .clk     (core_clk),
       .core_en (core_en),
@@ -319,8 +343,9 @@ module board_top
   );
 
   boot_loader #(
-      .XLEN (XLEN),
-      .DEPTH(DEPTH)
+      .XLEN     (XLEN),
+      .DEPTH    (DEPTH),
+      .DATA_BITS(DataBits)
   ) boot_loader_inst (
       .clk     (core_clk),
       .core_en (core_en),
@@ -363,6 +388,9 @@ module board_top
   end else begin : g_pipelined
     riscv_pipelined #(
         .XLEN     (XLEN),
+        .VLEN     (VLEN),
+        .ELEN     (ELEN),
+        .MUL_LANES(MUL_LANES),
         .GSHARE_EN(GSHARE_EN)
     ) riscv_pipelined_inst (
         .clk        (core_clk),
