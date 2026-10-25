@@ -351,6 +351,9 @@ module datapath
   logic     [                  4:0] fp_xflags;
   logic                             fp_hold;
   logic                             fp_csr_ex;
+  logic     [                 11:0] csr_addr_ex;
+  logic                             csr_fflags_ex;
+  logic                             csr_fcsr_ex;
   logic                             frm_write_ex;
 
   pc #(
@@ -800,10 +803,12 @@ module datapath
   assign fp_fop_ex = valid_ex && frd_write_ex;
   assign fp_xop_ex = valid_ex && fxrd_write_ex;
   assign fp_rm_ex = (instr_ex[14:12] == RmDyn) ? frm_q : instr_ex[14:12];
-  assign fp_csr_ex = valid_ex && csr_access_ex && ((instr_ex[31:20] == FflagsAddr) ||
-      (instr_ex[31:20] == FrmAddr) || (instr_ex[31:20] == FcsrAddr));
-  assign frm_write_ex = fp_csr_ex && (instr_ex[31:20] != FflagsAddr) &&
-      (!funct3_ex[1] || (instr_ex[19:15] != '0));
+  assign csr_addr_ex = instr_ex[31:20];
+  assign csr_fflags_ex = (csr_addr_ex == FflagsAddr);
+  assign csr_fcsr_ex = (csr_addr_ex == FcsrAddr);
+  assign fp_csr_ex = valid_ex && csr_access_ex &&
+      (csr_fflags_ex || (csr_addr_ex == FrmAddr) || csr_fcsr_ex);
+  assign frm_write_ex = fp_csr_ex && !csr_fflags_ex && (!funct3_ex[1] || (instr_ex[19:15] != '0));
   assign fp_hold = (fp_fop_ex && !fp_ready) || (fp_xop_ex && !fp_xvalid) || (fp_csr_ex && !fp_idle);
   assign fp_start = fp_fop_ex && commit_valid && !trap_taken;
   assign fp_xstart = fp_xop_ex && !fp_xvalid;
@@ -949,17 +954,16 @@ module datapath
   logic [XLEN-1:0] vtype_q;
   logic            exc_vec_encoding;
 
-  assign vec_csr_wait = csr_access_ex && ((instr_ex[31:20] == VxsatAddr)
-      || (instr_ex[31:20] == VcsrAddr) || (instr_ex[31:20] == FflagsAddr)
-      || (instr_ex[31:20] == FcsrAddr) || (instr_ex[31:20] == MstatusAddr));
+  assign vec_csr_wait = csr_access_ex && ((csr_addr_ex == VxsatAddr) ||
+      (csr_addr_ex == VcsrAddr) || csr_fflags_ex || csr_fcsr_ex || (csr_addr_ex == MstatusAddr));
 
   // Vector float forms
-  assign vec_fp_id = (vec_dec_id.op == vec_pkg::VEC_FARITH) ||
-      (vec_dec_id.op == vec_pkg::VEC_FCMP) || (vec_dec_id.op == vec_pkg::VEC_FRED) ||
-      vec_dec_id.reads_freg || vec_dec_id.writes_freg;
-  assign vec_fp_ex = valid_ex && ((vec_dec_ex.op == vec_pkg::VEC_FARITH) ||
-      (vec_dec_ex.op == vec_pkg::VEC_FCMP) || (vec_dec_ex.op == vec_pkg::VEC_FRED) ||
-      vec_dec_ex.reads_freg || vec_dec_ex.writes_freg);
+  assign vec_fp_id = vec_pkg::vec_is_fp(
+      vec_dec_id.op, vec_dec_id.reads_freg, vec_dec_id.writes_freg
+  );
+  assign vec_fp_ex = valid_ex && vec_pkg::vec_is_fp(
+      vec_dec_ex.op, vec_dec_ex.reads_freg, vec_dec_ex.writes_freg
+  );
 
   assign exc_vec_encoding = (((opcode_ex == OpcodeOpV) && !is_vset) ||
       (opcode_ex == OpcodeLoadFp) || (opcode_ex == OpcodeStoreFp)) && !vec_is_vector &&
