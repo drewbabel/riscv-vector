@@ -7,6 +7,7 @@ import json
 import os
 import random
 import re
+import shutil
 import signal
 import struct
 import subprocess
@@ -45,6 +46,7 @@ VECTOR_MARCH = "rv32im_zve32x_zvl128b"  # Zvl128b or VLEN reads 32
 VECTOR = False
 FP_MARCH = "rv32imf_zicsr"
 FP = False
+VECTOR_FP_MARCH = "rv32imf_zicsr_zve32f_zvl128b"
 
 VL_ADDR, VTYPE_ADDR, VSTART_ADDR = 0xC20, 0xC21, 0x008
 VTYPE_RESET = 0x8000_0000  # vill set out of reset
@@ -56,11 +58,28 @@ GEN_CAP = 2_000_000
 GEN_DEPTH = 131072
 SPAN = None
 
+STALL = False
+STALL_PCT = 40  # Chance a transfer waits
+STALL_MAX = 6  # Longest wait in cycles
+STALL_SLOW = 8  # Cycle budget scale
+STALLS = [0, 0]  # Fetch and data waits
+
+IRQ = False
+IRQ_RATE = 8  # Per mille per cycle
+IRQ_SRC = os.path.join(ROOT, "tests", "spike_irq.cc")
+IRQ_SIM = os.path.join(BUILD, "spike_irq")
+MIP_MEIP, MIP_MTIP = 1 << 11, 1 << 7
+MEPC_ADDR = 0x341
+
 
 def march():
+    if FP and VECTOR:
+        return VECTOR_FP_MARCH
     if FP:
         return FP_MARCH
-    return VECTOR_MARCH if VECTOR else SCALAR_MARCH
+    if VECTOR:
+        return VECTOR_MARCH
+    return SCALAR_MARCH + ("_zicsr" if IRQ else "")
 
 
 def gcc_common():
@@ -107,6 +126,34 @@ def compile_monitor():
         sys.exit(r.returncode)
 
 
+# Interrupt stepping Spike
+def build_irq_sim():
+    if os.path.exists(IRQ_SIM) and os.path.getmtime(
+        IRQ_SIM
+    ) >= os.path.getmtime(IRQ_SRC):
+        return
+    spike = shutil.which("spike")
+    if not spike:
+        sys.exit("spike not on PATH")
+    prefix = os.path.dirname(os.path.dirname(os.path.realpath(spike)))
+    os.makedirs(BUILD, exist_ok=True)
+    sh(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O2",
+            f"-I{prefix}/include",
+            "-o",
+            IRQ_SIM,
+            IRQ_SRC,
+            f"-L{prefix}/lib",
+            f"-Wl,-rpath,{prefix}/lib",
+            "-lriscv",
+            "-lfesvr",
+        ]
+    )
+
+
 # dut hex plus spike elf
 def build_images(src, hexout, spike_elf):
     dut_elf = os.path.join(BUILD, "dut.elf")
@@ -146,6 +193,11 @@ VCOMMIT_RE = re.compile(r"VCOMMIT (\d+) (\d+) ([0-9a-f]+)")
 VMEM_RE = re.compile(r"VMEM ([0-9a-f]+) ([0-9a-f]{4}) ([0-9a-f]+)")
 FCOMMIT_RE = re.compile(r"FCOMMIT (\d+) ([0-9a-f]+)")
 FCSR_RE = re.compile(r"FCSR ([0-9a-f]+)")
+STALLS_RE = re.compile(r"STALLS (\d+) (\d+)")
+IRQ_RE = re.compile(r"IRQ (\d+) (\d) (\d)")
+DUT_IRQ = []  # Retired count and lines
+IRQ_LOST = []  # Enabled line not taken
+SPK_IRQ_MISS = []  # Spike did not trap
 SPIKE_F_RE = re.compile(r"(?:^|\s)f(\d+)\s+0x([0-9a-f]+)")
 SPIKE_FCSR_RE = re.compile(r"\bc(1|2|3)_(?:fflags|frm|fcsr)\s+0x([0-9a-f]+)")
 DUT_FWR = []
@@ -156,7 +208,7 @@ TRACE = []  # Retirement times
 DUT_VWR = []  # Vector writes
 SPK_VWR = []  # Vector writes
 DUT_VMEM = []  # Vector store bytes
-FENCE_BUSY = []  # Fence retired early
+FAULTS = []  # Monitor faults
 HUNG = []  # Never reached the end
 SPK_VMEM = []  # Vector store bytes
 SPK_VWR_AT = []
@@ -166,8 +218,20 @@ DTRAP_RE = re.compile(r"DTRAP (\d+) ([0-9a-f]+) ([0-9a-f]+)")
 VEC_WIDTH = {0: 1, 5: 2, 6: 4}  # width field to byte count
 
 
-def run_dut(dut_hex, vcd=False, n=8000, gen=False):
+def run_dut(
+    dut_hex, vcd=False, n=8000, gen=False, stall_seed=None, irq_seed=None
+):
+    if stall_seed is not None:
+        n *= STALL_SLOW
     args = ["vvp", SIM, f"+hex={dut_hex}", f"+n={n}"]
+    if stall_seed is not None:
+        args += [
+            f"+stall={STALL_PCT}",
+            f"+stall_max={STALL_MAX}",
+            f"+stall_seed={stall_seed}",
+        ]
+    if irq_seed is not None:
+        args += [f"+irq={IRQ_RATE}", f"+irq_seed={irq_seed}"]
     if gen:
         args += ["+preload_dmem=1", "+log_traps=1"]
     if vcd:
@@ -175,10 +239,17 @@ def run_dut(dut_hex, vcd=False, n=8000, gen=False):
     out = subprocess.run(
         args, cwd=ROOT, capture_output=True, text=True, check=False
     ).stdout
-    FENCE_BUSY.clear()
-    FENCE_BUSY.extend(l for l in out.splitlines() if l.startswith("FENCE BUSY"))
+    FAULTS.clear()
+    FAULTS.extend(
+        l
+        for l in out.splitlines()
+        if l.startswith(("FENCE BUSY", "VEC REISSUE"))
+    )
     HUNG.clear()
     HUNG.extend(l for l in out.splitlines() if l.startswith("HUNG"))
+    IRQ_LOST.clear()
+    IRQ_LOST.extend(l for l in out.splitlines() if l.startswith("IRQ LOST"))
+    DUT_IRQ.clear()
     trace = []
     TRACE.clear()
     DUT_VWR.clear()
@@ -190,6 +261,20 @@ def run_dut(dut_hex, vcd=False, n=8000, gen=False):
         fw = FCOMMIT_RE.match(line)
         if fw:
             DUT_FWR.append((int(fw.group(1)), int(fw.group(2), 16) & MASK32))
+            continue
+        iq = IRQ_RE.match(line)
+        if iq:
+            DUT_IRQ.append(
+                (
+                    int(iq.group(1)),
+                    MIP_MEIP * int(iq.group(2)) | MIP_MTIP * int(iq.group(3)),
+                )
+            )
+            continue
+        st = STALLS_RE.match(line)
+        if st:
+            STALLS[0] += int(st.group(1))
+            STALLS[1] += int(st.group(2))
             continue
         fc = FCSR_RE.match(line)
         if fc:
@@ -298,6 +383,10 @@ def run_spike(spike_elf, n, isa=None, park=False):
         "--log-commits",
         spike_elf,
     ]
+    if IRQ and not park:
+        build_irq_sim()
+        points = ",".join(f"{k}:{mask}" for k, mask in DUT_IRQ) or "-"
+        cmd = [IRQ_SIM, isa or march(), str(n), points, spike_elf]
     if park:
         maxlines = GEN_CAP + 200
         cmd = [
@@ -338,6 +427,8 @@ def run_spike(spike_elf, n, isa=None, park=False):
         proc.wait(timeout=10)
     out = "".join(lines)
     trace = []
+    SPK_IRQ_MISS.clear()
+    SPK_IRQ_MISS.extend(l for l in lines if l.startswith("IRQ MISSED"))
     SPK_VWR.clear()
     SPK_VMEM.clear()
     SPK_VWR_AT.clear()
@@ -362,6 +453,8 @@ def run_spike(spike_elf, n, isa=None, park=False):
             val = int(rm.group(2), 16) & MASK32
             if opcode in ABS_PC_OPS and rd != 0:
                 val = (val - BASE) & MASK32  # to dut space
+            if IRQ and opcode == 0x73 and insn >> 20 == MEPC_ADDR:
+                val = (val - BASE) & MASK32
         for freg, fhex in SPIKE_F_RE.findall(tail):
             SPK_FWR.append((int(freg), int(fhex, 16) & MASK32))
         for caddr, chex in SPIKE_FCSR_RE.findall(tail):
@@ -388,7 +481,8 @@ def run_spike(spike_elf, n, isa=None, park=False):
             if VECTOR
             else None
         )
-        if opcode == 0x27:  # vector store elements
+        fsw = opcode == 0x27 and (insn >> 12) & 0x7 == 2  # scalar float store
+        if opcode == 0x27 and not fsw:  # vector store elements
             size = VEC_WIDTH[(insn >> 12) & 0x7]
             for eaddr, ehex in re.findall(
                 r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail
@@ -403,7 +497,7 @@ def run_spike(spike_elf, n, isa=None, park=False):
                     SPK_VMEM_AT.append(len(trace))
         store = None
         sm = re.search(r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail)
-        if sm and opcode == 0x23:
+        if sm and (opcode == 0x23 or fsw):
             saddr, sval = int(sm.group(1), 16), int(sm.group(2), 16)
             width = STORE_WIDTH[(insn >> 12) & 0x7]  # sb=1 sh=2 sw=4
             off = saddr & 0x3
@@ -1089,18 +1183,55 @@ def gen_vec(seed):
     return "\n".join(lines) + "\n", "vector"
 
 
+# Handler around a program
+def with_irq(asm):
+    head, body = asm.split("_start:\n", 1)
+    setup = [
+        "_start:",
+        "        jal x31, Lirqset",
+        "        j Lirq",
+        "Lirqset: csrw mtvec, x31",
+        f"        li x31, {MIP_MEIP | MIP_MTIP}",
+        "        csrs mie, x31",
+        "        csrsi mstatus, 8",
+        "        li x31, 0",
+    ]
+    handler = [
+        "Lirq:   csrrw x31, mscratch, x31",
+        "        csrr x31, mcause",
+        "        csrr x31, mepc",
+        "        csrrw x31, mscratch, x0",
+        "        mret",
+    ]
+    return head + "\n".join(setup) + "\n" + body + "\n".join(handler) + "\n"
+
+
 # Build run compare
-def run_one(src):
+def run_one(src, stall_seed=None, irq_seed=None):
     dut_hex = os.path.join(BUILD, "prog.hex")
     spike_elf = os.path.join(BUILD, "prog_spike.elf")
     build_images(src, dut_hex, spike_elf)
-    dut = run_dut(dut_hex)
+    dut = run_dut(dut_hex, stall_seed=stall_seed, irq_seed=irq_seed)
     if HUNG:
         return False, HUNG[0]
+    if IRQ_LOST:
+        return False, IRQ_LOST[0]
     spike = run_spike(spike_elf, len(dut))
+    if SPK_IRQ_MISS:
+        k = int(SPK_IRQ_MISS[0].split()[2])
+        i = first_mismatch(dut, spike)
+        if i is None or i >= k:
+            return False, (
+                f"interrupt at instr {k} taken by the core, not by Spike"
+                + (
+                    f"\n  DUT   {fmt(dut[k])}" + locate(k)
+                    if k < len(dut)
+                    else ""
+                )
+            )
     ok, why = compare(dut, spike)
-    if ok and FENCE_BUSY:
-        return False, FENCE_BUSY[0]
+    if ok and FAULTS:
+        return False, FAULTS[0]
     if not ok or not VECTOR:
         return ok, why
     vok, vwhy = compare_vec()
@@ -1368,8 +1499,8 @@ def gen_verdict(dut, spike, data):
     ):
         if a != b:
             return "DIVERGE", f"{what} DUT {a} Spike {b}"
-    if FENCE_BUSY:
-        return "DIVERGE", FENCE_BUSY[0]
+    if FAULTS:
+        return "DIVERGE", FAULTS[0]
     if data["end"] != "pass":
         return "DIVERGE", f"Spike ended at {data['end']}"
     return (
@@ -1440,7 +1571,7 @@ def gen_main(mode, args):
 
 
 def main():
-    global VECTOR, FP
+    global VECTOR, FP, STALL, IRQ
     if len(sys.argv) >= 2 and sys.argv[1] in (
         "--gen",
         "--gen-spike",
@@ -1456,40 +1587,68 @@ def main():
     if "--fp" in sys.argv[1:]:
         FP = True
         sys.argv.remove("--fp")
+    if "--stall" in sys.argv[1:]:
+        STALL = True
+        sys.argv.remove("--stall")
+    if "--irq" in sys.argv[1:]:
+        IRQ = True
+        sys.argv.remove("--irq")
 
     if len(sys.argv) >= 2 and sys.argv[1] == "--rand":  # random regression
         count = int(sys.argv[2]) if len(sys.argv) >= 3 else 200
         seed0 = int(sys.argv[3]) if len(sys.argv) >= 4 else 0
         compile_monitor()
         total = 0
+        irqs = 0
         for seed in range(seed0, seed0 + count):
             asm, mode = gen_vec(seed) if VECTOR else gen(seed)
+            if IRQ:
+                asm = with_irq(asm)
             src = os.path.join(BUILD, "rand.s")
             with open(src, "w") as f:
                 f.write(asm)
-            ok, detail = run_one(src)
+            ok, detail = run_one(
+                src, seed if STALL else None, seed if IRQ else None
+            )
             if not ok:
                 fail = os.path.join(
                     BUILD, f"fail_{seed}.s"
                 )  # reproducible seed
                 with open(fail, "w") as f:
                     f.write(asm)
+                flags = (
+                    ("--vec " if VECTOR else "")
+                    + ("--stall " if STALL else "")
+                    + ("--irq " if IRQ else "")
+                )
                 print(
                     f"FAIL seed={seed} mode={mode}\n{detail}\nprogram saved to {fail}"
+                    f"\nrerun: python3 tests/cosim.py {flags}--rand 1 {seed}"
                 )
                 sys.exit(1)
             total += detail
+            irqs += len(DUT_IRQ)
+        waits = (
+            f", {STALLS[0]} fetch and {STALLS[1]} data wait cycles"
+            if STALL
+            else ""
+        )
+        if IRQ:
+            waits += f", {irqs} interrupts taken"
         print(
-            f"RANDOM PASS: {count} programs, {total} instructions matched Spike"
+            f"RANDOM PASS: {count} programs from seed {seed0}, "
+            f"{total} instructions matched Spike{waits}"
         )
         return
 
+    if IRQ:
+        sys.exit("--irq needs --rand, directed programs carry no handler")
     want_trace = "--trace" in sys.argv
     if want_trace:
         sys.argv.remove("--trace")
     if len(sys.argv) != 2:
         sys.exit(
-            "usage: python3 tests/cosim.py [--vec] [--fp] [--trace] <prog>"
+            "usage: python3 tests/cosim.py [--vec] [--fp] [--stall] [--trace] <prog>"
             " | --rand [count] [seed0]"
         )
     prog = sys.argv[1]  # single program, assembly or C
@@ -1499,7 +1658,7 @@ def main():
     dut_hex = os.path.join("tests", f"{prog}.hex")
     spike_elf = os.path.join(BUILD, f"{prog}_spike.elf")
     build_images(src, dut_hex, spike_elf)
-    dut = run_dut(dut_hex, vcd=True)
+    dut = run_dut(dut_hex, vcd=True, stall_seed=1 if STALL else None)
     spike = run_spike(spike_elf, len(dut))
     if want_trace:
         log = os.path.join(BUILD, f"{prog}.trace")
@@ -1509,8 +1668,8 @@ def main():
     if not ok:
         print(f"DIVERGENCE {detail}")
         sys.exit(1)
-    if FENCE_BUSY:
-        print(f"DIVERGENCE {FENCE_BUSY[0]}")
+    if FAULTS:
+        print(f"DIVERGENCE {FAULTS[0]}")
         sys.exit(1)
     if HUNG:
         print(f"DIVERGENCE {HUNG[0]}")

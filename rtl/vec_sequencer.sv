@@ -38,6 +38,7 @@ module vec_sequencer
     input wire           mask_dest,
     input wire           mask_whole,
     input wire           mask_src,
+    input wire           serial,
 
     // Register ports
     output logic [AWIDTH-1:0] raddr1,
@@ -108,6 +109,7 @@ module vec_sequencer
   always_comb begin
     ln = LnW'(OffW) - LnW'(lmax);
     if (mul_rate && (ln > LnW'(MulLn))) ln = LnW'(MulLn);
+    if (serial) ln = '0;
   end
 
   assign elem_count = mask_whole ? CntW'(1) : CntW'(CntW'(1) << ln);

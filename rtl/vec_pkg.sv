@@ -132,6 +132,9 @@ package vec_pkg;
     VEC_WMACC,
     VEC_WMACCUS,
     VEC_WMACCSU,
+    VEC_FARITH,
+    VEC_FCMP,
+    VEC_FRED,
     VEC_LOAD,
     VEC_STORE,
     VEC_ILLEGAL
@@ -174,14 +177,16 @@ package vec_pkg;
     VEC_FCVT_RTZ_X_F,
     VEC_FCVT_F_XU,
     VEC_FCVT_F_X,
-    VEC_FMV
+    VEC_FMV,
+    VEC_FREDOSUM,
+    VEC_FREDUSUM
   } vec_fop_e;
 
   localparam int VecFpUnitLatency = fp_pkg::FpMaxLatency;
   localparam int VecFpLatency = VecFpUnitLatency + 2;
 
   // Datapath class
-  typedef enum logic [3:0] {
+  typedef enum logic [4:0] {
     VEC_CLS_NONE,
     VEC_CLS_ALU,
     VEC_CLS_MIXED,
@@ -195,7 +200,10 @@ package vec_pkg;
     VEC_CLS_MSET,
     VEC_CLS_IOTA,
     VEC_CLS_XM,
-    VEC_CLS_SAT
+    VEC_CLS_SAT,
+    VEC_CLS_FP,
+    VEC_CLS_FCMP,
+    VEC_CLS_COMPRESS
   } vec_cls_e;
 
   typedef struct packed {
@@ -231,7 +239,7 @@ package vec_pkg;
   function automatic vec_cls_e vec_class(input vec_op_e op);
     case (op)
       VEC_ADD, VEC_SUB, VEC_RSUB, VEC_MINU, VEC_MIN, VEC_MAXU, VEC_MAX, VEC_AND, VEC_OR, VEC_XOR,
-          VEC_ADC, VEC_SBC, VEC_MERGE, VEC_SLL, VEC_SRL, VEC_SRA:
+          VEC_ADC, VEC_SBC, VEC_MERGE, VEC_MVNRR, VEC_SLL, VEC_SRL, VEC_SRA:
       vec_class = VEC_CLS_ALU;
       VEC_WADDU, VEC_WADD, VEC_WSUBU, VEC_WSUB, VEC_NSRL, VEC_NSRA, VEC_ZEXT2, VEC_ZEXT4, VEC_SEXT2,
           VEC_SEXT4:
@@ -244,9 +252,10 @@ package vec_pkg;
           VEC_AADDU, VEC_AADD, VEC_ASUBU, VEC_ASUB:
       vec_class = VEC_CLS_SAT;
       VEC_REDSUM, VEC_REDAND, VEC_REDOR, VEC_REDXOR, VEC_REDMINU, VEC_REDMIN, VEC_REDMAXU,
-          VEC_REDMAX, VEC_WREDSUMU, VEC_WREDSUM:
+          VEC_REDMAX, VEC_WREDSUMU, VEC_WREDSUM, VEC_FRED:
       vec_class = VEC_CLS_RED;
-      VEC_MSEQ, VEC_MSNE, VEC_MSLTU, VEC_MSLT, VEC_MSLEU, VEC_MSLE, VEC_MSGTU, VEC_MSGT:
+      VEC_MSEQ, VEC_MSNE, VEC_MSLTU, VEC_MSLT, VEC_MSLEU, VEC_MSLE, VEC_MSGTU, VEC_MSGT, VEC_MADC,
+          VEC_MSBC:
       vec_class = VEC_CLS_CMP;
       VEC_MAND, VEC_MNAND, VEC_MANDN, VEC_MOR, VEC_MNOR, VEC_MORN, VEC_MXOR, VEC_MXNOR:
       vec_class = VEC_CLS_MLOG;
@@ -256,6 +265,9 @@ package vec_pkg;
       VEC_LOAD, VEC_STORE: vec_class = VEC_CLS_MEM;
       VEC_MV_X_S: vec_class = VEC_CLS_XS;
       VEC_MV_S_X: vec_class = VEC_CLS_SX;
+      VEC_FARITH: vec_class = VEC_CLS_FP;
+      VEC_FCMP: vec_class = VEC_CLS_FCMP;
+      VEC_COMPRESS: vec_class = VEC_CLS_COMPRESS;
       default: vec_class = VEC_CLS_NONE;
     endcase
   endfunction
@@ -307,6 +319,11 @@ package vec_pkg;
       end
       VEC_CLS_XS, VEC_CLS_SX: vec_geom.single_write = 1'b1;
       VEC_CLS_CMP:            vec_geom.mask_dest = 1'b1;
+      VEC_CLS_FP:             vec_geom.mul_rate = 1'b1;
+      VEC_CLS_FCMP: begin
+        vec_geom.mul_rate  = 1'b1;
+        vec_geom.mask_dest = 1'b1;
+      end
       VEC_CLS_MLOG, VEC_CLS_MSET: begin
         vec_geom.mask_dest  = 1'b1;
         vec_geom.mask_whole = 1'b1;
@@ -336,8 +353,12 @@ package vec_pkg;
     logic reads_xreg;
     logic writes_xreg;
     logic writes_mask;
+    vec_fop_e fop;
+    logic reads_freg;
+    logic writes_freg;
     logic [1:0] mem_width;
     logic mem_whole;
+    logic [2:0] mem_nf;
     logic mem_mask;
     logic mem_strided;
   } vec_dec_t;

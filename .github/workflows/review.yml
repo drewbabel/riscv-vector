@@ -58,8 +58,8 @@ jobs:
             top=$(basename "$f" | sed 's/\.s\?v$//')
             pkgs=$(echo $PKGS | tr ' ' '\n' | grep -vx "$f" | tr '\n' ' ')
             opts="--top-module $top"
-            case "$f" in tb/cosim.sv) opts="$opts --timing -DRISCV_FORMAL" ;; tb/*) opts="$opts --timing -DSIM_BACKDOOR" ;; formal/*) opts="$opts -DRISCV_FORMAL" ;; *_pkg.sv) opts="" ;; esac
-            verilator --lint-only -Wno-TIMESCALEMOD $opts -y rtl -y rtl/boards/bram +libext+.v+.sv \
+            case "$f" in tb/cosim.sv) opts="$opts --timing -DRISCV_FORMAL" ;; tb/*) opts="$opts --timing -DSIM_BACKDOOR" ;; formal/*) opts="$opts -DRISCV_FORMAL" ;; *_pkg.sv) opts="" ;; rtl/boards/nexys_video/*) opts="$opts -Wno-MODMISSING" ;; esac
+            verilator --lint-only -Wno-TIMESCALEMOD $opts -y rtl -y rtl/boards/bram -y rtl/single_cycle +libext+.v+.sv \
               $pkgs "$f" 2>&1 || true
           done < "$RUNNER_TEMP/sv" \
             | reviewdog -efm='%%%tarning-%*[A-Z0-9_]: %f:%l:%c: %m' -efm='%%%trror-%*[A-Z0-9_]: %f:%l:%c: %m' \

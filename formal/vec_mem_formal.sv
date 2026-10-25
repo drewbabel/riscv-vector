@@ -82,6 +82,7 @@ module vec_mem_formal ();
       .mem_addr(mem_addr),
       .mem_wdata(mem_wdata),
       .mem_wstrb(mem_wstrb),
+      .reg_done(),
       .busy(busy),
       .done(done)
   );

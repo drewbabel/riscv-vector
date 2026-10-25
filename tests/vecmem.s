@@ -19,6 +19,9 @@ Lclear: sw      zero, 0(t1)
         li      t1, 0xddeeff00
         sw      t1, 12(s0)
 
+        # Whole load under vill
+        vl2re32.v v16, (s0)
+
         # Unit stride loads
         li      a0, 4
         vsetvli t0, a0, e32, m1, tu, mu
@@ -98,6 +101,44 @@ Lclear: sw      zero, 0(t1)
         fence
         lw      t4, 136(s0)
         lw      t5, 176(s0)
+
+        # Whole register groups
+        addi    a1, s0, 512
+        li      t0, 32
+        li      t1, 0x03020100
+        li      t2, 0x04040404
+        mv      t3, a1
+Lfill:  sw      t1, 0(t3)
+        add     t1, t1, t2
+        addi    t3, t3, 4
+        addi    t0, t0, -1
+        bnez    t0, Lfill
+        li      a0, 3
+        vsetvli t0, a0, e32, m2, ta, ma
+        vl2re8.v v12, (a1)
+        vl4re16.v v16, (a1)
+        vl8re32.v v24, (a1)
+        addi    a2, a1, 3
+        vl2re8.v v20, (a2)
+        addi    a3, s0, 640
+        vs2r.v  v20, (a3)
+        addi    a3, s0, 672
+        vs4r.v  v16, (a3)
+        addi    a3, s0, 768
+        vs8r.v  v24, (a3)
+        addi    a3, s0, 739
+        vs1r.v  v12, (a3)
+        lw      t4, 640(s0)
+        lw      t5, 892(s0)
+
+        # Whole register copies
+        vmv1r.v v1, v13
+        vmv2r.v v2, v20
+        vmv4r.v v4, v24
+        vmv8r.v v8, v24
+        vmv8r.v v16, v16
+        vmv4r.v v28, v4
+        vadd.vv v6, v2, v28
 
         # Held load onto base
         addi    a1, s0, 200
