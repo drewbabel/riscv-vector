@@ -24,8 +24,8 @@ clint            clint               -
 clint            clint               arch_pkg::XLEN=64
 clint            clint               arch_pkg::XLEN=128
 csr              csr                 -
-csr              csr                 arch_pkg::XLEN=64
-csr              csr                 arch_pkg::XLEN=128
+csr              csr                 arch_pkg::XLEN=64                        expect="implements RV32 only"
+csr              csr                 arch_pkg::XLEN=128                       expect="implements RV32 only"
 csr              csr                 arch_pkg::VLEN=64
 csr              csr                 arch_pkg::VLEN=256
 dcache           dcache              -
@@ -102,10 +102,6 @@ gshare           gshare              arch_pkg::XLEN=128
 gshare           gshare              arch_pkg::GhistLen=8
 gshare           gshare              arch_pkg::GhistLen=12
 hazard_unit      pl_fwd              -
-hazard_unit      pl_fwd              arch_pkg::XLEN=64
-hazard_unit      pl_fwd              arch_pkg::XLEN=128
-hazard_unit      pl_fwd              arch_pkg::RegAddrW=4
-hazard_unit      pl_fwd              arch_pkg::RegAddrW=6
 icache           icache              -
 icache           icache              arch_pkg::XLEN=64
 icache           icache              arch_pkg::XLEN=128
@@ -142,16 +138,13 @@ mem              mem                 arch_pkg::XLEN=128
 mem              mem                 DEPTH=1024
 mem              mem                 DEPTH=32768
 muldiv           pl_muldiv           -
-muldiv           pl_muldiv           arch_pkg::XLEN=64
-muldiv           pl_muldiv           arch_pkg::XLEN=128
+muldiv           formal:muldiv       arch_pkg::XLEN=128
 pc               pc                  -
 pc               pc                  arch_pkg::XLEN=64
 pc               pc                  arch_pkg::XLEN=128
 pc               pc                  RESET_ADDR=256
 pc               pc                  RESET_ADDR=2147483648
 pmu              pmu                 -
-pmu              pmu                 arch_pkg::XLEN=64
-pmu              pmu                 arch_pkg::XLEN=128
 pmu              pmu                 CLK_FREQ_HZ=25000000
 pmu              pmu                 CLK_FREQ_HZ=100000000
 regfile          regfile             -
@@ -171,7 +164,7 @@ riscv_pipelined  cosim               arch_pkg::MulLanes=8,arch_pkg::VLEN=256
 riscv_pipelined  cosim               arch_pkg::MulLanes=4,arch_pkg::VLEN=64   expect="MUL_LANES * ELEN must not exceed VLEN"
 riscv_pipelined  cosim               arch_pkg::MulLanes=8                     expect="MUL_LANES * ELEN must not exceed VLEN"
 riscv_pipelined  cosim               arch_pkg::ELEN=64                        expect="ELEN must be 32"
-riscv_pipelined  cosim               arch_pkg::XLEN=64                         expect="VLEN must equal LineBits"
+riscv_pipelined  cosim               arch_pkg::XLEN=64                        expect="implements RV32 only"
 riscv_pipelined  cosim               arch_pkg::DcWays=2
 riscv_pipelined  cosim               arch_pkg::DcWays=8
 riscv_pipelined  cosim               arch_pkg::DcIdxLen=6
@@ -182,19 +175,19 @@ riscv_pipelined  cosim               arch_pkg::GhistLen=8
 riscv_pipelined  cosim               arch_pkg::GhistLen=12
 riscv_pipelined  cosim               arch_pkg::BtbIdxLen=5
 riscv_pipelined  cosim               arch_pkg::BtbIdxLen=7
-riscv_pipelined  cosim               GSHARE_EN=0
+riscv_pipelined  cosim:cosim_static  GSHARE_EN=0
 riscv_pipelined  cosim               VLEN=256                                  expect="VLEN must equal LineBits"
 riscv_pipelined  cosim               arch_pkg::LineWords=4,arch_pkg::VLEN=256 expect="VLEN must equal LineBits"
 riscv_pipelined  cosim               arch_pkg::LineWords=8                     expect="VLEN must equal LineBits"
 datapath         cosim               -
 datapath         cosim               arch_pkg::VLEN=256
 datapath         cosim               arch_pkg::VLEN=64
-datapath         cosim               GSHARE_EN=0
+datapath         cosim:cosim_static  GSHARE_EN=0
 datapath         cosim               VLEN=256                                  expect="VLEN must equal LineBits"
 datapath         cosim               VLEN=64                                   expect="VLEN must equal LineBits"
 top              pl_fwd              -
-top              pl_fwd              arch_pkg::XLEN=64                         expect="VLEN must equal LineBits"
-top              pl_fwd              arch_pkg::XLEN=128                        expect="VLEN must equal LineBits"
+top              pl_fwd              arch_pkg::XLEN=64                        expect="implements RV32 only"
+top              pl_fwd              arch_pkg::XLEN=128                       expect="implements RV32 only"
 top              pl_fwd              DEPTH=16
 top              pl_fwd              DEPTH=256
 riscv_single     sc_core_top         -
