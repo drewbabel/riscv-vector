@@ -58,8 +58,8 @@ module fp_cvt_bench
   localparam int OpW = (FLEN > XLEN) ? FLEN : XLEN;
   localparam int HalfW = XLEN / 2;
   localparam int Bias = (1 << (EXP_W - 1)) - 1;
-  localparam int FlagW = $bits(FlagNv);
-  localparam int RmW = $bits(RmRne);
+  localparam int FlagW = fp_pkg::FlagW;
+  localparam int RmW = fp_pkg::RmW;
 
   localparam string TfDir = "build/testfloat/";
 

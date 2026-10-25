@@ -8,8 +8,8 @@ module fp_unit_tb
   localparam int NRegs = arch_pkg::NumRegs;
   localparam int AWIDTH = arch_pkg::RegAddrW;
   localparam int DataW = (FLEN > Xlen) ? FLEN : Xlen;
-  localparam int FlagW = $bits(FlagNv);
-  localparam int RmW = $bits(RmRne);
+  localparam int FlagW = fp_pkg::FlagW;
+  localparam int RmW = fp_pkg::RmW;
   localparam int F5W = $bits(Funct5Fadd);
   localparam int F3W = $bits(Funct3Fsgnj);
   localparam int RandOps = 1200;

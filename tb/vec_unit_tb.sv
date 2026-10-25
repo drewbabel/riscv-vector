@@ -25,7 +25,7 @@ module vec_unit_tb
   localparam int GroupRegs = 8;
   localparam logic [2:0] NfGroup = 3'(GroupRegs - 1);
   localparam int CsrAddrW = $bits(VxrmAddr);
-  localparam int RmW = $bits(fp_pkg::RmRne);
+  localparam int RmW = fp_pkg::RmW;
   localparam logic [RmW-1:0] RmBad = fp_pkg::RmRmm + RmW'(1);
   localparam string TfDir = "build/testfloat/";
   localparam int RefLines = 2000;
@@ -34,7 +34,7 @@ module vec_unit_tb
   localparam int FpSigW = fp_pkg::SigW;
   localparam int FLEN = fp_pkg::FLEN;
   localparam int FpBias = fp_pkg::Bias;
-  localparam int FlagW = $bits(fp_pkg::FlagNv);
+  localparam int FlagW = fp_pkg::FlagW;
   localparam int FpElems = VLEN / FLEN;
   localparam int FpEMin = 1 - FpBias;
   localparam int FpLsbMin = FpEMin - FpFracW;

@@ -72,7 +72,7 @@ module fp_misc_bench
   localparam int F5W = $bits(Funct5Fsgnj);
   localparam int F3W = $bits(Funct3Fsgnj);
   localparam int OpW = F5W + F3W;
-  localparam int FlagW = $bits(FlagNv);
+  localparam int FlagW = fp_pkg::FlagW;
 
   localparam logic [FLEN-1:0] CanonNan = {1'b0, {EXP_W{1'b1}}, 1'b1, {(FRAC_W - 1) {1'b0}}};
   localparam logic [FLEN-1:0] PosInf = {1'b0, {EXP_W{1'b1}}, {FRAC_W{1'b0}}};

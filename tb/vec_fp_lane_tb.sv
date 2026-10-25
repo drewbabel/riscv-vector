@@ -8,8 +8,8 @@ module vec_fp_lane_tb
 ();
 
   localparam int FLEN = fp_pkg::FLEN;
-  localparam int FlagW = $bits(fp_pkg::FlagNv);
-  localparam int RmW = $bits(fp_pkg::RmRne);
+  localparam int FlagW = fp_pkg::FlagW;
+  localparam int RmW = fp_pkg::RmW;
   localparam int Latency = VecFpLatency;
   localparam int MinChecks = 6_400_000;
   localparam int NumSpecial = 22;

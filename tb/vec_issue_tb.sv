@@ -8,7 +8,7 @@ module vec_issue_tb
   localparam int AWIDTH = arch_pkg::RegAddrW;
   localparam int VLEN = arch_pkg::VLEN;
   localparam int VlW = $clog2(VLEN + 1);
-  localparam int RmW = $bits(fp_pkg::RmRne);
+  localparam int RmW = fp_pkg::RmW;
   localparam int SbDepth = 8;
   localparam int IdleTimeout = 200;
   localparam int ReleaseTimeout = 50;
