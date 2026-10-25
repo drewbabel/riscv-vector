@@ -6,7 +6,7 @@ module btb_tb;
 
   localparam int MinChecks = 580;
   localparam int Xlen = arch_pkg::XLEN;
-  localparam int PcLsb = 2;
+  localparam int PcLsb = arch_pkg::InstrLsb;
   localparam int TagLen = Xlen - PcLsb - BtbIdxLen;
   localparam int TagSpan = 4;
 
@@ -131,9 +131,12 @@ module btb_tb;
   endtask  // Automatic
 
   task automatic random_sweep(input int n);
+    logic [Xlen-1:0] pc;
     repeat (n) begin
-      install(rand_pc(), Xlen'($urandom), 1'($urandom));
+      pc = rand_pc();
+      install(pc, Xlen'($urandom), 1'($urandom));
       probe(rand_pc());
+      probe(pc);
     end
   endtask  // Automatic
 
