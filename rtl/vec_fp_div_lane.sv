@@ -2,26 +2,31 @@
 
 module vec_fp_div_lane
   import vec_pkg::*;
-(
-    input  wire                  clk,
-    input  wire                  rst_n,
-    input  wire                  core_en,
-    input  wire                  start,
-    input  wire vec_fop_e        op,
-    input  wire           [ 2:0] rm,
-    input  wire           [31:0] a,
-    input  wire           [31:0] b,
-    output logic          [31:0] result,
-    output logic          [ 4:0] fflags,
-    output logic                 busy,
-    output logic                 done
+  import fp_pkg::FlagW, fp_pkg::RmW;
+#(
+    parameter  int ExpW  = fp_pkg::ExpW,
+    parameter  int FracW = fp_pkg::FracW,
+    localparam int FLEN  = 1 + ExpW + FracW
+) (
+    input  wire                       clk,
+    input  wire                       rst_n,
+    input  wire                       core_en,
+    input  wire                       start,
+    input  wire vec_fop_e             op,
+    input  wire           [  RmW-1:0] rm,
+    input  wire           [ FLEN-1:0] a,
+    input  wire           [ FLEN-1:0] b,
+    output logic          [ FLEN-1:0] result,
+    output logic          [FlagW-1:0] fflags,
+    output logic                      busy,
+    output logic                      done
 );
 
-  logic        take;
-  logic        root;
-  logic        swap;
-  logic [31:0] x;
-  logic [31:0] y;
+  logic            take;
+  logic            root;
+  logic            swap;
+  logic [FLEN-1:0] x;
+  logic [FLEN-1:0] y;
 
   assign take = start && !busy && !done;
   assign root = op == VEC_FSQRT;
@@ -30,8 +35,8 @@ module vec_fp_div_lane
   assign y    = swap ? a : b;
 
   fp_div_sqrt #(
-      .ExpW (8),
-      .FracW(23)
+      .ExpW (ExpW),
+      .FracW(FracW)
   ) u_div (
       .clk(clk),
       .rst_n(rst_n),
