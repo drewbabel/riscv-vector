@@ -1,23 +1,24 @@
 `default_nettype none
 
 module fp_mul
-  import fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup;
   import fp_pkg::FlagNv, fp_pkg::FlagOf, fp_pkg::FlagUf, fp_pkg::FlagNx;
-  import fp_pkg::fp_round_up, fp_pkg::fp_lzc, fp_pkg::FpLzcW;
+  import fp_pkg::fp_round_up, fp_pkg::fp_lzc, fp_pkg::FpLzcW, fp_pkg::fp_ovf_max;
+  import fp_pkg::FlagW, fp_pkg::RmW;
+  import fp_pkg::fp_canon_nan, fp_pkg::fp_inf_mag, fp_pkg::fp_max_mag;
 #(
     parameter int ExpW = fp_pkg::ExpW,
     parameter int FracW = fp_pkg::FracW,
     localparam int FLEN = 1 + ExpW + FracW,
     localparam int Latency = fp_pkg::FpMulLatency
 ) (
-    input  wire             clk,
-    input  wire             rst_n,
-    input  wire             core_en,
-    input  wire  [     2:0] rm,
-    input  wire  [FLEN-1:0] a,
-    input  wire  [FLEN-1:0] b,
-    output logic [FLEN-1:0] result,
-    output logic [     4:0] fflags
+    input  wire              clk,
+    input  wire              rst_n,
+    input  wire              core_en,
+    input  wire  [  RmW-1:0] rm,
+    input  wire  [ FLEN-1:0] a,
+    input  wire  [ FLEN-1:0] b,
+    output logic [ FLEN-1:0] result,
+    output logic [FlagW-1:0] fflags
 );
 
   localparam int SigW = FracW + 1;
@@ -29,13 +30,18 @@ module fp_mul
   localparam int RshiftW = $clog2(MaxRshift + 1);
   localparam int AlignW = ProdW + MaxRshift;
 
-  localparam logic [FLEN-1:0] CanonNan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
-  localparam logic [FLEN-2:0] InfMag = {{ExpW{1'b1}}, {FracW{1'b0}}};
-  localparam logic [FLEN-2:0] MaxMag = {{(ExpW - 1) {1'b1}}, 1'b0, {FracW{1'b1}}};
+  localparam int Stages = 3;
+  localparam logic [FLEN-1:0] CanonNan = FLEN'(fp_canon_nan(ExpW, FracW));
+  localparam logic [FLEN-2:0] InfMag = (FLEN - 1)'(fp_inf_mag(ExpW, FracW));
+  localparam logic [FLEN-2:0] MaxMag = (FLEN - 1)'(fp_max_mag(ExpW, FracW));
   localparam logic [ExpW:0] ExpOverflow = {1'b0, {ExpW{1'b1}}};
 
   if (!(((2 * FracW) <= (3 * (1 << (ExpW - 1)) + 3)) && (ProdW <= FpLzcW))) begin : g_width_error
     $error("ExpW and FracW outside the supported range");
+  end
+
+  if (Stages != Latency) begin : g_latency_error
+    $error("FpMulLatency must equal the three fp_mul stages");
   end
 
   logic sign_a, sign_b, sign;
@@ -75,7 +81,7 @@ module fp_mul
   logic [ProdW-1:0] prod_q1;
   logic [ExpSW-1:0] exp_top_q1;
   logic sign_q1;
-  logic [2:0] rm_q1;
+  logic [RmW-1:0] rm_q1;
   logic nan_a_q1, nan_b_q1, invalid_q1, inf_a_q1, inf_b_q1, zero_a_q1, zero_b_q1;
 
   always_ff @(posedge clk) begin
@@ -150,7 +156,7 @@ module fp_mul
   logic guard_q2, round_q2, sticky_q2;
   logic [ExpW:0] exp_norm_q2;
   logic sign_q2;
-  logic [2:0] rm_q2;
+  logic [RmW-1:0] rm_q2;
   logic nan_a_q2, nan_b_q2, invalid_q2, inf_a_q2, inf_b_q2, zero_a_q2, zero_b_q2;
 
   always_ff @(posedge clk) begin
@@ -197,22 +203,15 @@ module fp_mul
       FLEN'(inc);
   assign finite = {sign_q2, rounded[FLEN-2:0]};
 
-  logic inexact, overflow, tiny, overflow_to_inf;
-  assign inexact  = guard_q2 || round_q2 || sticky_q2;
-  assign overflow = rounded[FLEN-1:FracW] >= ExpOverflow;
-  assign tiny     = !mant_q2[SigW-1] && !((&mant_q2[SigW-2:0]) && guard_q2 && inc_unbounded);
+  logic inexact, overflow, tiny, overflow_to_max;
+  assign inexact         = guard_q2 || round_q2 || sticky_q2;
+  assign overflow        = rounded[FLEN-1:FracW] >= ExpOverflow;
+  assign tiny            = !mant_q2[SigW-1] && !((&mant_q2[SigW-2:0]) && guard_q2 && inc_unbounded);
 
-  always_comb begin
-    case (rm_q2)
-      RmRtz:   overflow_to_inf = 1'b0;
-      RmRdn:   overflow_to_inf = sign_q2;
-      RmRup:   overflow_to_inf = !sign_q2;
-      default: overflow_to_inf = 1'b1;
-    endcase
-  end
+  assign overflow_to_max = fp_ovf_max(rm_q2, sign_q2);
 
-  logic [FLEN-1:0] result_next;
-  logic [4:0] fflags_next;
+  logic [ FLEN-1:0] result_next;
+  logic [FlagW-1:0] fflags_next;
 
   always_comb begin
     result_next = finite;
@@ -229,7 +228,7 @@ module fp_mul
       result_next = {sign_q2, {(FLEN - 1) {1'b0}}};
       fflags_next = '0;
     end else if (overflow) begin
-      result_next = overflow_to_inf ? {sign_q2, InfMag} : {sign_q2, MaxMag};
+      result_next = {sign_q2, overflow_to_max ? MaxMag : InfMag};
       fflags_next = FlagOf | FlagNx;
     end
   end
