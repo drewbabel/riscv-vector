@@ -23,6 +23,10 @@ module vec_config
     output logic [XLEN-1:0] vtype_next
 );
 
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
+  end
+
   // Widest legal SEW
   localparam logic [2:0] VsewMax = 3'($clog2(ELEN / 8));
   localparam logic [2:0] VlmulReserved = 3'b100;

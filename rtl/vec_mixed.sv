@@ -20,8 +20,8 @@ module vec_mixed
     output logic          [DLEN-1:0] result
 );
 
-  if ((ELEN < 16) || (ELEN > DLEN) || (ELEN != (8 << (Widths - 1)))) begin : g_elen_error
-    $error("ELEN must be a power of two from 16 to DLEN");
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
   end
 
   logic [DLEN-1:0] res_w[Widths];

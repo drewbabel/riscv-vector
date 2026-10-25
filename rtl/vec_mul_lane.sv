@@ -16,6 +16,10 @@ module vec_mul_lane
     output logic         [2*ELEN-1:0] product
 );
 
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
+  end
+
   localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
 
   function automatic int unsigned sew_width(input logic [2:0] sew);
