@@ -91,6 +91,7 @@ package csr_pkg;
   localparam logic [2:0] Funct3Csrrw = 3'b001;  // CSR Read, then Write
   localparam logic [2:0] Funct3Csrrs = 3'b010;  // CSR Read, then Set bits
   localparam logic [2:0] Funct3Csrrc = 3'b011;  // CSR Read, then Clear bits
+  localparam logic [2:0] Funct3SysRsvd = 3'b100;
   localparam logic [2:0] Funct3Csrrwi = 3'b101;  // CSR Read, then Write from Immediate
   localparam logic [2:0] Funct3Csrrsi = 3'b110;  // CSR Read, then Set from Immediate
   localparam logic [2:0] Funct3Csrrci = 3'b111;  // CSR Read, then Clear from Immediate
