@@ -48,8 +48,8 @@ module vec_config_tb ();
   logic [ VlW-1:0] vl_q;
   logic [Xlen-1:0] vtype_q;
   logic            is_vset;
-  logic [ VlW-1:0] vl_d;
-  logic [Xlen-1:0] vtype_d;
+  logic [ VlW-1:0] vl_next;
+  logic [Xlen-1:0] vtype_next;
 
   typedef struct packed {
     logic            is_vset;
@@ -62,14 +62,14 @@ module vec_config_tb ();
       .VLEN(Vlen),
       .ELEN(Elen)
   ) dut (
-      .instr   (instr),
-      .rs1_data(rs1_data),
-      .rs2_data(rs2_data),
-      .vl_q    (vl_q),
-      .vtype_q (vtype_q),
-      .is_vset (is_vset),
-      .vl_d    (vl_d),
-      .vtype_d (vtype_d)
+      .instr     (instr),
+      .rs1_data  (rs1_data),
+      .rs2_data  (rs2_data),
+      .vl_q      (vl_q),
+      .vtype_q   (vtype_q),
+      .is_vset   (is_vset),
+      .vl_next   (vl_next),
+      .vtype_next(vtype_next)
   );
 
   task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
@@ -94,8 +94,8 @@ module vec_config_tb ();
     #1;
     exp = model(instr, rs1_data, rs2_data, vl_q, vtype_q);
     check({name, " is_vset"}, Xlen'(is_vset), Xlen'(exp.is_vset));
-    check({name, " vl_d"}, Xlen'(vl_d), Xlen'(exp.vl));
-    check({name, " vtype_d"}, vtype_d, exp.vtype);
+    check({name, " vl_next"}, Xlen'(vl_next), Xlen'(exp.vl));
+    check({name, " vtype_next"}, vtype_next, exp.vtype);
   endtask  // Automatic
 
   task automatic set_state(input int vlq, input logic [Xlen-1:0] vtq);
