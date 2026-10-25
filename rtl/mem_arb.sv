@@ -84,6 +84,17 @@ module mem_arb
 
   logic [LineBits-1:0] resp_data;
   logic                resp_pending;
+  logic [MaskBits-1:0] boot_mask;
+  logic                unused_req_addr;
+
+  assign unused_req_addr = ^{req_addr[XLEN-1:APP_ADDR_WIDTH], req_addr[IdxLsb-1:0]};
+
+  if (BlkOffLen > 0) begin : g_boot_word
+    assign boot_mask = ~(MaskBits'({WordBytes{1'b1}}) <<
+                         (WordBytes * boot_addr[WordLsb+:BlkOffLen]));  // Open selected word
+  end else begin : g_boot_line
+    assign boot_mask = '0;
+  end
 
   always_ff @(posedge clk) begin
     app_en <= 1'b0;
@@ -107,8 +118,7 @@ module mem_arb
               req_rw <= ReqWrite;
               req_addr <= boot_addr;
               req_wdata <= {LineWords{boot_wdata}};
-              req_mask <= ~(MaskBits'({WordBytes{1'b1}}) <<
-                            (WordBytes * boot_addr[WordLsb+:BlkOffLen]));  // Open selected word
+              req_mask <= boot_mask;
             end else if (dc_req_valid) begin
               src <= SRC_DC;
               req_rw <= dc_req_rw;
