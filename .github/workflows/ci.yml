@@ -5,6 +5,7 @@ env:
   SV2V: 'v0.0.13'
   RISCV_FORMAL_SHA: '2bd7410'
   SPIKE_SHA: '55b4658dbf574ba0b714083ec436ce2cb5be1998'
+  VERIBLE: 'v0.0-4283-ga1b0580b'
 
 on:
   push:
@@ -343,9 +344,29 @@ jobs:
       - name: Check the float width guard
         run: bash tests/fp_width.sh
 
+  rules:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - name: Install Verible
+        run: |
+          curl -fsSL "https://github.com/chipsalliance/verible/releases/download/$VERIBLE/verible-$VERIBLE-linux-static-x86_64.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/verible-$VERIBLE/bin" >> "$GITHUB_PATH"
+      - name: Check the repo rules
+        run: |
+          base=$(git merge-base origin/main HEAD)
+          if [ "$base" = "$(git rev-parse HEAD)" ]; then base=HEAD^1; fi
+          python3 tests/rules/check.py --base "$base"
+
   ci-gate:
     if: always()
-    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths]
+    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths, rules]
     runs-on: ubuntu-24.04
     steps:
       - name: Verify all CI jobs succeeded
