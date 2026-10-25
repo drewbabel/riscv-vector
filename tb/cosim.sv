@@ -99,6 +99,17 @@ module cosim_bench #(
   logic                              dbg_ex_commit;
   logic   [                Xlen-1:0] dbg_ex_insn;
   logic                              dbg_s_take;
+  logic                              dbg_vec_accept;
+  logic                              dbg_fetch_en;
+  logic                              dbg_id_en;
+  logic                              dbg_fp_idle;
+  logic                              dbg_fp_wb_valid;
+  logic   [               AddrW-1:0] dbg_fp_wb_rd;
+  logic   [                Flen-1:0] dbg_fp_wb_data;
+  logic                              dbg_fp_load_wb;
+  logic   [               AddrW-1:0] dbg_fp_load_rd;
+  logic   [                Xlen-1:0] dbg_fp_load_data;
+  logic   [         fp_pkg::RmW-1:0] dbg_frm;
   logic                              dbg_v_take;
 
   // Bus wait model
@@ -172,62 +183,73 @@ module cosim_bench #(
         .XLEN     (Xlen),
         .GSHARE_EN(GshareEn)
     ) riscv_pipelined_inst (
-        .dbg_valid     (dbg_valid),
-        .dbg_insn      (dbg_insn),
-        .dbg_pc_rdata  (dbg_pc_rdata),
-        .dbg_pc_wdata  (dbg_pc_wdata),
-        .dbg_rs1_rdata (dbg_rs1_rdata),
-        .dbg_rs2_rdata (dbg_rs2_rdata),
-        .dbg_rd_wdata  (dbg_rd_wdata),
-        .dbg_reg_write (dbg_reg_write),
-        .dbg_mem_addr  (dbg_mem_addr),
-        .dbg_mem_wmask (dbg_mem_wmask),
-        .dbg_mem_wdata (dbg_mem_wdata),
-        .dbg_mem_rdata (dbg_mem_rdata),
-        .dbg_trap      (dbg_trap),
-        .dbg_csr_wdata (dbg_csr_wdata),
-        .dbg_mscratch  (dbg_mscratch),
-        .dbg_mstatus   (dbg_mstatus),
-        .dbg_mtvec     (dbg_mtvec),
-        .dbg_mepc      (dbg_mepc),
-        .dbg_mcause    (dbg_mcause),
-        .dbg_mtval     (dbg_mtval),
-        .dbg_mie       (dbg_mie),
-        .dbg_mip       (dbg_mip),
-        .dbg_mcycle    (dbg_mcycle),
-        .dbg_minstret  (dbg_minstret),
-        .dbg_mcycleh   (dbg_mcycleh),
-        .dbg_minstreth (dbg_minstreth),
-        .dbg_fflags    (dbg_fflags),
-        .dbg_vl        (dbg_vl),
-        .dbg_vtype_bits(dbg_vtype_bits),
-        .dbg_vtype_ill (dbg_vtype_ill),
-        .dbg_vstart    (dbg_vstart),
-        .dbg_vec_tag   (dbg_vec_tag),
-        .dbg_vec_retire(dbg_vec_retire),
-        .dbg_vec_wregs (dbg_vec_wregs),
-        .dbg_vec_idle  (dbg_vec_idle),
-        .dbg_ex_commit (dbg_ex_commit),
-        .dbg_ex_insn   (dbg_ex_insn),
-        .dbg_s_take    (dbg_s_take),
-        .dbg_v_take    (dbg_v_take),
-        .clk           (clk),
-        .core_en       (1'b1),
-        .rst_n         (rst_n),
-        .instr         (instr),
-        .read_data     (read_data),
-        .timer_irq     (timer_line),
-        .ext_irq       (ext_line),
-        .imem_ready    (imem_ready),
-        .dmem_ready    (dmem_ready),
-        .dmem_req      (dmem_req),
-        .pc            (pc),
-        .mem_write     (mem_write),
-        .alu_result    (alu_result),
-        .write_data    (write_data),
-        .store_wstrb   (store_wstrb),
-        .store_data    (store_data),
-        .mem_addr      (mem_addr)
+        .dbg_valid       (dbg_valid),
+        .dbg_insn        (dbg_insn),
+        .dbg_pc_rdata    (dbg_pc_rdata),
+        .dbg_pc_wdata    (dbg_pc_wdata),
+        .dbg_rs1_rdata   (dbg_rs1_rdata),
+        .dbg_rs2_rdata   (dbg_rs2_rdata),
+        .dbg_rd_wdata    (dbg_rd_wdata),
+        .dbg_reg_write   (dbg_reg_write),
+        .dbg_mem_addr    (dbg_mem_addr),
+        .dbg_mem_wmask   (dbg_mem_wmask),
+        .dbg_mem_wdata   (dbg_mem_wdata),
+        .dbg_mem_rdata   (dbg_mem_rdata),
+        .dbg_trap        (dbg_trap),
+        .dbg_csr_wdata   (dbg_csr_wdata),
+        .dbg_mscratch    (dbg_mscratch),
+        .dbg_mstatus     (dbg_mstatus),
+        .dbg_mtvec       (dbg_mtvec),
+        .dbg_mepc        (dbg_mepc),
+        .dbg_mcause      (dbg_mcause),
+        .dbg_mtval       (dbg_mtval),
+        .dbg_mie         (dbg_mie),
+        .dbg_mip         (dbg_mip),
+        .dbg_mcycle      (dbg_mcycle),
+        .dbg_minstret    (dbg_minstret),
+        .dbg_mcycleh     (dbg_mcycleh),
+        .dbg_minstreth   (dbg_minstreth),
+        .dbg_fflags      (dbg_fflags),
+        .dbg_vl          (dbg_vl),
+        .dbg_vtype_bits  (dbg_vtype_bits),
+        .dbg_vtype_ill   (dbg_vtype_ill),
+        .dbg_vstart      (dbg_vstart),
+        .dbg_vec_tag     (dbg_vec_tag),
+        .dbg_vec_retire  (dbg_vec_retire),
+        .dbg_vec_wregs   (dbg_vec_wregs),
+        .dbg_vec_idle    (dbg_vec_idle),
+        .dbg_ex_commit   (dbg_ex_commit),
+        .dbg_ex_insn     (dbg_ex_insn),
+        .dbg_s_take      (dbg_s_take),
+        .dbg_vec_accept  (dbg_vec_accept),
+        .dbg_fetch_en    (dbg_fetch_en),
+        .dbg_id_en       (dbg_id_en),
+        .dbg_fp_idle     (dbg_fp_idle),
+        .dbg_fp_wb_valid (dbg_fp_wb_valid),
+        .dbg_fp_wb_rd    (dbg_fp_wb_rd),
+        .dbg_fp_wb_data  (dbg_fp_wb_data),
+        .dbg_fp_load_wb  (dbg_fp_load_wb),
+        .dbg_fp_load_rd  (dbg_fp_load_rd),
+        .dbg_fp_load_data(dbg_fp_load_data),
+        .dbg_frm         (dbg_frm),
+        .dbg_v_take      (dbg_v_take),
+        .clk             (clk),
+        .core_en         (1'b1),
+        .rst_n           (rst_n),
+        .instr           (instr),
+        .read_data       (read_data),
+        .timer_irq       (timer_line),
+        .ext_irq         (ext_line),
+        .imem_ready      (imem_ready),
+        .dmem_ready      (dmem_ready),
+        .dmem_req        (dmem_req),
+        .pc              (pc),
+        .mem_write       (mem_write),
+        .alu_result      (alu_result),
+        .write_data      (write_data),
+        .store_wstrb     (store_wstrb),
+        .store_data      (store_data),
+        .mem_addr        (mem_addr)
     );
 
     imem #(
@@ -281,13 +303,13 @@ module cosim_bench #(
     end
   end
 
-  assign r_fwe    = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_valid;
-  assign r_frd    = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_rd;
-  assign r_fdata  = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_data;
-  assign r_fidle  = g_dut.riscv_pipelined_inst.datapath_inst.fp_idle;
-  assign r_flwe   = g_dut.riscv_pipelined_inst.datapath_inst.fp_load_wb;
-  assign r_flrd   = g_dut.riscv_pipelined_inst.datapath_inst.rd_wb;
-  assign r_fldata = g_dut.riscv_pipelined_inst.datapath_inst.load_data_wb;
+  assign r_fwe    = dbg_fp_wb_valid;
+  assign r_frd    = dbg_fp_wb_rd;
+  assign r_fdata  = dbg_fp_wb_data;
+  assign r_fidle  = dbg_fp_idle;
+  assign r_flwe   = dbg_fp_load_wb;
+  assign r_flrd   = dbg_fp_load_rd;
+  assign r_fldata = dbg_fp_load_data;
 
   task automatic check(input string name, input logic got, input logic exp);
     checks++;
@@ -407,7 +429,7 @@ module cosim_bench #(
   endtask  // Automatic
 
   task automatic report_state();
-    $display("FCSR %02x", {g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.frm, dbg_fflags});
+    $display("FCSR %02x", {dbg_frm, dbg_fflags});
     $display("STALLS %0d %0d", fetch_stalls, data_stalls);
     $display("MONITOR: %0d commits", commits);
   endtask  // Automatic
@@ -469,7 +491,7 @@ module cosim_bench #(
       fetch_wait <= 0;
       data_wait  <= 0;
     end else begin
-      if (g_dut.riscv_pipelined_inst.datapath_inst.pc_en) fetch_wait <= draw_wait();
+      if (dbg_fetch_en) fetch_wait <= draw_wait();
       else if (fetch_wait != 0) begin
         fetch_wait <= fetch_wait - 1;
         fetch_stalls++;
@@ -511,16 +533,14 @@ module cosim_bench #(
   end
 
   always @(posedge clk) begin
-    if (!rst_n || g_dut.riscv_pipelined_inst.datapath_inst.idex_en) v_accepted <= 1'b0;
-    else if (g_dut.riscv_pipelined_inst.datapath_inst.vec_unit_inst.u_issue.accept)
-      v_accepted <= 1'b1;
+    if (!rst_n || dbg_id_en) v_accepted <= 1'b0;
+    else if (dbg_vec_accept) v_accepted <= 1'b1;
   end
 
   always @(negedge clk) begin
     if (rst_n && dbg_ex_commit) check_irq();
     if (rst_n && dbg_ex_commit && is_fence(dbg_ex_insn)) check_fence();
-    if (rst_n && g_dut.riscv_pipelined_inst.datapath_inst.vec_unit_inst.u_issue.accept)
-      check_accept();
+    if (rst_n && dbg_vec_accept) check_accept();
   end
 
   // Vector store beats
