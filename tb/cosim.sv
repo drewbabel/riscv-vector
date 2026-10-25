@@ -1,32 +1,54 @@
 `default_nettype none
 
-`ifndef COSIM_DEPTH
-`define COSIM_DEPTH 256
-`endif
-
 module cosim ();
 
-  int checks = 0;
+  cosim_bench #(.Depth(256)) bench ();
+
+endmodule
+
+module cosim_gen ();
+
+  cosim_bench #(.Depth(262144)) bench ();
+
+endmodule
+
+module cosim_bench #(
+    parameter int Depth = 256
+) ();
+
+  import csr_pkg::*;
 
   localparam int Xlen = arch_pkg::XLEN;
   localparam int Vlen = arch_pkg::VLEN;
   localparam int Vregs = arch_pkg::NumRegs;
+  localparam int AddrW = arch_pkg::RegAddrW;
+  localparam int Flen = fp_pkg::FLEN;
+  localparam int FlagW = $bits(fp_pkg::FlagNv);
+  localparam int CauseW = $bits(CauseMachineExternalIrq);
   localparam int VlW = $clog2(Vlen + 1);
   localparam int VstartW = $clog2(Vlen);
-  localparam int Depth = `COSIM_DEPTH;
+  localparam int LineWords = cache_pkg::LineWords;
+  localparam int DrainCycles = 2000;
+  localparam int MinChecks = 10;
 
-  logic             clk = 1'b0;
-  logic             rst_n;
-  logic  [Xlen-1:0] pc;
-  logic  [Xlen-1:0] alu_result;
-  logic  [Xlen-1:0] write_data;
-  logic             mem_write;
+  int                                checks = 0;
+  int                                errors = 0;
+  int                                max_errors = 0;
+  int                                commits = 0;
 
-  string            hexfile;
-  string            vcdfile;
-  int               max_commits;
+  logic                              clk = 1'b0;
+  logic                              rst_n;
+  logic   [                Xlen-1:0] pc;
+  logic   [                Xlen-1:0] alu_result;
+  logic   [                Xlen-1:0] write_data;
+  logic                              mem_write;
 
-  always #5 clk = ~clk;
+  string                             hexfile;
+  string                             vcdfile;
+  int                                max_commits;
+  int                                preload;
+  int                                log_traps;
+  logic                              parked;
 
   // Debug ports
   logic                              dbg_valid;
@@ -55,7 +77,7 @@ module cosim ();
   logic   [                Xlen-1:0] dbg_minstret;
   logic   [                Xlen-1:0] dbg_mcycleh;
   logic   [                Xlen-1:0] dbg_minstreth;
-  logic   [                     4:0] dbg_fflags;
+  logic   [               FlagW-1:0] dbg_fflags;
   logic   [                 VlW-1:0] dbg_vl;
   logic   [                     7:0] dbg_vtype_bits;
   logic                              dbg_vtype_ill;
@@ -88,74 +110,52 @@ module cosim ();
   logic   [ cache_pkg::LineBits-1:0] store_data;
   logic   [cache_pkg::LineBytes-1:0] store_wstrb;
 
-  function automatic int draw_wait();
-    if (stall_pct == 0) return 0;
-    if ($urandom(stall_seed) % 100 >= stall_pct) return 0;
-    return 1 + $urandom(stall_seed) % stall_max;
-  endfunction
-
-  assign imem_ready = (fetch_wait == 0);
-  assign dmem_ready = (data_wait == 0);
-
-  // Poison until ready
-  assign instr = imem_ready ? imem_word : '1;
-  assign read_data = dmem_ready ? dmem_line : '1;
-
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      fetch_wait <= 0;
-      data_wait  <= 0;
-    end else begin
-      if (g_dut.riscv_pipelined_inst.datapath_inst.pc_en) fetch_wait <= draw_wait();
-      else if (fetch_wait != 0) begin
-        fetch_wait <= fetch_wait - 1;
-        fetch_stalls++;
-      end
-      if (dmem_req && dmem_ready) data_wait <= draw_wait();
-      else if (dmem_req && data_wait != 0) begin
-        data_wait <= data_wait - 1;
-        data_stalls++;
-      end
-    end
-  end
-
   // Random interrupt lines
-  integer irq_seed;
-  int     irq_rate;
-  logic   ext_line;
-  logic   timer_line;
-  logic   trap_irq;
-  int     trap_kinds [$];
+  integer                            irq_seed;
+  int                                irq_rate;
+  logic                              ext_line;
+  logic                              timer_line;
+  logic                              irq_ready;
+  logic                              irq_ready_q;
+  logic                              ext_q;
+  logic                              timer_q;
+  logic                              irq_take;
+  logic                              irq_ext;
+  logic   [                     1:0] irq_lines         [    $];
 
-  assign trap_irq = g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.trap_taken &&
-      !(g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.illegal_any ||
-        g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.exc_ecall ||
-        g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.exc_ebreak ||
-        g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.exc_instr_misaligned ||
-        g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.exc_load_misaligned ||
-        g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.exc_store_misaligned);
+  // RVFI retirement taps
+  logic                              r_valid;
+  logic                              r_trap;
+  logic   [                Xlen-1:0] r_pc;
+  logic   [                Xlen-1:0] r_insn;
+  logic   [                Xlen-1:0] r_wdata;
+  logic                              r_rw;
+  logic   [                Xlen-1:0] r_maddr;
+  logic   [              Xlen/8-1:0] r_wmask;
+  logic   [                Xlen-1:0] r_sdata;
+  logic   [                 VlW-1:0] r_vl;
+  logic   [                     7:0] r_vtype_bits;
+  logic                              r_vtype_ill;
+  logic   [             VstartW-1:0] r_vstart;
 
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      ext_line   <= 1'b0;
-      timer_line <= 1'b0;
-    end else begin
-      if (g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.trap_taken)
-        trap_kinds.push_back(trap_irq ? {29'd0, 1'b1, ext_line, timer_line} : 0);
-      // Enabled line ignored
-      if (dbg_ex_commit && dbg_mstatus[3] &&
-          ((ext_line && dbg_mie[11]) || (timer_line && dbg_mie[7])))
-        $display("IRQ LOST %0t ext %0d timer %0d", $time, ext_line, timer_line);
-      // Taken line drops
-      if (trap_irq) begin
-        if (g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.ext_ready) ext_line <= 1'b0;
-        else timer_line <= 1'b0;
-      end else if (irq_rate != 0) begin
-        if (!ext_line && $urandom(irq_seed) % 1000 < irq_rate) ext_line <= 1'b1;
-        if (!timer_line && $urandom(irq_seed) % 1000 < irq_rate) timer_line <= 1'b1;
-      end
-    end
-  end
+  // Vector retirement taps
+  logic   [                     7:0] r_vtag;
+  logic                              r_vretire;
+  logic   [               Vregs-1:0] r_vwregs;
+  logic                              r_vidle;
+  logic   [                Vlen-1:0] vpeek             [Vregs];
+
+  logic                              v_accepted = 1'b0;
+
+  logic                              r_fwe;
+  logic   [               AddrW-1:0] r_frd;
+  logic   [                Flen-1:0] r_fdata;
+  logic                              r_fidle;
+  logic                              r_flwe;
+  logic   [               AddrW-1:0] r_flrd;
+  logic   [                Xlen-1:0] r_fldata;
+
+  always #5 clk = ~clk;
 
   if (1) begin : g_dut
     riscv_pipelined #(
@@ -244,26 +244,12 @@ module cosim ();
     );
   end
 
-  // RVFI retirement taps
-  logic               r_valid;
-  logic               r_trap;
-  logic [   Xlen-1:0] r_pc;
-  logic [   Xlen-1:0] r_insn;
-  logic [   Xlen-1:0] r_wdata;
-  logic               r_rw;
-  logic [   Xlen-1:0] r_maddr;
-  logic [ Xlen/8-1:0] r_wmask;
-  logic [   Xlen-1:0] r_sdata;
-  logic [    VlW-1:0] r_vl;
-  logic [        7:0] r_vtype_bits;
-  logic               r_vtype_ill;
-  logic [VstartW-1:0] r_vstart;
   assign r_valid = dbg_valid;
   assign r_trap = dbg_trap;
-  assign r_pc    = dbg_pc_rdata;
-  assign r_insn  = dbg_insn;
+  assign r_pc = dbg_pc_rdata;
+  assign r_insn = dbg_insn;
   assign r_wdata = dbg_rd_wdata;
-  assign r_rw    = dbg_reg_write;
+  assign r_rw = dbg_reg_write;
   assign r_maddr = dbg_mem_addr;
   assign r_wmask = dbg_mem_wmask;
   assign r_sdata = dbg_mem_wdata;
@@ -271,13 +257,6 @@ module cosim ();
   assign r_vtype_bits = dbg_vtype_bits;
   assign r_vtype_ill = dbg_vtype_ill;
   assign r_vstart = dbg_vstart;
-
-  // Vector retirement taps
-  logic [      7:0] r_vtag;
-  logic             r_vretire;
-  logic [Vregs-1:0] r_vwregs;
-  logic             r_vidle;
-  logic [ Vlen-1:0] vpeek     [Vregs];
 
   assign r_vtag = dbg_vec_tag;
   assign r_vretire = dbg_vec_retire;
@@ -291,52 +270,6 @@ module cosim ();
     end
   end
 
-  // Vector store beats
-  logic                            r_vmreq;
-  logic                            r_vmready;
-  logic [                Xlen-1:0] r_vmaddr;
-  logic [ cache_pkg::LineBits-1:0] r_vmdata;
-  logic [cache_pkg::LineBytes-1:0] r_vmstrb;
-
-  assign r_vmreq   = g_dut.riscv_pipelined_inst.v_req;
-  assign r_vmready = g_dut.riscv_pipelined_inst.v_ready;
-  assign r_vmaddr  = g_dut.riscv_pipelined_inst.v_addr;
-  assign r_vmdata  = g_dut.riscv_pipelined_inst.v_wdata;
-  assign r_vmstrb  = g_dut.riscv_pipelined_inst.v_wstrb;
-
-  always @(negedge clk) begin
-    // addr wstrb data
-    if (rst_n && r_vmreq && r_vmready && r_vmstrb != '0)
-      $display(
-          "VMEM %08x %04x %032x", r_vmaddr & ~Xlen'(cache_pkg::LineBytes - 1), r_vmstrb, r_vmdata
-      );
-  end
-
-  // Fence drains unit
-  always @(negedge clk) begin
-    if (rst_n && g_dut.riscv_pipelined_inst.datapath_inst.commit_valid &&
-        g_dut.riscv_pipelined_inst.datapath_inst.is_fence_ex && !r_vidle)
-      $display("FENCE BUSY %0t", $time);
-  end
-
-  // One accept each
-  logic v_accepted = 1'b0;
-  always @(posedge clk) begin
-    if (rst_n && g_dut.riscv_pipelined_inst.datapath_inst.vec_unit_inst.u_issue.accept &&
-        v_accepted)
-      $display("VEC REISSUE %0t", $time);
-    if (!rst_n || g_dut.riscv_pipelined_inst.datapath_inst.idex_en) v_accepted <= 1'b0;
-    else if (g_dut.riscv_pipelined_inst.datapath_inst.vec_unit_inst.u_issue.accept)
-      v_accepted <= 1'b1;
-  end
-
-  logic        r_fwe;
-  logic [ 4:0] r_frd;
-  logic [31:0] r_fdata;
-  logic        r_fidle;
-  logic        r_flwe;
-  logic [ 4:0] r_flrd;
-  logic [31:0] r_fldata;
   assign r_fwe    = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_valid;
   assign r_frd    = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_rd;
   assign r_fdata  = g_dut.riscv_pipelined_inst.datapath_inst.fp_wb_data;
@@ -345,55 +278,18 @@ module cosim ();
   assign r_flrd   = g_dut.riscv_pipelined_inst.datapath_inst.rd_wb;
   assign r_fldata = g_dut.riscv_pipelined_inst.datapath_inst.load_data_wb;
 
-  task automatic emit_fcommit();
-    if (r_fwe) $display("FCOMMIT %0d %08x", r_frd, r_fdata);
-    if (r_flwe) $display("FCOMMIT %0d %08x", r_flrd, r_fldata);
-  endtask
-
-  task automatic do_reset();
-    rst_n = 0;
-    repeat (2) @(posedge clk);
-    rst_n = 1;
-  endtask  // Automatic
-
-  // Line per retirement
-  task automatic emit_commit();
-    logic [4:0] rd;
-    rd = r_insn[11:7];
-    // pc rd rd_val mem_write mem_addr wstrb store_data
-    $display("COMMIT %08x %0d %08x %0d %08x %1x %08x %02x %02x %1x %02x", r_pc,
-             (r_rw && rd != 0) ? rd : 0, r_wdata, |r_wmask, r_maddr, r_wmask, r_sdata, r_vl,
-             r_vtype_bits, r_vtype_ill, r_vstart);
-    $display("TRACE %0t %08x %08x", $time, r_pc, r_insn);
+  task automatic check(input string name, input logic got, input logic exp);
     checks++;
+    if (got !== exp) begin
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
   endtask  // Automatic
 
-  // Vector group written
-  task automatic emit_vcommit();
-    begin
-      for (int g = 0; g < Vregs; g++)
-      if (r_vwregs[g]) $display("VCOMMIT %0d %0d %032x", r_vtag, g, vpeek[g]);
-    end
-  endtask
-
-  initial begin
-    logic [Xlen-1:0] last_pc;
-    logic            have_last;
-    logic            stop;
-    int              log_traps;
-    int              preload;
-    int              kind;
-
+  task automatic read_args();
     if (!$value$plusargs("hex=%s", hexfile)) $fatal(1, "cosim needs +hex");
     if (!$value$plusargs("n=%d", max_commits)) max_commits = 4000;
-    if ($value$plusargs("vcd=%s", vcdfile)) begin
-      $dumpfile(vcdfile);
-      $dumpvars(0, cosim);
-    end
-
-    $readmemh(hexfile, g_dut.imem_inst.mem);
-    if ($isunknown(g_dut.imem_inst.mem[0]) || g_dut.imem_inst.mem[0] == 32'h0)
-      $fatal(1, "%s missing or empty", hexfile);
     if (!$value$plusargs("preload_dmem=%d", preload)) preload = 0;
     if (!$value$plusargs("log_traps=%d", log_traps)) log_traps = 0;
     if (!$value$plusargs("stall=%d", stall_pct)) stall_pct = 0;
@@ -401,67 +297,231 @@ module cosim ();
     if (!$value$plusargs("stall_seed=%d", stall_seed)) stall_seed = 1;
     if (!$value$plusargs("irq=%d", irq_rate)) irq_rate = 0;
     if (!$value$plusargs("irq_seed=%d", irq_seed)) irq_seed = 1;
-    if (preload != 0)
-      for (int l = 0; l < Depth / 4; l++)
-      g_dut.dmem_inst.mem[l] = {
-        g_dut.imem_inst.mem[4*l+3],
-        g_dut.imem_inst.mem[4*l+2],
-        g_dut.imem_inst.mem[4*l+1],
-        g_dut.imem_inst.mem[4*l]
-      };
-    do_reset();
+    void'($value$plusargs("max_errors=%d", max_errors));
+  endtask  // Automatic
 
-    // Park sentinel stops
-    have_last = 0;
-    stop      = 0;
-    for (int i = 0; i < max_commits && !stop; i++) begin
-      @(posedge clk);
-      #1;
+  task automatic open_dump();
+    if ($value$plusargs("vcd=%s", vcdfile)) begin
+      $dumpfile(vcdfile);
+      $dumpvars(0, cosim_bench);
+    end
+  endtask  // Automatic
+
+  task automatic load_image();
+    $readmemh(hexfile, g_dut.imem_inst.mem);
+    if ($isunknown(g_dut.imem_inst.mem[0]) || g_dut.imem_inst.mem[0] == '0)
+      $fatal(1, "%s missing or empty", hexfile);
+    if (preload != 0)
+      for (int l = 0; l < Depth / LineWords; l++)
+        for (int w = 0; w < LineWords; w++)
+          g_dut.dmem_inst.mem[l][Xlen*w+:Xlen] = g_dut.imem_inst.mem[LineWords*l+w];
+  endtask  // Automatic
+
+  task automatic do_reset();
+    rst_n = 1'b0;
+    repeat (2) @(posedge clk);
+    @(negedge clk);
+    rst_n = 1'b1;
+  endtask  // Automatic
+
+  task automatic emit_fcommit();
+    if (r_fwe) $display("FCOMMIT %0d %08x", r_frd, r_fdata);
+    if (r_flwe) $display("FCOMMIT %0d %08x", r_flrd, r_fldata);
+  endtask  // Automatic
+
+  // Line per retirement
+  task automatic emit_commit();
+    logic [AddrW-1:0] rd;
+    rd = r_insn[11:7];
+    // pc rd rd_val mem_write mem_addr wstrb store_data
+    $display("COMMIT %08x %0d %08x %0d %08x %1x %08x %02x %02x %1x %02x", r_pc,
+             (r_rw && rd != 0) ? rd : 0, r_wdata, |r_wmask, r_maddr, r_wmask, r_sdata, r_vl,
+             r_vtype_bits, r_vtype_ill, r_vstart);
+    $display("TRACE %0t %08x %08x", $time, r_pc, r_insn);
+    commits++;
+  endtask  // Automatic
+
+  // Vector group written
+  task automatic emit_vcommit();
+    for (int g = 0; g < Vregs; g++)
+      if (r_vwregs[g]) $display("VCOMMIT %0d %0d %032x", r_vtag, g, vpeek[g]);
+  endtask  // Automatic
+
+  // Interrupt retire count
+  task automatic retire_trap();
+    logic [1:0] lines;
+    if (log_traps != 0) $display("DTRAP %0t %08x %08x", $time, r_pc, r_insn);
+    if (dbg_mcause[Xlen-1]) begin
+      check("HUNG interrupt retired without a take", irq_lines.size() != 0, 1'b1);
+      if (irq_lines.size() != 0) begin
+        lines = irq_lines.pop_front();
+        $display("IRQ %0d %0d %0d", commits, lines[1], lines[0]);
+      end
+    end
+  endtask  // Automatic
+
+  // Park sentinel stops
+  task automatic run_commits(input int cycles);
+    logic [Xlen-1:0] last_pc;
+    logic            have_last = 1'b0;
+    parked = 1'b0;
+    for (int i = 0; i < cycles && !parked; i++) begin
+      @(negedge clk);
       if (r_vretire) emit_vcommit();
       emit_fcommit();
-      if ((log_traps != 0) && r_valid && r_trap)
-        $display("DTRAP %0t %08x %08x", $time, r_pc, r_insn);
-      // Retired count at interrupt
-      if (r_valid && r_trap) begin
-        if (trap_kinds.size() == 0) $display("HUNG trap retired without a taken trap");
-        else begin
-          kind = trap_kinds.pop_front();
-          if (kind[2]) $display("IRQ %0d %0d %0d", checks, kind[1], kind[0]);
-        end
-      end
-      // Spike skips traps
+      if (r_valid && r_trap) retire_trap();
       if (r_valid && !r_trap) begin
-        if (have_last && r_pc === last_pc) stop = 1;
+        if (have_last && r_pc === last_pc) parked = 1'b1;
         else begin
           emit_commit();
           last_pc   = r_pc;
-          have_last = 1;
+          have_last = 1'b1;
         end
       end
     end
+    check("HUNG no park sentinel", parked, 1'b1);
+  endtask  // Automatic
 
-    if (!stop) $display("HUNG no park sentinel after %0d cycles", max_commits);
-
-    // Drain the unit
-    for (int i = 0; i < 2000 && !r_vidle; i++) begin
-      @(posedge clk);
-      #1;
+  task automatic drain_units(input int cycles);
+    for (int i = 0; i < cycles && !r_vidle; i++) begin
+      @(negedge clk);
       if (r_vretire) emit_vcommit();
     end
-    if (!r_vidle) $display("HUNG vector unit not idle");
-
-    for (int i = 0; i < 2000 && !r_fidle; i++) begin
-      @(posedge clk);
-      #1;
+    check("HUNG vector unit not idle", r_vidle, 1'b1);
+    for (int i = 0; i < cycles && !r_fidle; i++) begin
+      @(negedge clk);
       emit_fcommit();
     end
-    if (!r_fidle) $display("HUNG float unit not idle");
-    $display("FCSR %02x", {g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.frm,
-                           g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.fflags});
+    check("HUNG float unit not idle", r_fidle, 1'b1);
+  endtask  // Automatic
 
+  task automatic report_state();
+    $display("FCSR %02x", {g_dut.riscv_pipelined_inst.datapath_inst.csr_inst.frm, dbg_fflags});
     $display("STALLS %0d %0d", fetch_stalls, data_stalls);
-    $display("MONITOR: %0d commits", checks);
+    $display("MONITOR: %0d commits", commits);
+  endtask  // Automatic
+
+  // Enabled line ignored
+  task automatic check_irq();
+    check("IRQ LOST", irq_ready, 1'b0);
+  endtask  // Automatic
+
+  // Fence drains unit
+  task automatic check_fence();
+    check("FENCE BUSY", r_vidle, 1'b1);
+  endtask  // Automatic
+
+  // One accept each
+  task automatic check_accept();
+    check("VEC REISSUE", v_accepted, 1'b0);
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
+  endtask  // Automatic
+
+  function automatic int draw_wait();
+    if (stall_pct == 0) return 0;
+    if ($urandom(stall_seed) % 100 >= stall_pct) return 0;
+    return 1 + $urandom(stall_seed) % stall_max;
+  endfunction
+
+  function automatic logic is_fence(input logic [Xlen-1:0] insn);
+    return insn[$bits(opcode_pkg::OpcodeMiscMem)-1:0] == opcode_pkg::OpcodeMiscMem &&
+        insn[14:12] == '0;
+  endfunction
+
+  initial begin
+    read_args();
+    open_dump();
+    load_image();
+    do_reset();
+    run_commits(max_commits);
+    drain_units(DrainCycles);
+    report_state();
+    do_verdict();
+  end
+
+  assign imem_ready = (fetch_wait == 0);
+  assign dmem_ready = (data_wait == 0);
+
+  // Poison until ready
+  assign instr = imem_ready ? imem_word : '1;
+  assign read_data = dmem_ready ? dmem_line : '1;
+
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      fetch_wait <= 0;
+      data_wait  <= 0;
+    end else begin
+      if (g_dut.riscv_pipelined_inst.datapath_inst.pc_en) fetch_wait <= draw_wait();
+      else if (fetch_wait != 0) begin
+        fetch_wait <= fetch_wait - 1;
+        fetch_stalls++;
+      end
+      if (dmem_req && dmem_ready) data_wait <= draw_wait();
+      else if (dmem_req && data_wait != 0) begin
+        data_wait <= data_wait - 1;
+        data_stalls++;
+      end
+    end
+  end
+
+  assign irq_ready = dbg_mstatus[MstatusMie] &&
+      ((ext_line && dbg_mie[Meie]) || (timer_line && dbg_mie[Mtie]));
+  assign irq_take = irq_ready_q && !dbg_mstatus[MstatusMie] && dbg_mcause[Xlen-1];
+  assign irq_ext = dbg_mcause[CauseW-1:0] == CauseMachineExternalIrq;
+
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      ext_line    <= 1'b0;
+      timer_line  <= 1'b0;
+      irq_ready_q <= 1'b0;
+      ext_q       <= 1'b0;
+      timer_q     <= 1'b0;
+    end else begin
+      irq_ready_q <= irq_ready;
+      ext_q       <= ext_line;
+      timer_q     <= timer_line;
+      if (irq_take) irq_lines.push_back({ext_q, timer_q});
+      // Taken line drops
+      if (irq_take) begin
+        if (irq_ext) ext_line <= 1'b0;
+        else timer_line <= 1'b0;
+      end else if (irq_rate != 0) begin
+        if (!ext_line && $urandom(irq_seed) % 1000 < irq_rate) ext_line <= 1'b1;
+        if (!timer_line && $urandom(irq_seed) % 1000 < irq_rate) timer_line <= 1'b1;
+      end
+    end
+  end
+
+  always @(posedge clk) begin
+    if (!rst_n || g_dut.riscv_pipelined_inst.datapath_inst.idex_en) v_accepted <= 1'b0;
+    else if (g_dut.riscv_pipelined_inst.datapath_inst.vec_unit_inst.u_issue.accept)
+      v_accepted <= 1'b1;
+  end
+
+  always @(negedge clk) begin
+    if (rst_n && dbg_ex_commit) check_irq();
+    if (rst_n && dbg_ex_commit && is_fence(dbg_ex_insn)) check_fence();
+    if (rst_n && g_dut.riscv_pipelined_inst.datapath_inst.vec_unit_inst.u_issue.accept)
+      check_accept();
+  end
+
+  // Vector store beats
+  always @(negedge clk) begin
+    // addr wstrb data
+    if (rst_n && dbg_v_take && store_wstrb != '0)
+      $display(
+          "VMEM %08x %04x %032x",
+          mem_addr & ~Xlen'(cache_pkg::LineBytes - 1),
+          store_wstrb,
+          store_data
+      );
   end
 
 endmodule
