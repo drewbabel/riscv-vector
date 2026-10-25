@@ -30,7 +30,7 @@ module fp_mul
   localparam int RshiftW = $clog2(MaxRshift + 1);
   localparam int AlignW = ProdW + MaxRshift;
 
-  localparam int Stages = 3;
+  localparam int MulStages = 3;
   localparam logic [FLEN-1:0] CanonNan = FLEN'(fp_canon_nan(ExpW, FracW));
   localparam logic [FLEN-2:0] InfMag = (FLEN - 1)'(fp_inf_mag(ExpW, FracW));
   localparam logic [FLEN-2:0] MaxMag = (FLEN - 1)'(fp_max_mag(ExpW, FracW));
@@ -40,7 +40,7 @@ module fp_mul
     $error("ExpW and FracW outside the supported range");
   end
 
-  if (Stages != Latency) begin : g_latency_error
+  if (MulStages != Latency) begin : g_latency_error
     $error("FpMulLatency must equal the three fp_mul stages");
   end
 

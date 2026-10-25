@@ -42,7 +42,7 @@ module fp_fma
   localparam logic [ExpSW-1:0] TopSlot = ExpSW'(DpW - GrdW - 2 * FracW);
   localparam logic [ExpSW-1:0] MaxShift = ExpSW'(DpW);
 
-  localparam int Stages = 3;
+  localparam int FmaStages = 3;
   localparam logic [FLEN-1:0] CanonNan = FLEN'(fp_canon_nan(ExpW, FracW));
   localparam logic [FLEN-2:0] InfMag = (FLEN - 1)'(fp_inf_mag(ExpW, FracW));
   localparam logic [FLEN-2:0] MaxMag = (FLEN - 1)'(fp_max_mag(ExpW, FracW));
@@ -51,7 +51,7 @@ module fp_fma
     $error("ExpW and FracW outside the supported range");
   end
 
-  if (Stages != Latency) begin : g_latency_error
+  if (FmaStages != Latency) begin : g_latency_error
     $error("FpFmaLatency must equal the three fp_fma stages");
   end
 
