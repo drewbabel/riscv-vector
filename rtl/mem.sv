@@ -19,6 +19,15 @@ module mem #(
     output logic [     XLEN-1:0] rdata
 );
 
+  logic unused_addr;
+
+  assign unused_addr = ^{
+    iaddr[XLEN-1:AddrWidth+WordLsb],
+    iaddr[WordLsb-1:0],
+    daddr[XLEN-1:AddrWidth+WordLsb],
+    daddr[WordLsb-1:0]
+  };
+
   // Byte-lane BRAMs
   genvar b;
   generate
