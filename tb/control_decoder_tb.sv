@@ -4,6 +4,7 @@ module control_decoder_tb
   import opcode_pkg::*;
   import csr_pkg::Funct3Priv, csr_pkg::Funct3Csrrw, csr_pkg::Funct3Csrrs, csr_pkg::Funct3Csrrc;
   import csr_pkg::Funct3Csrrwi, csr_pkg::Funct3Csrrsi, csr_pkg::Funct3Csrrci;
+  import csr_pkg::Funct3SysRsvd;
   import csr_pkg::Funct12Ecall, csr_pkg::Funct12Ebreak, csr_pkg::Funct12Mret;
   import csr_pkg::MstatusAddr, csr_pkg::MepcAddr, csr_pkg::FflagsAddr, csr_pkg::VlAddr;
   import muldiv_pkg::*;
@@ -11,8 +12,7 @@ module control_decoder_tb
   import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmDyn;
 ();
 
-  localparam int OpW = $bits(OpcodeOp);
-  localparam int Funct3W = $bits(Funct3Priv);
+  localparam int OpW = OpcodeW;
   localparam int Funct12W = $bits(Funct12Ecall);
   localparam int Funct7W = $bits(Funct7MulDiv);
   localparam int Funct5W = $bits(Funct5Fcmp);
@@ -62,6 +62,7 @@ module control_decoder_tb
   logic is_ecall;
   logic is_ebreak;
   logic is_mret;
+  logic illegal;
   logic is_muldiv;
   muldiv_op_e muldiv_op;
 
@@ -111,6 +112,7 @@ module control_decoder_tb
       .is_ecall     (is_ecall),
       .is_ebreak    (is_ebreak),
       .is_mret      (is_mret),
+      .illegal      (illegal),
       .is_muldiv    (is_muldiv),
       .muldiv_op    (muldiv_op)
   );
@@ -158,6 +160,7 @@ module control_decoder_tb
     check({name, " is_ecall"}, is_ecall, priv_ref(op, funct3, funct12, Funct12Ecall));
     check({name, " is_ebreak"}, is_ebreak, priv_ref(op, funct3, funct12, Funct12Ebreak));
     check({name, " is_mret"}, is_mret, priv_ref(op, funct3, funct12, Funct12Mret));
+    check({name, " illegal"}, illegal, op == OpcodeSystem && funct3 == Funct3SysRsvd);
     check({name, " is_muldiv"}, is_muldiv, exp_muldiv);
     if (exp_muldiv) check_field({name, " muldiv_op"}, muldiv_op, muldiv_ops[funct3]);
   endtask  // Automatic
@@ -406,6 +409,13 @@ module control_decoder_tb
     end
   endtask  // Automatic
 
+  task automatic chk_sys_rsvd();
+    for (int j = 0; j < $size(csr_funct12s); j++) begin
+      decode(OpcodeSystem, Funct3SysRsvd, csr_funct12s[j]);
+      chk_default($sformatf("sys rsvd %h", funct12));
+    end
+  endtask  // Automatic
+
   task automatic chk_muldiv(input logic [OpW-1:0] o);
     string name;
     for (int f7 = 0; f7 < 2 ** Funct7W; f7++) begin
@@ -426,7 +436,6 @@ module control_decoder_tb
     repeat (n) begin
       o  = OpW'($urandom);
       f3 = Funct3W'($urandom);
-      if (o == OpcodeSystem && f3 != Funct3Priv && !csr_ref(o, f3)) f3 = Funct3Priv;
       decode(o, f3, Funct12W'($urandom));
       check_system($sformatf("soak %b %b %h", op, funct3, funct12));
     end
@@ -467,6 +476,7 @@ module control_decoder_tb
     // System and M
     chk_priv();
     chk_csr();
+    chk_sys_rsvd();
     chk_muldiv(OpcodeOp);
     chk_muldiv(OpcodeOpImm);
     soak(SoakOps);
