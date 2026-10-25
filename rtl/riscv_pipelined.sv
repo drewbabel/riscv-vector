@@ -16,6 +16,12 @@ module riscv_pipelined
     localparam int StrbW     = XLEN / 8,
     localparam int ILEN      = arch_pkg::ILEN
 ) (
+`ifdef SIM_BACKDOOR
+    output logic                          sim_branch,
+    output logic                          sim_branch_taken,
+    output logic                          sim_mispredict,
+    output logic                          sim_muldiv_hold,
+`endif
 `ifdef RISCV_FORMAL
     output logic                          dbg_valid,
     output logic [              ILEN-1:0] dbg_insn,
@@ -108,6 +114,12 @@ module riscv_pipelined
       .MUL_LANES(MUL_LANES),
       .GSHARE_EN(GSHARE_EN)
   ) datapath_inst (
+`ifdef SIM_BACKDOOR
+      .sim_branch      (sim_branch),
+      .sim_branch_taken(sim_branch_taken),
+      .sim_mispredict  (sim_mispredict),
+      .sim_muldiv_hold (sim_muldiv_hold),
+`endif
 `ifdef RISCV_FORMAL
       .dbg_valid       (dbg_valid),
       .dbg_insn        (dbg_insn),
