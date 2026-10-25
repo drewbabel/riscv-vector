@@ -4,7 +4,7 @@ module icache_tb;
 
   import cache_pkg::*;
 
-  localparam int MinChecks = 14;
+  localparam int MinChecks = 10 + LineWords;
   localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 8192;
   localparam int Latency = 4;
@@ -36,8 +36,8 @@ module icache_tb;
   logic [Xlen-1:0] boot_wdata;
   logic boot_we;
 
-  logic [31:0] hit_count;
-  logic [31:0] miss_count;
+  logic [Xlen-1:0] hit_count;
+  logic [Xlen-1:0] miss_count;
 
   always #5 clk = ~clk;
 
