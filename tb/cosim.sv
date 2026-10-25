@@ -6,6 +6,15 @@ module cosim ();
 
 endmodule
 
+module cosim_static ();
+
+  cosim_bench #(
+      .Depth   (256),
+      .GshareEn(1'b0)
+  ) bench ();
+
+endmodule
+
 module cosim_gen ();
 
   cosim_bench #(.Depth(131072)) bench ();
@@ -13,7 +22,8 @@ module cosim_gen ();
 endmodule
 
 module cosim_bench #(
-    parameter int Depth = 256
+    parameter int Depth    = 256,
+    parameter bit GshareEn = 1'b1
 ) ();
 
   import csr_pkg::*;
@@ -159,7 +169,8 @@ module cosim_bench #(
 
   if (1) begin : g_dut
     riscv_pipelined #(
-        .XLEN(Xlen)
+        .XLEN     (Xlen),
+        .GSHARE_EN(GshareEn)
     ) riscv_pipelined_inst (
         .dbg_valid     (dbg_valid),
         .dbg_insn      (dbg_insn),

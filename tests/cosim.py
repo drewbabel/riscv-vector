@@ -79,6 +79,15 @@ def package_value(name):
 
 
 VLEN = package_value("VLEN")
+TOP = None
+
+
+def take_top(args):
+    global TOP
+    if "--top" in args:
+        k = args.index("--top")
+        TOP = args[k + 1]
+        del args[k : k + 2]
 
 
 def take_vlen(args):
@@ -143,7 +152,7 @@ def compile_monitor():
             "-g2012",
             "-DRISCV_FORMAL",
             "-s",
-            "cosim_gen" if DEPTH == GEN_DEPTH else "cosim",
+            TOP or ("cosim_gen" if DEPTH == GEN_DEPTH else "cosim"),
             "-o",
             SIM,
             *package_files(),
@@ -1611,6 +1620,7 @@ def gen_main(mode, args):
 def main():
     global VECTOR, FP, STALL, IRQ
     take_vlen(sys.argv)
+    take_top(sys.argv)
     if len(sys.argv) >= 2 and sys.argv[1] in (
         "--gen",
         "--gen-spike",
