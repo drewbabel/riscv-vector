@@ -40,7 +40,7 @@ module riscv_pipelined
     output logic [             XLEN-1:0] dbg_minstret,
     output logic [             XLEN-1:0] dbg_mcycleh,
     output logic [             XLEN-1:0] dbg_minstreth,
-    output logic [                  4:0] dbg_fflags,
+    output logic [    fp_pkg::FlagW-1:0] dbg_fflags,
     output logic [              VlW-1:0] dbg_vl,
     output logic [                  7:0] dbg_vtype_bits,
     output logic                         dbg_vtype_ill,
