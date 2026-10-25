@@ -10,9 +10,11 @@ module tick_gen #(
     output logic tick
 );
 
-  logic [$clog2(DIVISOR-1):0] cnt = ($clog2(DIVISOR-1) + 1)'(DIVISOR - 1);
+  logic [$clog2(DIVISOR-1):0] cnt;
 
-  always_ff @(posedge clk) begin
+  initial cnt = ($clog2(DIVISOR - 1) + 1)'(DIVISOR - 1);
+
+  always @(posedge clk) begin
     if (!rst_n) cnt <= '0;
     else if (core_en) begin
       if (clr) cnt <= '0;
