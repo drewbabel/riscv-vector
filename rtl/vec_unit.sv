@@ -5,6 +5,8 @@ module vec_unit
   import csr_pkg::VxrmAddr;
   import csr_pkg::VxsatAddr;
   import csr_pkg::VcsrAddr;
+  import csr_pkg::VxrmW;
+  import fp_pkg::FlagW, fp_pkg::RmW, fp_pkg::RmRmm;
 #(
     parameter  int XLEN      = arch_pkg::XLEN,
     parameter  int AWIDTH    = arch_pkg::RegAddrW,
@@ -53,16 +55,16 @@ module vec_unit
     output logic [XLEN-1:0] mem_bad_addr,
 
     // Fixed-point control
-    input  wire             csr_we,
-    input  wire  [    11:0] csr_waddr,
-    input  wire  [XLEN-1:0] csr_wdata,
-    input  wire             csr_wait,
-    output logic [     1:0] vxrm,
-    output logic            vxsat,
+    input  wire              csr_we,
+    input  wire  [     11:0] csr_waddr,
+    input  wire  [ XLEN-1:0] csr_wdata,
+    input  wire              csr_wait,
+    output logic [VxrmW-1:0] vxrm,
+    output logic             vxsat,
 
     // Float control
-    input  wire  [2:0] frm,
-    output logic [4:0] fflags,
+    input  wire  [  RmW-1:0] frm,
+    output logic [FlagW-1:0] fflags,
 
     // Nonzero vstart
     input wire vstart_set,
@@ -95,12 +97,27 @@ module vec_unit
   localparam int LaneWb = 5;
   localparam int FpWb = VecFpLatency + 1;
   localparam int SlotW = $clog2(FpWb + 1);
-  localparam int FpW = 32;
+  localparam int FpW = fp_pkg::FLEN;
   localparam int HalfW = FpW / 2;
+  localparam logic [2:0] ElenLog2 = 3'($clog2(ELEN));
+  localparam logic [2:0] FpSew = 3'($clog2(FpW / 8));
+  localparam logic [2:0] FpHalfSew = 3'($clog2(HalfW / 8));
 
   // Float stage sized
   if (FpWb != LaneWb + 1) begin : g_fp_depth
     $error("vector float lane latency needs one stage after X4");
+  end
+
+  if (MUL_LANES * ELEN > VLEN) begin : g_lane_fit
+    $error("MUL_LANES * ELEN must not exceed VLEN");
+  end
+
+  if (MUL_LANES * FpW > VLEN) begin : g_fp_fit
+    $error("MUL_LANES * FLEN must not exceed VLEN");
+  end
+
+  if (FpW > ELEN) begin : g_fp_elen
+    $error("FLEN must not exceed ELEN");
   end
 
   // Decoded fields
@@ -140,9 +157,9 @@ module vec_unit
   logic      [     VlW-1:0] seq_vl;
   logic      [         2:0] seq_vsew;
   logic      [         2:0] seq_vlmul;
-  logic      [         1:0] seq_vxrm;
+  logic      [   VxrmW-1:0] seq_vxrm;
   vec_fop_e                 seq_fop;
-  logic      [         2:0] seq_frm;
+  logic      [     RmW-1:0] seq_frm;
 
   // Sequencer outputs
   logic      [  AWIDTH-1:0] raddr1;
@@ -208,9 +225,9 @@ module vec_unit
   vec_src_e                 src_ex;
   vec_eew_e                 eew_ex;
   logic      [         2:0] vsew_ex;
-  logic      [         1:0] vxrm_ex;
+  logic      [   VxrmW-1:0] vxrm_ex;
   vec_fop_e                 fop_ex;
-  logic      [         2:0] frm_ex;
+  logic      [     RmW-1:0] frm_ex;
   logic                     vm_ex;
   logic      [         4:0] simm_ex;
   logic      [    XLEN-1:0] xdata_ex;
@@ -236,9 +253,9 @@ module vec_unit
   vec_cls_e                 cls_x2;
   vec_op_e                  op_x2;
   vec_fop_e                 fop_x2;
-  logic      [         2:0] frm_x2;
+  logic      [     RmW-1:0] frm_x2;
   logic      [         2:0] vsew_x2;
-  logic      [         1:0] vxrm_x2;
+  logic      [   VxrmW-1:0] vxrm_x2;
   logic                     wmul_x2;
   logic      [    OffW-1:0] d_off_x2;
   logic      [  AWIDTH-1:0] waddr_x2;
@@ -251,7 +268,7 @@ module vec_unit
   vec_cls_e                 cls_x3;
   vec_op_e                  op_x3;
   logic      [         2:0] vsew_x3;
-  logic      [         1:0] vxrm_x3;
+  logic      [   VxrmW-1:0] vxrm_x3;
   logic                     wmul_x3;
   logic      [    OffW-1:0] d_off_x3;
   logic      [  AWIDTH-1:0] waddr_x3;
@@ -341,12 +358,16 @@ module vec_unit
   logic [2:0] dec_ls2;
   logic       width_legal;
 
-  assign lsew = vsew + 3'd3;
+  // Element width fits
+  function automatic logic width_fits(input logic [2:0] lw);
+    width_fits = (lw >= ByteLog2) && (lw <= ElenLog2);
+  endfunction
+
+  assign lsew = vsew + ByteLog2;
   assign dec_ld = vec_rel_log2(dec_geom_s.d, lsew);
   assign dec_ls1 = vec_rel_log2(dec_geom_s.s1, lsew);
   assign dec_ls2 = vec_rel_log2(dec_geom_s.s2, lsew);
-  assign width_legal = (dec_ld >= 3'd3) && (dec_ld <= 3'd5) && (dec_ls1 >= 3'd3) &&
-      (dec_ls1 <= 3'd5) && (dec_ls2 >= 3'd3) && (dec_ls2 <= 3'd5);
+  assign width_legal = width_fits(dec_ld) && width_fits(dec_ls1) && width_fits(dec_ls2);
 
   // Scalar forms
   logic scalar_legal;
@@ -387,36 +408,47 @@ module vec_unit
   logic                   base_off;
   logic                   stride_off;
 
-  assign dec_mem = (dec_cls == VEC_CLS_MEM);
-  assign emul_log2 = 4'($signed(vlmul)) + $signed({2'b00, dec_width}) - $signed({1'b0, vsew});
-  assign
-      emul_ok = !dec_mem || dec_whole || dec_mask_ls || (emul_log2 >= -4'sd3 && emul_log2 <= 4'sd3);
-
-  assign issue_vl = full_nop ? '0 : (dec_full ? VlW'((VLEN >> (3 + dec_width)) << full_emul) :
-      ((dec_mem && dec_mask_ls) ?
-       VlW'((vl + VlW'(7)) >> 3) : ((dec_cls == VEC_CLS_XS) ? VlW'(1) : vl)));
-  assign issue_vsew = dec_mem ? {1'b0, dec_width} : (dec_mvnr ? 3'd0 : vsew);
-  assign issue_vlmul = dec_mvnr ? 3'(full_emul) : vlmul;
-  assign issue_stride = dec_strided ? xstride : (XLEN'(1) << dec_width);
-
-  // Alignment check
-  assign base_off = (dec_width == 2'd2) ? (xdata[1:0] != 2'b00) : ((dec_width == 2'd1) && xdata[0]);
-  assign stride_off = (dec_width == 2'd2) ?
-      (issue_stride[1:0] != 2'b00) : ((dec_width == 2'd1) && issue_stride[0]);
-  assign mem_misaligned = dec_mem && is_vector &&
-      (((issue_vl != '0) && base_off) || ((issue_vl > VlW'(1)) && stride_off));
-  assign mem_bad_addr = base_off ? xdata : (xdata + issue_stride);
-
-  // Register count of a group
-  function automatic logic [GrpW-1:0] group_regs(input logic signed [3:0] emul);
-    if (emul <= 4'sd0) group_regs = GrpW'(1);
-    else group_regs = GrpW'(GrpW'(1) << emul[2:0]);
-  endfunction
-
   // Multiplier in range
   function automatic logic width_in_range(input logic signed [3:0] emul, input logic used);
     width_in_range = !used || ((emul >= -4'sd3) && (emul <= 4'sd3));
   endfunction
+
+  // Address misaligned
+  function automatic logic misaligned(input logic [1:0] addr, input logic [1:0] width);
+    case (width)
+      2'd2:    misaligned = (addr[1:0] != 2'b00);
+      2'd1:    misaligned = addr[0];
+      default: misaligned = 1'b0;
+    endcase
+  endfunction
+
+  assign dec_mem   = (dec_cls == VEC_CLS_MEM);
+  assign emul_log2 = 4'($signed(vlmul)) + $signed({2'b00, dec_width}) - $signed({1'b0, vsew});
+  assign emul_ok   = !dec_mem || dec_whole || dec_mask_ls || width_in_range(emul_log2, 1'b1);
+
+  always_comb begin
+    if (full_nop) issue_vl = '0;
+    else if (dec_full) issue_vl = VlW'((VLEN >> (3 + dec_width)) << full_emul);
+    else if (dec_mem && dec_mask_ls) issue_vl = VlW'((vl + VlW'(7)) >> 3);
+    else if (dec_cls == VEC_CLS_XS) issue_vl = VlW'(1);
+    else issue_vl = vl;
+  end
+
+  always_comb begin
+    if (dec_mem) issue_vsew = {1'b0, dec_width};
+    else if (dec_mvnr) issue_vsew = 3'd0;
+    else issue_vsew = vsew;
+  end
+
+  assign issue_vlmul = dec_mvnr ? 3'(full_emul) : vlmul;
+  assign issue_stride = dec_strided ? xstride : (XLEN'(1) << dec_width);
+
+  // Alignment check
+  assign base_off = misaligned(xdata[1:0], dec_width);
+  assign stride_off = misaligned(issue_stride[1:0], dec_width);
+  assign mem_misaligned = dec_mem && is_vector &&
+      (((issue_vl != '0) && base_off) || ((issue_vl > VlW'(1)) && stride_off));
+  assign mem_bad_addr = base_off ? xdata : (xdata + issue_stride);
 
   // Permitted overlap
   function automatic logic pair_ok(input logic [GrpW-1:0] bd, input logic [GrpW-1:0] nd,
@@ -476,16 +508,26 @@ module vec_unit
   assign s1_delta = 4'($signed({1'b0, dec_ls1})) - 4'($signed({1'b0, lsew}));
   assign s2_delta = 4'($signed({1'b0, dec_ls2})) - 4'($signed({1'b0, lsew}));
 
-  assign d_emul = dec_full ? full_emul : (dec_mem ? (dec_mask_ls ? 4'sd0 : emul_log2) :
-      ((dec_geom_s.single_write || dec_geom_s.mask_dest) ? 4'sd0 : (lmul_log2 + d_delta)));
+  always_comb begin
+    if (dec_full) d_emul = full_emul;
+    else if (dec_mem && dec_mask_ls) d_emul = 4'sd0;
+    else if (dec_mem) d_emul = emul_log2;
+    else if (dec_geom_s.single_write || dec_geom_s.mask_dest) d_emul = 4'sd0;
+    else d_emul = lmul_log2 + d_delta;
+  end
+
   assign
       s1_emul = (dec_geom_s.single_write || dec_geom_s.mask_src) ? 4'sd0 : (lmul_log2 + s1_delta);
-  assign s2_emul = dec_mvnr ? full_emul :
-      (((dec_cls == VEC_CLS_XS) || dec_geom_s.mask_src) ? 4'sd0 : (lmul_log2 + s2_delta));
 
-  assign d_regs = group_regs(d_emul);
-  assign s1_regs = uses_vs1 ? group_regs(s1_emul) : GrpW'(1);
-  assign s2_regs = uses_vs2 ? group_regs(s2_emul) : GrpW'(1);
+  always_comb begin
+    if (dec_mvnr) s2_emul = full_emul;
+    else if ((dec_cls == VEC_CLS_XS) || dec_geom_s.mask_src) s2_emul = 4'sd0;
+    else s2_emul = lmul_log2 + s2_delta;
+  end
+
+  assign d_regs = GrpW'(vec_group_regs(d_emul));
+  assign s1_regs = uses_vs1 ? GrpW'(vec_group_regs(s1_emul)) : GrpW'(1);
+  assign s2_regs = uses_vs2 ? GrpW'(vec_group_regs(s2_emul)) : GrpW'(1);
 
   assign emul_legal = width_in_range(
       d_emul, has_vd
@@ -499,7 +541,7 @@ module vec_unit
       (!uses_vs1 || ((GrpW'(dec_vs1) & (s1_regs - GrpW'(1))) == '0)) &&
       (!uses_vs2 || ((GrpW'(dec_vs2) & (s2_regs - GrpW'(1))) == '0));
 
-  // Mask elements EEW 1
+  // Mask EEW one
   assign dest_lw = dec_geom_s.mask_dest ? 3'd0 : dec_ld;
 
   assign overlap_ok = dec_mem || !has_vd || dec_geom_s.single_write ||
@@ -522,32 +564,42 @@ module vec_unit
   logic            seq_clear;
 
   assign load_regs = GrpW'(((SumW'(issue_vl) << dec_width) + SumW'(RegBytes - 1)) >> RegByteW);
-  assign wr_regs = (!has_vd || dec_store || (issue_vl == '0)) ? '0 : (dec_mem ? load_regs : d_regs);
-  assign rd1_regs = dec_store ? d_regs : (uses_vs1 ? s1_regs : '0);
-  assign rd2_regs = uses_vs2 ? s2_regs : '0;
+  always_comb begin
+    if (!has_vd || dec_store || (issue_vl == '0)) wr_regs = '0;
+    else if (dec_mem) wr_regs = load_regs;
+    else wr_regs = d_regs;
+  end
+
+  always_comb begin
+    if (dec_store) rd1_regs = d_regs;
+    else if (uses_vs1) rd1_regs = s1_regs;
+    else rd1_regs = '0;
+  end
+
+  assign rd2_regs  = uses_vs2 ? s2_regs : '0;
   assign seq_clear = seq_reg_done && (seq_cls != VEC_CLS_XS) && (seq_cls != VEC_CLS_XM);
 
   // Rounding and saturation
-  logic [1:0] vxrm_q;
-  logic       vxsat_q;
-  logic       sat_set;
+  logic [VxrmW-1:0] vxrm_q;
+  logic             vxsat_q;
+  logic             sat_set;
 
-  logic       sat_wb;
+  logic             sat_wb;
 
   assign sat_set = sat_wb;
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      vxrm_q  <= 2'd0;
+      vxrm_q  <= '0;
       vxsat_q <= 1'b0;
     end else begin
       if (sat_set) vxsat_q <= 1'b1;
       if (csr_we) begin
         case (csr_waddr)
-          VxrmAddr:  vxrm_q <= csr_wdata[1:0];
+          VxrmAddr:  vxrm_q <= csr_wdata[VxrmW-1:0];
           VxsatAddr: vxsat_q <= csr_wdata[0];
           VcsrAddr: begin
-            vxrm_q  <= csr_wdata[2:1];
+            vxrm_q  <= csr_wdata[VxrmW:1];
             vxsat_q <= csr_wdata[0];
           end
           default:   ;
@@ -582,15 +634,16 @@ module vec_unit
   assign id_legal = (dec_op != VEC_ID) || (dec_vs2 == '0);
 
   // Float needs e32
-  logic dec_fp;
-  logic dec_fcvt_wn;
-  logic fp_legal;
-  assign dec_fp = (dec_cls == VEC_CLS_FP) || (dec_cls == VEC_CLS_FCMP) || (dec_op == VEC_FRED) ||
-      dec.reads_freg || dec_writes_freg;
+  logic       dec_fp;
+  logic       dec_fcvt_wn;
+  logic [2:0] fp_sew;
+  logic       fp_legal;
+  assign dec_fp = vec_is_fp(dec_op, dec.reads_freg, dec_writes_freg);
 
   // Wide conversions e16
   assign dec_fcvt_wn = (dec_cls == VEC_CLS_FP) && (dec_eew != VEC_EEW_SAME);
-  assign fp_legal = !dec_fp || ((vsew == (dec_fcvt_wn ? 3'd1 : 3'd2)) && (frm < 3'd5));
+  assign fp_sew = dec_fcvt_wn ? FpHalfSew : FpSew;
+  assign fp_legal = !dec_fp || ((vsew == fp_sew) && (frm <= RmRmm));
 
   assign op_ready = (dec_cls != VEC_CLS_NONE) && fp_legal && group_legal && vstart_legal &&
       mset_legal && iota_legal && id_legal &&
@@ -617,6 +670,44 @@ module vec_unit
   assign dec_nf = dec.mem_nf;
   assign dec_mask_ls = dec.mem_mask;
   assign dec_strided = dec.mem_strided;
+
+  // Register write port
+  logic              rf_we;
+  logic [  VLEN-1:0] rf_wstrb;
+  logic [AWIDTH-1:0] rf_waddr;
+  logic [  VLEN-1:0] rf_wdata;
+  logic [AWIDTH-1:0] rf_raddr1;
+  logic [AWIDTH-1:0] clear_addr;
+
+  assign rf_we = wen_wb || m_wen || sl_wen;
+
+  always_comb begin
+    if (wen_wb) begin
+      rf_wstrb = wstrb_wb;
+      rf_waddr = waddr_wb;
+      rf_wdata = wdata;
+    end else if (sl_wen) begin
+      rf_wstrb = sl_wstrb;
+      rf_waddr = sl_waddr;
+      rf_wdata = sl_wdata;
+    end else begin
+      rf_wstrb = m_wstrb;
+      rf_waddr = m_raddr;
+      rf_wdata = m_wdata;
+    end
+  end
+
+  always_comb begin
+    if (seq_mem) rf_raddr1 = m_raddr;
+    else if (seq_slide) rf_raddr1 = sl_raddr_lo;
+    else rf_raddr1 = raddr1;
+  end
+
+  always_comb begin
+    if (reg_done_wb) clear_addr = waddr_wb;
+    else if (sl_busy) clear_addr = sl_waddr;
+    else clear_addr = m_raddr;
+  end
 
   vec_issue #(
       .XLEN  (XLEN),
@@ -647,7 +738,7 @@ module vec_unit
       .rd1_regs(rd1_regs),
       .rd2_regs(rd2_regs),
       .clear(reg_done_wb || m_reg_done || sl_busy),
-      .clear_addr(reg_done_wb ? waddr_wb : (sl_busy ? sl_waddr : m_raddr)),
+      .clear_addr(clear_addr),
       .vl(issue_vl),
       .vsew(issue_vsew),
       .vlmul(issue_vlmul),
@@ -871,11 +962,11 @@ module vec_unit
   ) u_regfile (
       .clk(clk),
       .core_en(core_en),
-      .we(wen_wb || m_wen || sl_wen),
-      .wstrb(wen_wb ? wstrb_wb : (sl_wen ? sl_wstrb : m_wstrb)),
-      .waddr(wen_wb ? waddr_wb : (sl_wen ? sl_waddr : m_raddr)),
-      .wdata(wen_wb ? wdata : (sl_wen ? sl_wdata : m_wdata)),
-      .raddr1(seq_mem ? m_raddr : (seq_slide ? sl_raddr_lo : raddr1)),
+      .we(rf_we),
+      .wstrb(rf_wstrb),
+      .waddr(rf_waddr),
+      .wdata(rf_wdata),
+      .raddr1(rf_raddr1),
       .raddr2(seq_slide ? sl_raddr_hi : raddr2),
       .raddr3(raddr3),
       .rdata1(rdata1),
@@ -947,6 +1038,7 @@ module vec_unit
 
   vec_alu #(
       .DLEN(VLEN),
+      .ELEN(ELEN),
       .XLEN(XLEN)
   ) u_alu (
       .op(op_ex),
@@ -963,6 +1055,7 @@ module vec_unit
 
   vec_mixed #(
       .DLEN(VLEN),
+      .ELEN(ELEN),
       .XLEN(XLEN)
   ) u_mixed (
       .op(op_ex),
@@ -995,19 +1088,23 @@ module vec_unit
   );
 
   // Float reduce
-  logic [VLEN-1:0] fred_result;
-  logic [     4:0] fred_flags;
-  logic [     4:0] fred_flags_wb;
-  logic [ FpW-1:0] fred_sum;
-  logic [VLEN-1:0] red_pick;
-  logic            fsum_ex;
-  logic            fsum_x2;
-  logic            fsum_x3;
-  logic            fsum_x4;
+  logic [ VLEN-1:0] fred_result;
+  logic [FlagW-1:0] fred_flags;
+  logic [FlagW-1:0] fred_flags_wb;
+  logic [  FpW-1:0] fred_sum;
+  logic [ VLEN-1:0] red_pick;
+  logic             fsum_ex;
+  logic             fsum_x2;
+  logic             fsum_x3;
+  logic             fsum_x4;
 
   assign fsum_ex = (op_ex == VEC_FRED) && ((fop_ex == VEC_FREDOSUM) || (fop_ex == VEC_FREDUSUM));
-  assign red_pick = (valid_x4 && fsum_x4) ? VLEN'(fred_sum) :
-      ((op_x2 == VEC_FRED) ? fred_result : red_result);
+
+  always_comb begin
+    if (valid_x4 && fsum_x4) red_pick = VLEN'(fred_sum);
+    else if (op_x2 == VEC_FRED) red_pick = fred_result;
+    else red_pick = red_result;
+  end
 
   vec_fp_reduce #(
       .DLEN(VLEN)
@@ -1078,11 +1175,11 @@ module vec_unit
   // Float lane outputs
   logic                 fp_ex;
   logic [      FpW-1:0] fp_res    [MUL_LANES];
-  logic [          4:0] fp_flag   [MUL_LANES];
+  logic [    FlagW-1:0] fp_flag   [MUL_LANES];
   logic [MUL_LANES-1:0] fp_cmp;
   logic                 fcvt_ex;
   logic [      FpW-1:0] cvt_res   [MUL_LANES];
-  logic [          4:0] cvt_flag  [MUL_LANES];
+  logic [    FlagW-1:0] cvt_flag  [MUL_LANES];
   logic [MUL_LANES-1:0] cvt_vld;
   logic [MUL_LANES-1:0] active_x5;
   logic [MUL_LANES-1:0] active_wb;
@@ -1093,32 +1190,32 @@ module vec_unit
       (cls_x2 == VEC_CLS_FCMP) || fsum_x2;
 
   for (genvar l = 0; l < MUL_LANES; l++) begin : g_lane
-    logic [  ELEN-1:0] a_w     [Widths];
-    logic [  ELEN-1:0] b_w     [Widths];
-    logic [  ELEN-1:0] s_w     [Widths];
-    logic [  ELEN-1:0] d_w     [Widths];
-    logic [  ELEN-1:0] a_ex;
-    logic [  ELEN-1:0] b_ex;
-    logic [  ELEN-1:0] c_ex;
-    logic [  ELEN-1:0] a_x2;
-    logic [  ELEN-1:0] b_x2;
-    logic [  ELEN-1:0] c_x2;
-    logic [  ELEN-1:0] a_x3;
-    logic [  ELEN-1:0] b_x3;
-    logic [  ELEN-1:0] div_x3;
-    logic [  ELEN-1:0] div_x4;
-    logic [  ELEN-1:0] mul_x4;
-    logic [  ELEN-1:0] mul_res;
-    logic [  ELEN-1:0] sat_res;
-    logic [  ELEN-1:0] div_res;
-    logic [  ELEN-1:0] res_sel;
-    logic [2*ELEN-1:0] product;
-    logic              sat;
-    logic              idone;
-    logic              fdone;
-    logic [   FpW-1:0] fdv_res;
-    logic [       4:0] fdv_flg;
-    logic [   FpW+4:0] fdv_q;
+    logic [     ELEN-1:0] a_w     [Widths];
+    logic [     ELEN-1:0] b_w     [Widths];
+    logic [     ELEN-1:0] s_w     [Widths];
+    logic [     ELEN-1:0] d_w     [Widths];
+    logic [     ELEN-1:0] a_ex;
+    logic [     ELEN-1:0] b_ex;
+    logic [     ELEN-1:0] c_ex;
+    logic [     ELEN-1:0] a_x2;
+    logic [     ELEN-1:0] b_x2;
+    logic [     ELEN-1:0] c_x2;
+    logic [     ELEN-1:0] a_x3;
+    logic [     ELEN-1:0] b_x3;
+    logic [     ELEN-1:0] div_x3;
+    logic [     ELEN-1:0] div_x4;
+    logic [     ELEN-1:0] mul_x4;
+    logic [     ELEN-1:0] mul_res;
+    logic [     ELEN-1:0] sat_res;
+    logic [     ELEN-1:0] div_res;
+    logic [     ELEN-1:0] res_sel;
+    logic [   2*ELEN-1:0] product;
+    logic                 sat;
+    logic                 idone;
+    logic                 fdone;
+    logic [      FpW-1:0] fdv_res;
+    logic [    FlagW-1:0] fdv_flg;
+    logic [FlagW+FpW-1:0] fdv_q;
 
     for (genvar w = 0; w < Widths; w++) begin : g_w
       localparam int EW = 8 << w;
@@ -1228,8 +1325,8 @@ module vec_unit
     logic [FpW-1:0] fp_b_ex;
     assign fp_b_ex = (src_ex == VEC_SRC_VX) ? FpW'(xdata_ex) : vs1_data[l*FpW+:FpW];
 
-    logic [FpW-1:0] fpl_res;
-    logic [    4:0] fpl_flag;
+    logic [  FpW-1:0] fpl_res;
+    logic [FlagW-1:0] fpl_flag;
 
     vec_fp_lane u_fp (
         .clk(clk),
@@ -1280,8 +1377,8 @@ module vec_unit
   end
 
   // Pack float results
-  logic [VLEN-1:0] fp_pack;
-  logic [     4:0] fp_flags_or;
+  logic [ VLEN-1:0] fp_pack;
+  logic [FlagW-1:0] fp_flags_or;
 
   always_comb begin
     fp_pack     = '0;
@@ -1454,7 +1551,7 @@ module vec_unit
       sat_wb      <= 1'b0;
     end else if (core_en) begin
       sat_wb <= valid_x4 && (cls_x4 == VEC_CLS_SAT) && (lane_sat != '0);
-      if (valid_x5) begin  // Slot row keeps one
+      if (valid_x5) begin  // Slot keeps one
         valid_wb    <= 1'b1;
         wen_wb      <= wen_x5;
         reg_done_wb <= reg_done_x5;
@@ -1524,13 +1621,14 @@ module vec_unit
   logic [XLEN-1:0] xs_val;
   logic [XLEN-1:0] xm_val;
 
-  always_comb begin
-    case (seq_vsew)
-      3'd0:    elem_zero = XLEN'($signed(rdata2[7:0]));
-      3'd1:    elem_zero = XLEN'($signed(rdata2[15:0]));
-      default: elem_zero = XLEN'($signed(rdata2[31:0]));
-    endcase
+  logic [XLEN-1:0] elem_zero_w[Widths];
+
+  for (genvar w = 0; w < Widths; w++) begin : g_zero
+    localparam int EW = 8 << w;
+    assign elem_zero_w[w] = XLEN'($signed(rdata2[EW-1:0]));
   end
+
+  assign elem_zero = elem_zero_w[vec_sew_index(seq_vsew, Widths)];
 
 `ifdef RISCV_FORMAL_ABSTRACT_XRES
   // Free scalar result
@@ -1561,10 +1659,10 @@ module vec_unit
 
 `ifdef RISCV_FORMAL
   // Retire after last write
-  logic       retire_wb_q;
-  logic       zero_q;
-  logic       retire;
-  logic [7:0] tag_q;
+  logic                          retire_wb_q;
+  logic                          zero_q;
+  logic                          retire;
+  logic [$bits(dbg_vec_tag)-1:0] tag_q;
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -1579,8 +1677,8 @@ module vec_unit
   assign retire = retire_wb_q || m_done || sl_done || zero_q;
 
   always_ff @(posedge clk) begin
-    if (!rst_n) tag_q <= 8'd0;
-    else if (core_en && retire) tag_q <= tag_q + 8'd1;
+    if (!rst_n) tag_q <= '0;
+    else if (core_en && retire) tag_q <= tag_q + 1'b1;
   end
 
   // Registers written
@@ -1588,8 +1686,8 @@ module vec_unit
   logic              wr_en;
   logic [AWIDTH-1:0] wr_addr;
 
-  assign wr_en   = wen_wb || m_wen || sl_wen;
-  assign wr_addr = wen_wb ? waddr_wb : (sl_wen ? sl_waddr : m_raddr);
+  assign wr_en   = rf_we;
+  assign wr_addr = rf_waddr;
 
   always_ff @(posedge clk) begin
     if (!rst_n) wr_mask_q <= '0;
