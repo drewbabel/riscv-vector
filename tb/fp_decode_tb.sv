@@ -7,7 +7,7 @@ module fp_decode_tb
 
   localparam int MinChecks = 170000;
   localparam int AWIDTH = arch_pkg::RegAddrW;
-  localparam int RmW = $bits(RmRne);
+  localparam int RmW = fp_pkg::RmW;
   localparam int F5W = $bits(Funct5Fadd);
   localparam int F3W = $bits(Funct3Fsgnj);
   localparam int FmtW = $bits(FmtS);

@@ -70,8 +70,8 @@ module fp_fma_bench
 
   localparam int Latency = FpFmaLatency;
   localparam int StallOps = 1000;
-  localparam int FlagW = $bits(FlagNx);
-  localparam int RmW = $bits(RmRne);
+  localparam int FlagW = fp_pkg::FlagW;
+  localparam int RmW = fp_pkg::RmW;
   localparam string TfDir = "build/testfloat/";
   localparam int Bias = (1 << (EXP_W - 1)) - 1;
   localparam int CarryW = (FRAC_W < 15) ? FRAC_W : 15;

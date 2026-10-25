@@ -9,8 +9,8 @@ module vec_fp_cvt_lane_tb
 
   localparam int ELEN = arch_pkg::ELEN;
   localparam int HalfW = ELEN / 2;
-  localparam int FlagW = $bits(fp_pkg::FlagNv);
-  localparam int RmW = $bits(fp_pkg::RmRne);
+  localparam int FlagW = fp_pkg::FlagW;
+  localparam int RmW = fp_pkg::RmW;
   localparam int Latency = VecFpLatency;
   localparam int MinChecks = 520_000;
   localparam int SweepStallPct = 25;

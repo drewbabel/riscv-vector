@@ -9,11 +9,11 @@ module csr_tb
   localparam int Vlen = arch_pkg::VLEN;
   localparam int VlW = $clog2(Vlen + 1);
   localparam int VstartW = $clog2(Vlen);
-  localparam int AddrW = $bits(MstatusAddr);
-  localparam int Funct3W = $bits(Funct3Priv);
+  localparam int AddrW = csr_pkg::CsrAddrW;
+  localparam int Funct3W = opcode_pkg::Funct3W;
   localparam int ZimmW = arch_pkg::RegAddrW;
-  localparam int FlagW = $bits(FlagNv);
-  localparam int RmW = $bits(fp_pkg::RmRne);
+  localparam int FlagW = fp_pkg::FlagW;
+  localparam int RmW = fp_pkg::RmW;
   localparam int FcsrW = RmW + FlagW;
   localparam int StateW = $bits(VsOff);
   localparam logic [FlagW-1:0] FlagAll = FlagNv | FlagDz | FlagOf | FlagUf | FlagNx;

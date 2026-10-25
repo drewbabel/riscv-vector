@@ -64,8 +64,8 @@ module fp_rec7_bench
 
   localparam int Bias = (1 << (EXP_W - 1)) - 1;
   localparam int RandomN = 200000;
-  localparam int FlagW = $bits(FlagNv);
-  localparam int RmW = $bits(RmRne);
+  localparam int FlagW = fp_pkg::FlagW;
+  localparam int RmW = fp_pkg::RmW;
   localparam int NumRm = int'(RmRmm) + 1;
   localparam int TabW = 7;
   localparam int FillW = FRAC_W - TabW;
