@@ -3,6 +3,7 @@
 module coremark_boot_tb ();
 
   import cache_pkg::*;
+
   localparam int XLEN = arch_pkg::XLEN;
   localparam int DEPTH = 16384;
   localparam int IdxW = $clog2(DEPTH / LineWords);
@@ -13,12 +14,23 @@ module coremark_boot_tb ();
   localparam int BaudRate = arch_pkg::BaudRate;
   localparam int ClksPerBit = (FastClkHz + BaudRate / 2) / BaudRate;
   localparam int RxBitFast = ((CoreClkHz + BaudRate / 2) / BaudRate) * ClkDiv;
+  localparam int BootCycles = 2000;
+  localparam int DrainCycles = 5000;
+  localparam int TimeoutCycles = 2_000_000_000;
+  localparam logic [15:0] Sentinel = 16'hC0DE;
+  localparam int MinChecks = 1100;
 
-  logic clk = 0, rst;
-  logic [15:0] sw, led;
-  logic uart_rx = 1, uart_tx;
+  int checks = 0;
+  int errors = 0;
+  int max_errors = 0;
+
+  logic clk = 1'b0;
+  logic rst = 1'b1;
+  logic [15:0] sw;
+  logic [15:0] led;
+  logic uart_rx = 1'b1;
+  logic uart_tx;
   logic [XLEN-1:0] img[DEPTH];
-  logic [LineBits-1:0] pline;
 
   always #5 clk = ~clk;
 
@@ -35,40 +47,20 @@ module coremark_boot_tb ();
       .uart_tx(uart_tx)
   );
 
-  task automatic send_byte(input logic [7:0] b);
-    uart_rx = 0;
-    repeat (ClksPerBit) @(posedge clk);
-    for (int i = 0; i < 8; i++) begin
-      uart_rx = b[i];
-      repeat (ClksPerBit) @(posedge clk);
-    end
-    uart_rx = 1;
-    repeat (ClksPerBit) @(posedge clk);
-  endtask  // Automatic
-
-  // Serial monitor
-  task automatic monitor();
-    logic [7:0] c;
-    forever begin
-      @(negedge uart_tx);
-      repeat (RxBitFast / 2) @(posedge clk);
-      for (int i = 0; i < 8; i++) begin
-        repeat (RxBitFast) @(posedge clk);
-        c[i] = uart_tx;
-      end
-      repeat (RxBitFast) @(posedge clk);
-      $write("%c", c);
-      $fflush();
+  task automatic check(input string name, input logic got, input logic exp);
+    checks++;
+    if (got !== exp) begin
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
-  initial begin
-    rst = 1;
-    for (int k = 0; k < DEPTH; k++) img[k] = 32'h0;
-    $readmemh("sw/coremark/coremark_sim.hex", img);
-    if (img[0] == 32'h0)
-      $fatal(1, "coremark_sim.hex missing or empty, run make -C sw/coremark all");
-    #1;  // After mem init
+  task automatic load_image(input string path);
+    logic [LineBits-1:0] pline;
+    for (int k = 0; k < DEPTH; k++) img[k] = '0;
+    $readmemh(path, img);
+    if (img[0] == '0) $fatal(1, "%s missing or empty, run make -C sw/coremark all", path);
     for (int l = 0; l < DEPTH / LineWords; l++) begin
       for (int w = 0; w < LineWords; w++) pline[XLEN*w+:XLEN] = img[l*LineWords+w];
       @(negedge clk);
@@ -82,28 +74,90 @@ module coremark_boot_tb ();
     @(negedge clk);
     dut.imem_inst.u_line.bd_we = 1'b0;
     dut.dmem_inst.u_line.bd_we = 1'b0;
-    rst = 1;
-    sw = 0;
+  endtask  // Automatic
+
+  task automatic do_reset();
+    rst = 1'b1;
+    sw = '0;
+    uart_rx = 1'b1;
     repeat (2) @(posedge clk);
-    rst = 0;
-    repeat (2000) @(posedge clk);
-    repeat (XLEN / 8) send_byte(8'd0);
+    @(negedge clk);
+    rst = 1'b0;
+  endtask  // Automatic
 
-    fork
-      monitor();
-    join_none
+  task automatic send_byte(input logic [7:0] b);
+    @(negedge clk);
+    uart_rx = 1'b0;
+    repeat (ClksPerBit) @(negedge clk);
+    for (int i = 0; i < $bits(b); i++) begin
+      uart_rx = b[i];
+      repeat (ClksPerBit) @(negedge clk);
+    end
+    uart_rx = 1'b1;
+    repeat (ClksPerBit) @(negedge clk);
+  endtask  // Automatic
 
-    wait (led == 16'hC0DE);
-    repeat (5000) @(posedge clk);
+  // Zero length boot
+  task automatic start_core();
+    repeat (BootCycles) @(posedge clk);
+    repeat (XLEN / 8) send_byte('0);
+  endtask  // Automatic
+
+  task automatic recv_byte(output logic [7:0] c);
+    @(negedge uart_tx);
+    repeat (RxBitFast / 2) @(negedge clk);
+    check("start bit", uart_tx, 1'b0);
+    for (int i = 0; i < $bits(c); i++) begin
+      repeat (RxBitFast) @(negedge clk);
+      c[i] = uart_tx;
+    end
+    repeat (RxBitFast) @(negedge clk);
+    check("stop bit", uart_tx, 1'b1);
+  endtask  // Automatic
+
+  // Serial monitor
+  task automatic monitor();
+    logic [7:0] c;
+    forever begin
+      recv_byte(c);
+      $write("%c", c);
+      $fflush();
+    end
+  endtask  // Automatic
+
+  task automatic wait_sentinel();
+    wait (led == Sentinel);
+    repeat (DrainCycles) @(posedge clk);
     $display("\n[coremark_boot_tb] CoreMark finished (LED sentinel 0xC0DE)");
+  endtask  // Automatic
+
+  task automatic watchdog();
+    repeat (TimeoutCycles) @(posedge clk);
+    $fatal(1, "TIMEOUT before CoreMark completion");
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
+  endtask  // Automatic
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
+
+  initial begin
+    load_image("sw/coremark/coremark_sim.hex");
+    do_reset();
+    start_core();
+    wait_sentinel();
+    do_verdict();
   end
 
-  // Watchdog
-  initial begin
-    repeat (2_000_000_000) @(posedge clk);
-    $fatal(1, "TIMEOUT before CoreMark completion");
-  end
+  initial monitor();
+
+  initial watchdog();
+
 endmodule
 
 `default_nettype wire
