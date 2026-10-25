@@ -44,6 +44,9 @@ module muldiv
   assign mulh_su = {{XLEN{stored_a[XLEN-1]}}, stored_a} * {{XLEN{1'b0}}, stored_b};
   assign mulh_uu = {{XLEN{1'b0}}, stored_a} * {{XLEN{1'b0}}, stored_b};
 
+  logic unused_mulh_low;
+  assign unused_mulh_low = ^{mulh_ss[XLEN-1:0], mulh_su[XLEN-1:0], mulh_uu[XLEN-1:0]};
+
   logic op_signed;
   assign op_signed = (op == MD_DIV) || (op == MD_REM);
 
