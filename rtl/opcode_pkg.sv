@@ -29,6 +29,72 @@ package opcode_pkg;
   localparam logic [6:0] OpcodeFnmadd = 7'b1001111;
   localparam logic [2:0] Funct3FpWord = 3'b010;
 
+  // Field widths
+  localparam int OpcodeW = 7;
+  localparam int Funct3W = 3;
+  localparam logic [31:0] InstrNop = 32'h0000_0013;
+
+  // Integer funct3
+  localparam logic [Funct3W-1:0] Funct3AddSub = 3'b000;
+  localparam logic [Funct3W-1:0] Funct3Sll = 3'b001;
+  localparam logic [Funct3W-1:0] Funct3Slt = 3'b010;
+  localparam logic [Funct3W-1:0] Funct3Sltu = 3'b011;
+  localparam logic [Funct3W-1:0] Funct3Xor = 3'b100;
+  localparam logic [Funct3W-1:0] Funct3Sr = 3'b101;
+  localparam logic [Funct3W-1:0] Funct3Or = 3'b110;
+  localparam logic [Funct3W-1:0] Funct3And = 3'b111;
+
+  // Branch funct3
+  localparam logic [Funct3W-1:0] Funct3Beq = 3'b000;
+  localparam logic [Funct3W-1:0] Funct3Bne = 3'b001;
+  localparam logic [Funct3W-1:0] Funct3Blt = 3'b100;
+  localparam logic [Funct3W-1:0] Funct3Bge = 3'b101;
+  localparam logic [Funct3W-1:0] Funct3Bltu = 3'b110;
+  localparam logic [Funct3W-1:0] Funct3Bgeu = 3'b111;
+
+  // Memory funct3
+  localparam logic [Funct3W-1:0] Funct3Lb = 3'b000;
+  localparam logic [Funct3W-1:0] Funct3Lh = 3'b001;
+  localparam logic [Funct3W-1:0] Funct3Lw = 3'b010;
+  localparam logic [Funct3W-1:0] Funct3Lbu = 3'b100;
+  localparam logic [Funct3W-1:0] Funct3Lhu = 3'b101;
+  localparam logic [Funct3W-1:0] Funct3Sb = 3'b000;
+  localparam logic [Funct3W-1:0] Funct3Sh = 3'b001;
+  localparam logic [Funct3W-1:0] Funct3Sw = 3'b010;
+  localparam logic [Funct3W-1:0] Funct3Fence = 3'b000;
+
+  // Immediate select
+  localparam int ImmSrcW = 3;
+  localparam logic [ImmSrcW-1:0] ImmI = 3'd0;
+  localparam logic [ImmSrcW-1:0] ImmS = 3'd1;
+  localparam logic [ImmSrcW-1:0] ImmB = 3'd2;
+  localparam logic [ImmSrcW-1:0] ImmU = 3'd3;
+  localparam logic [ImmSrcW-1:0] ImmJ = 3'd4;
+
+  // Operand A select
+  localparam int SrcAW = 2;
+  localparam logic [SrcAW-1:0] SrcARs1 = 2'd0;
+  localparam logic [SrcAW-1:0] SrcAPc = 2'd1;
+  localparam logic [SrcAW-1:0] SrcAZero = 2'd2;
+
+  // Writeback select
+  localparam int ResSrcW = 2;
+  localparam logic [ResSrcW-1:0] ResAlu = 2'd0;
+  localparam logic [ResSrcW-1:0] ResMem = 2'd1;
+  localparam logic [ResSrcW-1:0] ResPc4 = 2'd2;
+
+  // ALU class
+  localparam int AluOpW = 2;
+  localparam logic [AluOpW-1:0] AluOpAdd = 2'b00;
+  localparam logic [AluOpW-1:0] AluOpBranch = 2'b01;
+  localparam logic [AluOpW-1:0] AluOpFunct = 2'b10;
+
+  // Forwarding select
+  localparam int FwdW = 2;
+  localparam logic [FwdW-1:0] FwdNone = 2'b00;
+  localparam logic [FwdW-1:0] FwdMem = 2'b01;
+  localparam logic [FwdW-1:0] FwdWb = 2'b10;
+
 endpackage
 
 `default_nettype wire
