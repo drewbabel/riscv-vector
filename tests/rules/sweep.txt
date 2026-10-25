@@ -316,8 +316,8 @@ vec_slide        vec_slide           arch_pkg::VLEN=256
 vec_unit         vec_unit            -
 vec_unit         vec_unit            arch_pkg::XLEN=64
 vec_unit         vec_unit            arch_pkg::XLEN=128
-vec_unit         vec_unit            arch_pkg::RegAddrW=4
-vec_unit         vec_unit            arch_pkg::RegAddrW=6
+vec_unit         vec_unit            arch_pkg::RegAddrW=4                     expect="vector register file must hold 32 registers"
+vec_unit         vec_unit            arch_pkg::RegAddrW=6                     expect="vector register file must hold 32 registers"
 vec_unit         vec_unit            arch_pkg::VLEN=64
 vec_unit         vec_unit            arch_pkg::VLEN=256
 vec_unit         vec_unit            arch_pkg::ELEN=64                        expect="ELEN must be 32"
