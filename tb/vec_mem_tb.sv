@@ -14,7 +14,10 @@ module vec_mem_tb ();
   localparam logic [1:0] Eew8 = 2'd0;
   localparam logic [1:0] Eew16 = 2'd1;
   localparam logic [1:0] Eew32 = 2'd2;
-  localparam int MinChecks = 320000;
+  localparam int RandomRuns = 300;
+  localparam int DirectedRuns = 14;
+  localparam int Runs = 3 * RandomRuns + DirectedRuns;
+  localparam int MinChecks = Runs * (Regs + Bytes + 2) + 270 * VLEN + 14000;
 
   int checks = 0;
   int errors = 0;
@@ -252,15 +255,15 @@ module vec_mem_tb ();
 
     // Instant memory
     set_pace(100, 100);
-    run_many(300);
+    run_many(RandomRuns);
 
     // Slow memory
     set_pace(30, 100);
-    run_many(300);
+    run_many(RandomRuns);
 
     // Clock enable gaps
     set_pace(50, 60);
-    run_many(300);
+    run_many(RandomRuns);
 
     do_verdict();
   end
