@@ -2,12 +2,6 @@
 
 module uart_rx_tb ();
 
-  int checks = 0;
-  int errors = 0;
-  int max_errors = 0;
-  int frames_sent = 0;
-  int valid_frames = 0;
-
   localparam int ClkFreqHz = 100_000_000;
   localparam int BaudRate = 115_200;
   localparam int Oversample = 16;
@@ -19,6 +13,15 @@ module uart_rx_tb ();
   // TX bit period for baud-mismatch tests
   localparam int ClksPerBitFast = (ClksPerBit * 98) / 100;
   localparam int ClksPerBitSlow = (ClksPerBit * 102) / 100;
+  localparam int MinChecks = 10000;
+
+  int checks = 0;
+  int errors = 0;
+  int max_errors = 0;
+  int frames_sent = 0;
+  int valid_frames = 0;
+  int flag_events = 0;
+  int data_events = 0;
   int tx_bit = ClksPerBit;
 
   logic clk = 0;
@@ -50,103 +53,87 @@ module uart_rx_tb ();
       .rx_error(rx_error)
   );
 
+  task automatic check(input string name, input logic [DataBits-1:0] got,
+                       input logic [DataBits-1:0] exp);
+    checks++;
+    if (got !== exp) begin
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
+  endtask  // Automatic
+
   task automatic do_reset();
     rst_n = 1'b0;
     rx_serial = 1'b1;
-    @(posedge clk);
-    @(posedge clk);
+    repeat (2) @(posedge clk);
+    @(negedge clk);
     rst_n = 1'b1;
-    rx_serial = 1'b1;
   endtask  // Automatic
 
   task automatic send_data(input logic [DataBits-1:0] data, input logic corrupt);
     // Start bit (low)
     rx_serial = 1'b0;
-    repeat (tx_bit) @(posedge clk);
+    repeat (tx_bit) @(negedge clk);
 
     // Data bits
     for (int i = 0; i < $bits(data); i++) begin
       rx_serial = data[i];
-      repeat (tx_bit) @(posedge clk);
+      repeat (tx_bit) @(negedge clk);
     end
 
     // Stop bit (high)
     if (corrupt) begin
       rx_serial = 1'b0;
-      repeat (tx_bit) @(posedge clk);
+      repeat (tx_bit) @(negedge clk);
       rx_serial = 1'b1;
-      repeat (tx_bit) @(posedge clk);
+      repeat (tx_bit) @(negedge clk);
     end else begin
       rx_serial = 1'b1;
-      repeat (tx_bit) @(posedge clk);
+      repeat (tx_bit) @(negedge clk);
     end
 
     frames_sent++;
     if (!corrupt) valid_frames++;
   endtask  // Automatic
 
-  task automatic check_data(input logic [DataBits-1:0] got_data,
-                            input logic [DataBits-1:0] exp_data);
-    checks++;
-    if (got_data !== exp_data) begin
-      errors++;
-      $error("t=%0t data mismatch: got=%b, exp=%b", $time, got_data, exp_data);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-  endtask  // Automatic
-
-  task automatic check_flag_type(input logic rx_valid, input logic exp_valid, input logic rx_error,
-                                 input logic exp_error);
-    checks++;
-    if (rx_valid !== exp_valid) begin
-      errors++;
-      $error("t=%0t flag mismatch (valid): got=%b, exp=%b", $time, rx_valid, exp_valid);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-
-    checks++;
-    if (rx_error !== exp_error) begin
-      errors++;
-      $error("t=%0t flag mismatch (error): got=%b, exp=%b", $time, rx_error, exp_error);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-  endtask  // Automatic
-
   task automatic check_flag_len(input int len);  // Reads live DUT signals, prevents stale args
-    checks++;
     repeat (len) @(posedge clk);
-    #1;  // let the DUT's nonblocking updates settle before sampling
-    if (rx_valid || rx_error) begin
-      errors++;
-      $error("t=%0t flag held longer than %0d cycle(s)", $time, len);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
+    @(negedge clk);
+    check($sformatf("flag held over %0d cycle(s)", len), DataBits'(rx_valid || rx_error), '0);
   endtask  // Automatic
 
   task automatic do_verdict();
-    @(posedge clk);
-    if (checks != frames_sent * 3 + valid_frames) begin
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected %0d", checks, frames_sent * 3 + valid_frames);
-    end else if (errors == 0) begin
-      $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    end else begin
-      $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    end
+    repeat (2) @(posedge clk);
+    if (flag_events != frames_sent || data_events != valid_frames)
+      $fatal(
+          1,
+          "TB UNDER-RAN: %0d flags for %0d frames, %0d bytes for %0d valid frames",
+          flag_events,
+          frames_sent,
+          data_events,
+          valid_frames
+      );
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask  // Automatic
 
   // Exhaustive value (valid + corrupt) and randomized-corrupt sweep
-  task automatic run_suite();
+  task automatic run_suite(input int bit_clks);
+    tx_bit = bit_clks;
     for (int i = 0; i < 2; i++) begin
       for (int j = 0; j < (2 ** DataBits); j++) begin
-        exp_data = 8'(j);
+        exp_data = DataBits'(j);
         exp_corrupt = 1'(i);
         send_data(exp_data, exp_corrupt);
       end
     end
 
     for (int j = 0; j < (2 ** DataBits); j++) begin
-      exp_data = 8'(j);
+      exp_data = DataBits'(j);
       exp_corrupt = 1'($urandom);
       send_data(exp_data, exp_corrupt);
     end
@@ -158,21 +145,9 @@ module uart_rx_tb ();
     $dumpfile("uart_rx_tb.vcd");
     $dumpvars(0, uart_rx_tb);
     do_reset();
-
-    // Normal baud
-    tx_bit = ClksPerBit;
-    run_suite();
-
-    // TX baud +2% (shorter bit)
-    tx_bit = ClksPerBitFast;
-    run_suite();
-
-    // TX baud -2% (longer bit)
-    tx_bit = ClksPerBitSlow;
-    run_suite();
-
-    @(posedge clk);
-
+    run_suite(ClksPerBit);
+    run_suite(ClksPerBitFast);
+    run_suite(ClksPerBitSlow);
     do_verdict();
   end
 
@@ -180,20 +155,21 @@ module uart_rx_tb ();
   assign exp_error = exp_corrupt;
 
   always @(posedge rx_valid, posedge rx_error) begin
-    check_flag_type(rx_valid, exp_valid, rx_error, exp_error);
+    flag_events++;
+    check("flag type (valid)", DataBits'(rx_valid), DataBits'(exp_valid));
+    check("flag type (error)", DataBits'(rx_error), DataBits'(exp_error));
     check_flag_len(1);
   end
 
   always @(posedge rx_valid) begin
-    check_data(rx_data, exp_data);
+    data_events++;
+    check("data", rx_data, exp_data);
   end
 
-  always @(posedge clk)
-    if (rst_n && rx_valid && rx_error) begin
-      errors++;
-      $error("t=%0t rx_valid and rx_error both high", $time);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
+  always @(posedge clk) begin
+    if (rst_n && (rx_valid || rx_error))
+      check("rx_valid and rx_error exclusive", DataBits'(rx_valid && rx_error), '0);
+  end
 
 endmodule
 
