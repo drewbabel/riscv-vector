@@ -26,7 +26,9 @@ module datapath
     localparam int InstrLsb   = arch_pkg::InstrLsb,
     localparam int ILEN       = arch_pkg::ILEN,
     localparam int VlW        = $clog2(VLEN + 1),
+`ifdef RISCV_FORMAL
     localparam int VstartW    = $clog2(VLEN),
+`endif
     localparam int StrbW      = XLEN / 8,
     localparam int ByteOffW   = $clog2(StrbW)
 ) (
@@ -184,7 +186,6 @@ module datapath
   logic                                  reg_write_wb;
 
   // Hazard detection
-  logic                                  stall;
   logic                                  hazard_stall;
   logic                                  flush;
   logic                                  ifid_en;
@@ -531,6 +532,9 @@ module datapath
       .funct3     (fp_funct3_d)
   );
 
+  logic unused_fp_decode;
+  assign unused_fp_decode = ^{fxrs1_read_d, fp_rm_d};
+
   assign fp_op_d = fp_is_d && !fp_illegal_d && (fp_unit_d != FP_LOAD) && (fp_unit_d != FP_STORE);
   assign fp_load_d = fp_is_d && !fp_illegal_d && (fp_unit_d == FP_LOAD);
   assign fp_store_d = fp_is_d && !fp_illegal_d && (fp_unit_d == FP_STORE);
@@ -702,7 +706,6 @@ module datapath
   );
 
   assign muldiv_hold = is_muldiv_ex && !muldiv_done;
-  assign stall = hazard_stall || muldiv_hold || vec_hold || vmem_hold || fp_hold;
 
   assign if_hold = !imem_ready;
   assign id_hold = hazard_stall;
@@ -1417,6 +1420,16 @@ module datapath
   assign dbg_bus_addr  = alu_result_mem;
   assign dbg_bus_wstrb = store_wstrb;
   assign dbg_bus_wdata = store_data;
+
+  logic unused_taps;
+  assign unused_taps = ^{
+    dbg_pc_f, dbg_pc_d, dbg_pc_e, dbg_pc_m, dbg_pc_w, dbg_insn_f, dbg_insn_d, dbg_insn_e,
+    dbg_insn_m, dbg_insn_w, dbg_valid_f, dbg_valid_d, dbg_valid_e, dbg_valid_m, dbg_valid_w,
+    dbg_hold_f, dbg_hold_d, dbg_hold_e, dbg_hold_m, dbg_en_d, dbg_en_e, dbg_en_m, dbg_en_w,
+    dbg_bubble_d, dbg_bubble_e, dbg_bubble_m, dbg_flush, dbg_redirect_src, dbg_stall,
+    dbg_forward_a, dbg_forward_b, dbg_rf_we, dbg_rf_waddr, dbg_rf_wdata, dbg_bus_req,
+    dbg_bus_addr, dbg_bus_wstrb, dbg_bus_wdata
+  };
 `endif
 
 endmodule
