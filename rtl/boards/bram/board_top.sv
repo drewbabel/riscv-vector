@@ -3,22 +3,31 @@
 module board_top
   import cache_pkg::*;
 #(
-    parameter int XLEN = arch_pkg::XLEN,
-    parameter int DEPTH = 16384,
-    parameter int ClkDiv = arch_pkg::ClkDiv,
-    parameter int BoardClkHz = arch_pkg::BoardClkHz,
-    parameter int MemLatency = arch_pkg::MemLatency
+    parameter  int XLEN       = arch_pkg::XLEN,
+    parameter  int VLEN       = arch_pkg::VLEN,
+    parameter  int ELEN       = arch_pkg::ELEN,
+    parameter  int MUL_LANES  = arch_pkg::MulLanes,
+    parameter  int DEPTH      = arch_pkg::MemWords,
+    parameter  int ClkDiv     = arch_pkg::ClkDiv,
+    parameter  int BoardClkHz = arch_pkg::BoardClkHz,
+    parameter  int MemLatency = arch_pkg::MemLatency,
+    localparam int GpioW      = 16
 ) (
-    input  wire         clk,
-    input  wire         rst,
-    input  wire  [15:0] sw,
-    output logic [15:0] led,
-    input  wire         uart_rx,
-    output logic        uart_tx
+    input  wire              clk,
+    input  wire              rst,
+    input  wire  [GpioW-1:0] sw,
+    output logic [GpioW-1:0] led,
+    input  wire              uart_rx,
+    output logic             uart_tx
 );
 
+  localparam int DataBits = arch_pkg::UartDataBits;
+  localparam int TagW = arch_pkg::PeriphTagW;
+  localparam int PorW = 4;
+  localparam logic [GpioW-1:0] LoadPattern = {(GpioW / 2) {2'b01}};
+
   logic                 rst_n;
-  logic [     XLEN-1:0] instr;
+  logic [         31:0] instr;
   logic [     XLEN-1:0] pc;
   logic [     XLEN-1:0] mem_addr;
   logic [   XLEN/8-1:0] store_wstrb;
@@ -35,15 +44,15 @@ module board_top
   logic                 timer_irq;
   logic                 ext_irq;
   logic                 tx_valid;
-  logic [          7:0] tx_byte;
-  logic [         15:0] led_raw;
+  logic [ DataBits-1:0] tx_byte;
+  logic [    GpioW-1:0] led_raw;
 
   logic                 core_rst_n;
   logic                 loading;
   logic                 boot_we;
   logic [     XLEN-1:0] boot_waddr;
   logic [     XLEN-1:0] boot_wdata;
-  logic [          7:0] rx_byte;
+  logic [ DataBits-1:0] rx_byte;
   logic                 rx_valid_w;
 
 
@@ -74,12 +83,13 @@ module board_top
   logic [ LineBits-1:0] dc_mem_rdata;
   logic                 dc_mem_ready;
 
-  logic [         31:0] ic_hits;
-  logic [         31:0] ic_misses;
-  logic [         31:0] dc_hits;
-  logic [         31:0] dc_misses;
+  logic [     XLEN-1:0] ic_hits;
+  logic [     XLEN-1:0] ic_misses;
+  logic [     XLEN-1:0] dc_hits;
+  logic [     XLEN-1:0] dc_misses;
 
   localparam int CoreClkHz = BoardClkHz / ClkDiv;
+  logic [TagW-1:0] periph_tag;
   logic core_en;
 
   tick_gen #(
@@ -93,18 +103,19 @@ module board_top
   );
 
   // Power on reset
-  logic [3:0] por = '0;
-  always_ff @(posedge clk) if (core_en && !por[3]) por <= por + 1'b1;
-  assign rst_n      = por[3] & ~rst;
+  logic [PorW-1:0] por = '0;
+  always_ff @(posedge clk) if (core_en && !por[PorW-1]) por <= por + 1'b1;
+  assign rst_n      = por[PorW-1] & ~rst;
 
   // Load holds reset
   assign core_rst_n = rst_n & ~loading;
 
   // Decode on mem_addr
-  assign clint_sel  = mem_addr[XLEN-1:XLEN-8] == arch_pkg::ClintTag;
-  assign gpio_sel   = mem_addr[XLEN-1:XLEN-8] == arch_pkg::GpioTag;
-  assign uart_sel   = mem_addr[XLEN-1:XLEN-8] == arch_pkg::UartTag;
-  assign pmu_sel    = mem_addr[XLEN-1:XLEN-8] == arch_pkg::PmuTag;
+  assign periph_tag = mem_addr[XLEN-1-:TagW];
+  assign clint_sel  = periph_tag == arch_pkg::ClintTag;
+  assign gpio_sel   = periph_tag == arch_pkg::GpioTag;
+  assign uart_sel   = periph_tag == arch_pkg::UartTag;
+  assign pmu_sel    = periph_tag == arch_pkg::PmuTag;
   assign periph_sel = clint_sel || gpio_sel || uart_sel || pmu_sel;
 
   // Peripheral read mux
@@ -118,7 +129,7 @@ module board_top
 
   assign dmem_ready = periph_sel ? 1'b1 : dc_ready;
 
-  assign led = loading ? 16'h5555 : led_raw;
+  assign led = loading ? LoadPattern : led_raw;
 
   pmu #(
       .XLEN(XLEN),
@@ -134,7 +145,7 @@ module board_top
 
   gpio #(
       .XLEN (XLEN),
-      .WIDTH(16)
+      .WIDTH(GpioW)
   ) gpio_inst (
       .clk    (clk),
       .core_en(core_en),
@@ -150,7 +161,8 @@ module board_top
 
   uart_rx #(
       .CLK_FREQ_HZ(CoreClkHz),
-      .BAUD_RATE  (arch_pkg::BaudRate)
+      .BAUD_RATE  (arch_pkg::BaudRate),
+      .DATA_BITS  (DataBits)
   ) uart_rx_inst (
       .clk      (clk),
       .core_en  (core_en),
@@ -163,7 +175,8 @@ module board_top
 
   uart_tx #(
       .CLK_FREQ_HZ(CoreClkHz),
-      .BAUD_RATE  (arch_pkg::BaudRate)
+      .BAUD_RATE  (arch_pkg::BaudRate),
+      .DATA_BITS  (DataBits)
   ) uart_tx_inst (
       .clk      (clk),
       .core_en  (core_en),
@@ -175,7 +188,8 @@ module board_top
   );
 
   uart_ctrl #(
-      .XLEN(XLEN)
+      .XLEN     (XLEN),
+      .DATA_BITS(DataBits)
   ) uart_ctrl_inst (
       .clk     (clk),
       .core_en (core_en),
@@ -195,8 +209,9 @@ module board_top
   );
 
   boot_loader #(
-      .XLEN (XLEN),
-      .DEPTH(DEPTH)
+      .XLEN     (XLEN),
+      .DEPTH    (DEPTH),
+      .DATA_BITS(DataBits)
   ) boot_loader_inst (
       .clk     (clk),
       .core_en (core_en),
@@ -210,7 +225,10 @@ module board_top
   );
 
   riscv_pipelined #(
-      .XLEN(XLEN)
+      .XLEN     (XLEN),
+      .VLEN     (VLEN),
+      .ELEN     (ELEN),
+      .MUL_LANES(MUL_LANES)
   ) riscv_pipelined_inst (
 `ifdef RISCV_FORMAL
       .dbg_valid     (),
