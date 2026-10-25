@@ -93,9 +93,11 @@ package csr_pkg;
   localparam logic [11:0] Funct12Ebreak = 12'h001;  // Stops execution for debugging tools
   localparam logic [11:0] Funct12Mret = 12'h302;  // Exits m-mode trap handler, returns to program
 
-  // CLINT offsets
-  localparam logic [15:0] ClintMtimecmpOffset = 16'h4000;
-  localparam logic [15:0] ClintMtimeOffset = 16'hBFF8;
+  // Field widths
+  localparam int CsrAddrW = 12;
+  localparam int MtvecModeW = 2;
+  localparam int CsrRoW = 2;
+  localparam logic [CsrRoW-1:0] CsrRoAccess = 2'b11;
 
 endpackage
 
