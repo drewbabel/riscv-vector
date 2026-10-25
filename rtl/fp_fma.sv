@@ -112,7 +112,7 @@ module fp_fma
   logic is_norm;
   logic [FracW-1:0] frac;
   logic g, st, inc, inc_wide;
-  logic [FLEN-2:0] rnd;
+  logic [ExpW+FracW-1:0] rnd;
   logic ovf, tiny, inexact, to_inf;
   logic [ FLEN-1:0] result_next;
   logic [FlagW-1:0] fflags_next;

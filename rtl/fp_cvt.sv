@@ -106,18 +106,18 @@ module fp_cvt
   assign f_res = half ? {{(XLEN - HalfW) {1'b0}}, f_full[HalfW-1:0]} : f_full;
 
   // Integer to float
-  logic [ XLEN-1:0] i_val;
-  logic             i_sign;
-  logic [ XLEN-1:0] i_mag;
-  logic [ XLEN-1:0] i_norm;
-  logic [  LzW-1:0] i_lz;
-  logic [WideW-1:0] i_wide;
-  logic             i_guard;
-  logic             i_sticky;
-  logic             i_inc;
-  logic [ FLEN-2:0] i_body;
-  logic [ FLEN-1:0] i_res;
-  logic [FlagW-1:0] i_flags;
+  logic [      XLEN-1:0] i_val;
+  logic                  i_sign;
+  logic [      XLEN-1:0] i_mag;
+  logic [      XLEN-1:0] i_norm;
+  logic [       LzW-1:0] i_lz;
+  logic [     WideW-1:0] i_wide;
+  logic                  i_guard;
+  logic                  i_sticky;
+  logic                  i_inc;
+  logic [ExpW+FracW-1:0] i_body;
+  logic [      FLEN-1:0] i_res;
+  logic [     FlagW-1:0] i_flags;
 
   assign i_val = half ? {{(XLEN - HalfW) {a[HalfW-1] && !is_unsigned}}, a[HalfW-1:0]} : a[XLEN-1:0];
   assign i_sign = !is_unsigned && i_val[XLEN-1];
