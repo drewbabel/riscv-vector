@@ -104,9 +104,8 @@ def compile_monitor():
             "iverilog",
             "-g2012",
             "-DRISCV_FORMAL",
-            f"-DCOSIM_DEPTH={DEPTH}",
             "-s",
-            "cosim",
+            "cosim_gen" if DEPTH == GEN_DEPTH else "cosim",
             "-o",
             SIM,
             *RTL,
@@ -239,16 +238,15 @@ def run_dut(
     out = subprocess.run(
         args, cwd=ROOT, capture_output=True, text=True, check=False
     ).stdout
+    fails = [ln[5:] for ln in out.splitlines() if ln.startswith("FAIL ")]
     FAULTS.clear()
     FAULTS.extend(
-        l
-        for l in out.splitlines()
-        if l.startswith(("FENCE BUSY", "VEC REISSUE"))
+        ln for ln in fails if ln.startswith(("FENCE BUSY", "VEC REISSUE"))
     )
     HUNG.clear()
-    HUNG.extend(l for l in out.splitlines() if l.startswith("HUNG"))
+    HUNG.extend(ln for ln in fails if ln.startswith("HUNG"))
     IRQ_LOST.clear()
-    IRQ_LOST.extend(l for l in out.splitlines() if l.startswith("IRQ LOST"))
+    IRQ_LOST.extend(ln for ln in fails if ln.startswith("IRQ LOST"))
     DUT_IRQ.clear()
     trace = []
     TRACE.clear()
