@@ -22,6 +22,7 @@ module vec_unit
     output logic                        dbg_vec_retire,
     output logic [           NRegs-1:0] dbg_vec_wregs,
     output logic                        dbg_vec_idle,
+    output logic                        dbg_vec_accept,
 `endif
     input  wire                         clk,
     input  wire                         rst_n,
@@ -717,6 +718,9 @@ module vec_unit
       .AWIDTH(AWIDTH),
       .VLEN  (VLEN)
   ) u_issue (
+`ifdef RISCV_FORMAL
+      .dbg_accept(dbg_vec_accept),
+`endif
       .clk(clk),
       .rst_n(rst_n),
       .core_en(core_en),
