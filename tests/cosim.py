@@ -235,7 +235,7 @@ COMMIT_RE = re.compile(
 
 # dut commit trace
 TRACE_RE = re.compile(r"TRACE (\d+) ([0-9a-f]+) ([0-9a-f]+)")
-VCOMMIT_RE = re.compile(r"VCOMMIT (\d+) (\d+) ([0-9a-f]+)")
+VCOMMIT_RE = re.compile(r"VCOMMIT (\d+) (\d+) ([0-9a-fxz]+)")
 VMEM_RE = re.compile(r"VMEM ([0-9a-f]+) ([0-9a-f]+) ([0-9a-f]+)")
 FCOMMIT_RE = re.compile(r"FCOMMIT (\d+) ([0-9a-f]+)")
 FCSR_RE = re.compile(r"FCSR ([0-9a-f]+)")
@@ -351,9 +351,11 @@ def run_dut(
             continue
         v = VCOMMIT_RE.match(line)
         if v:
-            DUT_VWR.append(
-                (int(v.group(1)), int(v.group(2)), int(v.group(3), 16))
-            )
+            tag, reg, val = int(v.group(1)), int(v.group(2)), v.group(3)
+            if re.search("[xz]", val):
+                FAULTS.append(f"VEC UNKNOWN v{reg} at tag {tag}")
+                val = "0"
+            DUT_VWR.append((tag, reg, int(val, 16)))
             continue
         t = TRACE_RE.match(line)
         if t:
