@@ -10,7 +10,6 @@ package arch_pkg;
   // Vector unit
   parameter int VLEN = 128;
   parameter int ELEN = 32;
-  parameter int VlW = $clog2(VLEN + 1);
   parameter int MulLanes = 4;
 
   // Cache line
