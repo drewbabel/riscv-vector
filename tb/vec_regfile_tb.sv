@@ -6,7 +6,8 @@ module vec_regfile_tb ();
   localparam int VLEN = arch_pkg::VLEN;
   localparam int Words = VLEN / 32;
   localparam int Depth = 2 ** AWIDTH;
-  localparam int MinChecks = 8100;
+  localparam int SoakRuns = 2000;
+  localparam int MinChecks = 4 * (SoakRuns + Depth);
 
   int checks = 0;
   int errors = 0;
@@ -237,7 +238,7 @@ module vec_regfile_tb ();
     test_read_first();
     test_core_off();
     test_we_off();
-    soak(2000);
+    soak(SoakRuns);
 
     do_verdict();
   end
