@@ -4,13 +4,18 @@ module boot_loader_tb ();
 
   localparam int MinChecks = 32000;
   localparam int MinClampChecks = 66;
+  localparam int MinShortChecks = 8192;
   localparam int Depth = 20000;
   localparam int SmallDepth = 32;
+  localparam int DefaultDepth = 16384;
+  localparam int ShortDepth = 4096;
+  localparam int LongDepth = 65536;
   localparam int Words = 16400;
 
   int checks;
   int errors;
   int max_errors;
+  int live_errors;
 
   boot_loader_bench #(
       .DEPTH(Depth),
@@ -23,18 +28,36 @@ module boot_loader_tb ();
       .WORDS(Words)
   ) small_bench ();
 
+  boot_loader_bench #(
+      .DEPTH(DefaultDepth),
+      .WORDS(Words)
+  ) default_bench ();
+
+  boot_loader_bench #(
+      .DEPTH(ShortDepth),
+      .WORDS(Words)
+  ) short_bench ();
+
+  boot_loader_bench #(
+      .DEPTH(LongDepth),
+      .WORDS(Words)
+  ) long_bench ();
+
+  task automatic check_floor(input string name, input int got, input int floor);
+    if (got < floor)
+      $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
+  endtask  // Automatic
+
   task automatic do_verdict();
-    checks = deep_bench.checks + small_bench.checks;
-    errors = deep_bench.errors + small_bench.errors;
-    if (deep_bench.checks < MinChecks || small_bench.checks < MinClampChecks)
-      $fatal(
-          1,
-          "TB UNDER-RAN: %0d and %0d checks, expected at least %0d and %0d",
-          deep_bench.checks,
-          small_bench.checks,
-          MinChecks,
-          MinClampChecks
-      );
+    checks = deep_bench.checks + small_bench.checks + default_bench.checks + short_bench.checks +
+        long_bench.checks;
+    errors = deep_bench.errors + small_bench.errors + default_bench.errors + short_bench.errors +
+        long_bench.errors;
+    check_floor("deep_bench", deep_bench.checks, MinChecks);
+    check_floor("small_bench", small_bench.checks, MinClampChecks);
+    check_floor("default_bench", default_bench.checks, MinChecks);
+    check_floor("short_bench", short_bench.checks, MinShortChecks);
+    check_floor("long_bench", long_bench.checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
@@ -43,14 +66,19 @@ module boot_loader_tb ();
   initial begin
     $dumpfile("boot_loader_tb.vcd");
     $dumpvars(0, boot_loader_tb);
-    wait (deep_bench.done && small_bench.done);
+    wait (deep_bench.done && small_bench.done && default_bench.done && short_bench.done &&
+          long_bench.done);
     do_verdict();
   end
 
+  always_comb
+    live_errors = deep_bench.errors + small_bench.errors + default_bench.errors +
+        short_bench.errors + long_bench.errors;
+
   initial begin
     if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
-      wait (deep_bench.errors + small_bench.errors >= max_errors);
-      $fatal(1, "TB STOPPED: %0d mismatches", deep_bench.errors + small_bench.errors);
+      wait (live_errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", live_errors);
     end
   end
 
