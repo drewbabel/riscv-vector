@@ -2,16 +2,19 @@
 
 module uart_ctrl_tb ();
 
-  int checks = 0;
-  int errors = 0;
-  int max_errors = 0;
-
   localparam int Xlen = arch_pkg::XLEN;
+  localparam int TagW = $bits(arch_pkg::UartTag);
+  localparam int WordBytes = Xlen / 8;
+  localparam logic [Xlen-1:0] UartBase = {arch_pkg::UartTag, (Xlen - TagW)'(0)};
+  localparam logic [Xlen-1:0] TxDataAddr = UartBase + Xlen'(0 * WordBytes);
+  localparam logic [Xlen-1:0] StatusAddr = UartBase + Xlen'(1 * WordBytes);
+  localparam logic [Xlen-1:0] RxDataAddr = UartBase + Xlen'(2 * WordBytes);
+  localparam logic [Xlen-1:0] CtrlAddr = UartBase + Xlen'(3 * WordBytes);
+  localparam int MinChecks = 22;
 
-  localparam logic [Xlen-1:0] TxDataAddr = 32'h0400_0000;
-  localparam logic [Xlen-1:0] StatusAddr = 32'h0400_0004;
-  localparam logic [Xlen-1:0] RxDataAddr = 32'h0400_0008;
-  localparam logic [Xlen-1:0] CtrlAddr = 32'h0400_000C;
+  int                checks = 0;
+  int                errors = 0;
+  int                max_errors = 0;
 
   logic              clk = 1'b0;
   logic              rst_n;
@@ -54,7 +57,7 @@ module uart_ctrl_tb ();
     checks++;
     if (got !== exp) begin
       errors++;
-      $error("%s: got %h exp %h", name, got, exp);
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
@@ -63,157 +66,179 @@ module uart_ctrl_tb ();
     rst_n = 1'b0;
     sel = 1'b0;
     req = 1'b0;
-    wstrb = 4'h0;
+    wstrb = '0;
     addr = '0;
     wdata = '0;
     rx_valid = 1'b0;
     rx_data = '0;
     tx_ready = 1'b1;
-    @(posedge clk);
-    @(posedge clk);
+    repeat (2) @(posedge clk);
+    @(negedge clk);
     rst_n = 1'b1;
   endtask  // Automatic
 
   task automatic bus_write(input logic [Xlen-1:0] a, input logic [Xlen-1:0] d);
-    #1;
+    @(negedge clk);
     sel   = 1'b1;
     req   = 1'b1;
     addr  = a;
     wdata = d;
     wstrb = '1;
-    @(posedge clk);
-    #1;
+    @(negedge clk);
     sel   = 1'b0;
     req   = 1'b0;
-    wstrb = 4'h0;
+    wstrb = '0;
   endtask  // Automatic
 
   task automatic bus_read(input logic [Xlen-1:0] a, output logic [Xlen-1:0] d);
-    #1;
+    @(negedge clk);
     sel   = 1'b1;
     req   = 1'b1;
     addr  = a;
-    wstrb = 4'h0;
-    #1;
-    d = rdata;
+    wstrb = '0;
     @(posedge clk);
-    #1;
+    d = rdata;
+    @(negedge clk);
     sel = 1'b0;
     req = 1'b0;
   endtask  // Automatic
 
   task automatic peek(input logic [Xlen-1:0] a, output logic [Xlen-1:0] d);
-    #1;
+    @(negedge clk);
     sel   = 1'b1;
     req   = 1'b0;
     addr  = a;
-    wstrb = 4'h0;
-    #1;
-    d   = rdata;
+    wstrb = '0;
+    @(posedge clk);
+    d = rdata;
+    @(negedge clk);
     sel = 1'b0;
   endtask  // Automatic
 
   task automatic arrive(input logic [7:0] b);
-    #1;
+    @(negedge clk);
     rx_valid = 1'b1;
     rx_data  = b;
-    @(posedge clk);
-    #1;
+    @(negedge clk);
     rx_valid = 1'b0;
   endtask  // Automatic
 
   task automatic tx_store(input logic [7:0] b);
-    #1;
+    @(negedge clk);
     sel   = 1'b1;
     req   = 1'b1;
     addr  = TxDataAddr;
     wdata = Xlen'(b);
     wstrb = '1;
-    #1;
+    @(posedge clk);
     check("tx_valid", Xlen'(tx_valid), Xlen'(1'b1));
     check("tx_data", Xlen'(tx_data), Xlen'(b));
-    @(posedge clk);
-    #1;
+    @(negedge clk);
     sel   = 1'b0;
     req   = 1'b0;
-    wstrb = 4'h0;
-    #1;
+    wstrb = '0;
+    @(posedge clk);
     check("tx_valid_clear", Xlen'(tx_valid), Xlen'(1'b0));
   endtask  // Automatic
 
   task automatic take_during_arrival(input logic [7:0] b);
-    #1;
+    @(negedge clk);
     sel      = 1'b1;
     req      = 1'b1;
     addr     = RxDataAddr;
-    wstrb    = 4'h0;
+    wstrb    = '0;
     rx_valid = 1'b1;
     rx_data  = b;
-    @(posedge clk);
-    #1;
+    @(negedge clk);
     sel      = 1'b0;
     req      = 1'b0;
     rx_valid = 1'b0;
   endtask  // Automatic
 
-  task automatic verdict();
+  task automatic check_peek(input string name, input logic [Xlen-1:0] a,
+                            input logic [Xlen-1:0] exp);
+    logic [Xlen-1:0] got;
+    peek(a, got);
+    check(name, got, exp);
+  endtask  // Automatic
+
+  task automatic check_read(input string name, input logic [Xlen-1:0] a,
+                            input logic [Xlen-1:0] exp);
+    logic [Xlen-1:0] got;
+    bus_read(a, got);
+    check(name, got, exp);
+  endtask  // Automatic
+
+  task automatic check_irq(input string name, input logic exp);
+    check(name, Xlen'(irq), Xlen'(exp));
+  endtask  // Automatic
+
+  task automatic test_reset();
+    check_peek("status_reset", StatusAddr, Xlen'('b001));
+    check_irq("irq_reset", 1'b0);
+  endtask  // Automatic
+
+  task automatic test_rx_irq();
+    arrive(8'h5A);
+    check_peek("status_full", StatusAddr, Xlen'('b011));
+    check_irq("irq_masked", 1'b0);
+    bus_write(CtrlAddr, Xlen'(1));
+    check_peek("ctrl_readback", CtrlAddr, Xlen'(1));
+    check_irq("irq_raised", 1'b1);
+  endtask  // Automatic
+
+  task automatic test_overrun();
+    arrive(8'h77);
+    check_peek("status_overrun", StatusAddr, Xlen'('b111));
+    check_read("rx_byte", RxDataAddr, Xlen'('h5A));
+    check_irq("irq_cleared", 1'b0);
+    check_peek("status_empty", StatusAddr, Xlen'('b001));
+  endtask  // Automatic
+
+  task automatic test_status_read();
+    arrive(8'h2B);
+    check_peek("status_full_again", StatusAddr, Xlen'('b011));
+    check_read("status_read", StatusAddr, Xlen'('b011));
+    check_irq("irq_held", 1'b1);
+    check_read("rx_byte_again", RxDataAddr, Xlen'('h2B));
+    check_irq("irq_cleared_again", 1'b0);
+  endtask  // Automatic
+
+  task automatic test_take_race();
+    take_during_arrival(8'h99);
+    check_peek("status_race_full", StatusAddr, Xlen'('b011));
+    check_read("rx_byte_race", RxDataAddr, Xlen'('h99));
+  endtask  // Automatic
+
+  task automatic test_take_when_full();
+    arrive(8'h33);
+    take_during_arrival(8'h44);
+    check_peek("status_take_full", StatusAddr, Xlen'('b011));
+    check_read("rx_byte_take_full", RxDataAddr, Xlen'('h44));
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask  // Automatic
-
-  logic [Xlen-1:0] got;
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
     $dumpfile("uart_ctrl_tb.vcd");
     $dumpvars(0, uart_ctrl_tb);
-
     do_reset();
-
-    peek(StatusAddr, got);
-    check("status_reset", got, 32'h1);
-    check("irq_reset", Xlen'(irq), Xlen'(1'b0));
-
+    test_reset();
     tx_store(8'h41);
-
-    arrive(8'h5A);
-    peek(StatusAddr, got);
-    check("status_full", got, 32'h3);
-    check("irq_masked", Xlen'(irq), Xlen'(1'b0));
-
-    bus_write(CtrlAddr, 32'h1);
-    peek(CtrlAddr, got);
-    check("ctrl_readback", got, 32'h1);
-    check("irq_raised", Xlen'(irq), Xlen'(1'b1));
-
-    arrive(8'h77);
-    peek(StatusAddr, got);
-    check("status_overrun", got, 32'h7);
-
-    bus_read(RxDataAddr, got);
-    check("rx_byte", got, 32'h0000_005A);
-    check("irq_cleared", Xlen'(irq), Xlen'(1'b0));
-    peek(StatusAddr, got);
-    check("status_empty", got, 32'h1);
-
-    arrive(8'h2B);
-    peek(StatusAddr, got);
-    check("status_full_again", got, 32'h3);
-    bus_read(StatusAddr, got);
-    check("irq_held", Xlen'(irq), Xlen'(1'b1));
-    bus_read(RxDataAddr, got);
-    check("rx_byte_again", got, 32'h0000_002B);
-    check("irq_cleared_again", Xlen'(irq), Xlen'(1'b0));
-
-    take_during_arrival(8'h99);
-    peek(StatusAddr, got);
-    check("status_race_full", got, 32'h3);
-    bus_read(RxDataAddr, got);
-    check("rx_byte_race", got, 32'h0000_0099);
-
-    verdict();
+    test_rx_irq();
+    test_overrun();
+    test_status_read();
+    test_take_race();
+    test_take_when_full();
+    do_verdict();
   end
 
 endmodule
