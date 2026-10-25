@@ -4,8 +4,9 @@ module mem_arb
   import cache_pkg::*;
 #(
     parameter int XLEN = arch_pkg::XLEN,
-    parameter int APP_ADDR_WIDTH = 29,
-    localparam int MaskBits = LineBits / 8
+    parameter int APP_ADDR_WIDTH = arch_pkg::MigAddrW,
+    localparam int MaskBits = LineBits / 8,
+    localparam int CmdW = arch_pkg::MigCmdW
 ) (
 `ifdef RISCV_FORMAL
     output logic [               1:0] dbg_state,
@@ -38,7 +39,7 @@ module mem_arb
     input  wire  [          XLEN-1:0] boot_wdata,
     // Controller command
     output logic [APP_ADDR_WIDTH-1:0] app_addr,
-    output logic [               2:0] app_cmd,
+    output logic [          CmdW-1:0] app_cmd,
     output logic                      app_en,
     input  wire                       app_rdy,
     // Controller write data
@@ -52,8 +53,8 @@ module mem_arb
     input  wire                       app_rd_data_valid
 );
 
-  localparam logic [2:0] AppWrite = 3'b000;
-  localparam logic [2:0] AppRead = 3'b001;
+  localparam logic [CmdW-1:0] AppWrite = 3'b000;
+  localparam logic [CmdW-1:0] AppRead = 3'b001;
   localparam logic ReqRead = 1'b0;
   localparam logic ReqWrite = 1'b1;
 
