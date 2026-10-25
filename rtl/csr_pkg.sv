@@ -46,6 +46,13 @@ package csr_pkg;
   localparam logic [1:0] VsClean = 2'b10;  // matches saved copy
   localparam logic [1:0] VsDirty = 2'b11;  // written since save
 
+  // Vxrm encodings
+  localparam int VxrmW = 2;
+  localparam logic [VxrmW-1:0] VxrmRnu = VxrmW'(0);
+  localparam logic [VxrmW-1:0] VxrmRne = VxrmW'(1);
+  localparam logic [VxrmW-1:0] VxrmRdn = VxrmW'(2);
+  localparam logic [VxrmW-1:0] VxrmRod = VxrmW'(3);
+
   // Float Status encodings
   localparam logic [1:0] FsOff = VsOff;
   localparam logic [1:0] FsInitial = VsInitial;
