@@ -40,9 +40,11 @@ module boot_loader #(
   logic [XLEN-1:0] acc;
   logic [XLEN-1:0] acc_next;
   logic last_frame;
+  logic unused_acc_low;
 
   assign acc_next = {rx_data, acc[XLEN-1:$bits(rx_data)]};
   assign last_frame = cnt_frame == LastFrame;
+  assign unused_acc_low = ^acc[DATA_BITS-1:0];
 
   // Memory bounds load
   assign limit = (max_word > CapWords) ? CapWords : max_word;
