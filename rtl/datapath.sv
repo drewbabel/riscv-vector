@@ -32,6 +32,12 @@ module datapath
     localparam int StrbW      = XLEN / 8,
     localparam int ByteOffW   = $clog2(StrbW)
 ) (
+`ifdef SIM_BACKDOOR
+    output logic                         sim_branch,
+    output logic                         sim_branch_taken,
+    output logic                         sim_mispredict,
+    output logic                         sim_muldiv_hold,
+`endif
 `ifdef RISCV_FORMAL
     output logic                         dbg_valid,
     output logic [             ILEN-1:0] dbg_insn,
@@ -1452,6 +1458,13 @@ module datapath
     dbg_forward_a, dbg_forward_b, dbg_rf_we, dbg_rf_waddr, dbg_rf_wdata, dbg_bus_req,
     dbg_bus_addr, dbg_bus_wstrb, dbg_bus_wdata
   };
+`endif
+
+`ifdef SIM_BACKDOOR
+  assign sim_branch       = core_en && valid_ex && branch_ex;
+  assign sim_branch_taken = branch_taken_ex;
+  assign sim_mispredict   = mispredict;
+  assign sim_muldiv_hold  = muldiv_hold;
 `endif
 
 endmodule
