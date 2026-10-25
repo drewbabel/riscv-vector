@@ -36,6 +36,10 @@ module sc_datapath
     output logic                                ltu
 );
 
+  if (XLEN != 32) begin : g_xlen
+    $error("sc_datapath implements RV32 only");
+  end
+
   logic [XLEN-1:0] pc_next;
   logic [XLEN-1:0] pc_plus4;
   logic [XLEN-1:0] pc_target;
