@@ -27,10 +27,11 @@ module vec_mixed
   logic [DLEN-1:0] res_w[Widths];
 
   logic [2*DLEN-1:0] vs2_pad;
-  logic [2*DLEN-1:0] vs1_pad;
 
   assign vs2_pad = {{DLEN{1'b0}}, vs2_data};
-  assign vs1_pad = {{DLEN{1'b0}}, vs1_data};
+
+  logic unused_bits;
+  assign unused_bits = ^{vsew[vec_pkg::VsewW-1:SelW], xdata[XLEN-1:ELEN/2]};
 
   logic is_narrow;
   logic is_ext;
@@ -69,7 +70,7 @@ module vec_mixed
       logic [ Half-1:0] a_half;
 
       // Source slices
-      assign b_half = is_vv ? vs1_pad[e*Half+:Half] : xdata[0+:Half];
+      assign b_half = is_vv ? vs1_data[e*Half+:Half] : xdata[0+:Half];
       assign a_quart = vs2_pad[e*Quart+:Quart];
       assign a_half = vs2_pad[e*Half+:Half];
       assign wsrc = vs2_pad[e*Wide+:Wide];
@@ -84,7 +85,7 @@ module vec_mixed
 
       // Shift amount
       always_comb begin
-        if (is_vv) shamt = Shamt'(vs1_pad[e*Dw+:Dw]);
+        if (is_vv) shamt = Shamt'(vs1_data[e*Dw+:Dw]);
         else if (src == VEC_SRC_VI) shamt = Shamt'(simm);
         else shamt = Shamt'(xdata);
       end
