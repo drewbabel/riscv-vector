@@ -2,13 +2,22 @@
 
 module vec_fp_reduce_tb ();
   import vec_pkg::*;
+  import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup, fp_pkg::RmRmm;
+  import fp_pkg::FlagNv, fp_pkg::FlagOf, fp_pkg::FlagUf, fp_pkg::FlagNx;
+  import fp_pkg::ExpW, fp_pkg::FracW, fp_pkg::SigW, fp_pkg::Bias;
 
   localparam int DLEN = arch_pkg::VLEN;
-  localparam int Elems = DLEN / 32;
-  localparam int MinChecks = 65000;
+  localparam int FLEN = fp_pkg::FLEN;
+  localparam int Elems = DLEN / FLEN;
+  localparam int FlagW = $bits(fp_pkg::FlagNv);
+  localparam int RmW = $bits(fp_pkg::RmRne);
+  localparam int MinChecks = 74_000;
   localparam int AddLat = fp_pkg::FpAddLatency;
-  localparam logic [31:0] Qnan = 32'h7FC0_0000;
-  localparam logic [4:0] Nv = 5'b10000;
+  localparam int MaxSum = 32;
+  localparam int ExactW = (1 << ExpW) + SigW + 2;
+  localparam logic [FLEN-1:0] Qnan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
+  localparam logic [FLEN-2:0] InfMag = {{ExpW{1'b1}}, {FracW{1'b0}}};
+  localparam logic [FLEN-2:0] MaxMag = {{(ExpW - 1) {1'b1}}, 1'b0, {FracW{1'b1}}};
 
   int                   checks = 0;
   int                   errors = 0;
@@ -24,9 +33,14 @@ module vec_fp_reduce_tb ();
   logic     [ DLEN-1:0] vs1_data;
   logic     [Elems-1:0] elem_active;
   logic     [ DLEN-1:0] result;
-  logic     [      4:0] fflags;
-  logic     [      2:0] rm;
-  logic     [     31:0] sum_result;
+  logic     [FlagW-1:0] fflags;
+  logic     [  RmW-1:0] rm;
+  logic     [ FLEN-1:0] sum_result;
+
+  logic     [ FLEN-1:0] model;
+  logic     [FlagW-1:0] model_flags;
+  logic     [FlagW-1:0] sum_seen = '0;
+  logic     [ FLEN-1:0] vals           [$];
 
   always #5 clk = ~clk;
 
@@ -48,70 +62,14 @@ module vec_fp_reduce_tb ();
       .fflags     (fflags)
   );
 
-  function automatic logic is_nan(input logic [31:0] x);
-    return (x[30:23] == 8'hFF) && (x[22:0] != '0);
-  endfunction
-
-  function automatic logic is_snan(input logic [31:0] x);
-    return is_nan(x) && !x[22];
-  endfunction
-
-  // Numeric order key
-  function automatic logic signed [32:0] key(input logic [31:0] x);
-    return x[31] ? -33'(x[30:0]) : 33'(x[30:0]);
-  endfunction
-
-  // Minimum number pair
-  function automatic logic [31:0] ref_pair(input vec_fop_e o, input logic [31:0] x,
-                                           input logic [31:0] y);
-    logic x_first;
-    if (is_nan(x) && is_nan(y)) return Qnan;
-    if (is_nan(x)) return y;
-    if (is_nan(y)) return x;
-    if (key(x) == key(y)) x_first = (o == VEC_FMAX) ? !x[31] : x[31];
-    else x_first = (o == VEC_FMAX) ? (key(x) > key(y)) : (key(x) < key(y));
-    return x_first ? x : y;
-  endfunction
-
-  logic [31:0] model;
-  logic [ 4:0] model_flags;
-  logic [31:0] want_res;
-  logic [ 4:0] want_flags;
-
-  // Element order fold
-  task automatic ref_step(input logic is_first);
-    logic [31:0] v;
-    model_flags = '0;
-    if (is_first) model = vs1_data[31:0];
-    for (int e = 0; e < Elems; e++) begin
-      if (elem_active[e]) begin
-        v = vs2_data[e*32+:32];
-        if (is_snan(model) || is_snan(v)) model_flags = Nv;
-        model = ref_pair(op, model, v);
-      end
-    end
-  endtask
-
-  task automatic check(input string tag);
-    want_res   = model;
-    want_flags = model_flags;
-    checks     = checks + 2;
-    if ((result[31:0] !== want_res) || (fflags !== want_flags)) begin
-      errors = errors + 1;
-      if (errors < 12)
-        $display(
-            "FAIL %0s %0s got=%h/%b want=%h/%b at %0t",
-            tag,
-            op.name(),
-            result[31:0],
-            fflags,
-            want_res,
-            want_flags,
-            $time
-        );
+  task automatic check(input string name, input logic [FLEN-1:0] got, input logic [FLEN-1:0] exp);
+    checks++;
+    if (got !== exp) begin
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
-  endtask
+  endtask  // Automatic
 
   task automatic do_reset();
     rst_n       = 1'b0;
@@ -122,36 +80,47 @@ module vec_fp_reduce_tb ();
     vs2_data    = '0;
     vs1_data    = '0;
     elem_active = '0;
-    rm          = 3'd0;
+    rm          = RmRne;
     repeat (2) @(negedge clk);
     check_quiet("in reset");
     rst_n = 1'b1;
     @(negedge clk);
     check_quiet("after reset");
-  endtask
+  endtask  // Automatic
+
+  task automatic check_step(input string tag, input logic [FLEN-1:0] exp_res,
+                            input logic [FlagW-1:0] exp_flags);
+    check({tag, " result"}, result[FLEN-1:0], exp_res);
+    check({tag, " fflags"}, FLEN'(fflags), FLEN'(exp_flags));
+  endtask  // Automatic
+
+  // Bubble cycle quiet
+  task automatic check_quiet(input string tag);
+    check({tag, " quiet fflags"}, FLEN'(fflags), '0);
+  endtask  // Automatic
 
   // Special heavy values
-  function automatic logic [31:0] pick();
-    logic [31:0] x;
-    x = $urandom;
+  function automatic logic [FLEN-1:0] pick();
+    logic [FLEN-1:0] x;
+    x = FLEN'($urandom);
     case ($urandom_range(
         11
     ))
-      0: x = ($urandom_range(1) != 0) ? 32'h0000_0000 : 32'h8000_0000;
-      1: x = ($urandom_range(1) != 0) ? 32'h7F80_0000 : 32'hFF80_0000;
-      2: x = {x[31], 8'hFF, 1'b1, x[21:0]};
-      3: x = {x[31], 8'hFF, 1'b0, x[21:1], 1'b1};
+      0: x = 1'($urandom) ? 'h0000_0000 : 'h8000_0000;
+      1: x = 1'($urandom) ? 'h7F80_0000 : 'hFF80_0000;
+      2: x = {x[FLEN-1], {ExpW{1'b1}}, 1'b1, x[FracW-2:0]};
+      3: x = {x[FLEN-1], {ExpW{1'b1}}, 1'b0, x[FracW-2:1], 1'b1};
       4: x = Qnan;
-      5: x = {x[31], 8'h00, x[22:0]};
-      6: x = {x[31], 8'h3F, 23'h0};
-      7: x = ($urandom_range(1) != 0) ? 32'h3F80_0000 : 32'hBF80_0000;
-      default: x[30:23] = 8'(120 + $urandom_range(14));
+      5: x = {x[FLEN-1], ExpW'(0), x[FracW-1:0]};
+      6: x = {x[FLEN-1], ExpW'('h3F), FracW'(0)};
+      7: x = 1'($urandom) ? 'h3F80_0000 : 'hBF80_0000;
+      default: x[FracW+:ExpW] = ExpW'(Bias - 7 + $urandom_range(14));
     endcase
     return x;
   endfunction
 
   function automatic logic [DLEN-1:0] pick_vec();
-    for (int e = 0; e < Elems; e++) pick_vec[e*32+:32] = pick();
+    for (int e = 0; e < Elems; e++) pick_vec[e*FLEN+:FLEN] = pick();
   endfunction
 
   function automatic logic [Elems-1:0] pick_mask();
@@ -166,19 +135,9 @@ module vec_fp_reduce_tb ();
   endfunction
 
   function automatic vec_fop_e pick_op();
-    if ($urandom_range(1) != 0) return VEC_FMAX;
+    if (1'($urandom)) return VEC_FMAX;
     return VEC_FMIN;
   endfunction
-
-  // Bubble cycle quiet
-  task automatic check_quiet(input string tag);
-    checks = checks + 1;
-    if (fflags !== '0) begin
-      errors = errors + 1;
-      if (errors < 12) $display("FAIL %0s flags=%b without a step at %0t", tag, fflags, $time);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-  endtask
 
   task automatic scramble();
     vs2_data    = pick_vec();
@@ -186,13 +145,45 @@ module vec_fp_reduce_tb ();
     elem_active = pick_mask();
     op          = pick_op();
     first       = 1'($urandom);
-    rm          = 3'($urandom);
+    rm          = RmW'($urandom);
     step        = 1'b0;
-  endtask
+  endtask  // Automatic
+
+  task automatic idle();
+    @(posedge clk);
+    @(negedge clk);
+    scramble();
+  endtask  // Automatic
+
+  task automatic bubble(input string tag);
+    scramble();
+    @(posedge clk);
+    @(negedge clk);
+    check_quiet(tag);
+  endtask  // Automatic
+
+  task automatic freeze(input int cycles);
+    core_en = 1'b0;
+    repeat (cycles) @(posedge clk);
+    @(negedge clk);
+    core_en = 1'b1;
+  endtask  // Automatic
+
+  task automatic stall_hold(input string tag, input int cycles);
+    core_en = 1'b0;
+    repeat (cycles) begin
+      @(posedge clk);
+      @(negedge clk);
+      check_step(tag, model, model_flags);
+    end
+    core_en = 1'b1;
+  endtask  // Automatic
 
   // Walk one group
   task automatic run_group(input vec_fop_e o, input int phases, input logic stall, input int gaps,
                            input string tag);
+    string name;
+    name = {tag, " ", o.name()};
     vs1_data = pick_vec();
     for (int p = 0; p < phases; p++) begin
       op          = o;
@@ -200,285 +191,171 @@ module vec_fp_reduce_tb ();
       elem_active = pick_mask();
       first       = (p == 0);
       step        = 1'b1;
-      #1;
-      ref_step(p == 0);
+      ref_step(p == 0, o, vs1_data, vs2_data, elem_active);
       @(posedge clk);
-      #1;
-      scramble();
-      if (stall) begin
-        core_en = 1'b0;
-        repeat ($urandom_range(
-            3, 1
-        )) begin
-          @(posedge clk);
-          #1;
-          check(tag);
-        end
-        core_en = 1'b1;
-      end
-      check(tag);
-      repeat ($urandom_range(
-          gaps
-      )) begin
-        @(negedge clk);
-        scramble();
-        @(posedge clk);
-        #1;
-        check_quiet(tag);
-      end
       @(negedge clk);
+      check_step(name, model, model_flags);
+      scramble();
+      if (stall) stall_hold(name, $urandom_range(3, 1));
+      repeat ($urandom_range(gaps)) bubble(tag);
     end
-  endtask
+  endtask  // Automatic
 
-  task automatic check_random();
+  task automatic check_random(input int groups);
     vec_fop_e o;
     int ph;
-    for (int i = 0; i < 6000; i++) begin
-      if ($urandom_range(1) != 0) o = VEC_FMAX;
+    repeat (groups) begin
+      if (1'($urandom)) o = VEC_FMAX;
       else o = VEC_FMIN;
       ph = 1 << $urandom_range(3);
       run_group(o, ph, ($urandom_range(7) == 0), ($urandom_range(3) == 0) ? 2 : 0, "random");
     end
-  endtask
+  endtask  // Automatic
+
+  function automatic logic [DLEN-1:0] elems4(input logic [FLEN-1:0] e3, input logic [FLEN-1:0] e2,
+                                             input logic [FLEN-1:0] e1, input logic [FLEN-1:0] e0);
+    return DLEN'({e3, e2, e1, e0});
+  endfunction
+
+  function automatic logic [DLEN-1:0] splat(input logic [FLEN-1:0] x);
+    return {Elems{x}};
+  endfunction
 
   // Fixed inputs
-  task automatic directed(input vec_fop_e o, input logic [31:0] s, input logic [127:0] v,
-                          input logic [3:0] act, input logic [31:0] want, input logic [4:0] wflags,
-                          input string tag);
+  task automatic directed(input vec_fop_e o, input logic [FLEN-1:0] s, input logic [DLEN-1:0] v,
+                          input logic [Elems-1:0] act, input logic [FLEN-1:0] want,
+                          input logic [FlagW-1:0] wflags, input string tag);
     op          = o;
     vs1_data    = DLEN'(s);
-    vs2_data    = DLEN'(v);
-    elem_active = Elems'(act);
+    vs2_data    = v;
+    elem_active = act;
     first       = 1'b1;
     step        = 1'b1;
     @(posedge clk);
-    #1;
-    model       = want;
-    model_flags = wflags;
-    check(tag);
     @(negedge clk);
+    check_step({tag, " ", o.name()}, want, wflags);
     step  = 1'b0;
     first = 1'b0;
-  endtask
+  endtask  // Automatic
 
   task automatic check_directed();
-    directed(VEC_FMIN, 32'h0000_0000, {32'h40A0_0000, 32'h4000_0000, 32'hBF80_0000, 32'h4040_0000},
-             4'hF, 32'hBF80_0000, '0, "min of four");
-    directed(VEC_FMAX, 32'h0000_0000, {32'h40A0_0000, 32'h4000_0000, 32'hBF80_0000, 32'h4040_0000},
-             4'hF, 32'h40A0_0000, '0, "max of four");
-    directed(VEC_FMAX, 32'h0000_0000, {32'h40A0_0000, 32'h4000_0000, 32'hBF80_0000, 32'h4040_0000},
-             4'h2, 32'h0000_0000, '0, "max one live");
-    directed(VEC_FMIN, 32'h0000_0000, {4{32'h8000_0000}}, 4'h1, 32'h8000_0000, '0, "min of zeros");
-    directed(VEC_FMAX, 32'h8000_0000, {4{32'h0000_0000}}, 4'h8, 32'h0000_0000, '0, "max of zeros");
-    directed(VEC_FMAX, 32'h0000_0000, {4{32'h8000_0000}}, 4'hF, 32'h0000_0000, '0,
+    directed(VEC_FMIN, 'h0000_0000, elems4('h40A0_0000, 'h4000_0000, 'hBF80_0000, 'h4040_0000), 'hF,
+             'hBF80_0000, '0, "min of four");
+    directed(VEC_FMAX, 'h0000_0000, elems4('h40A0_0000, 'h4000_0000, 'hBF80_0000, 'h4040_0000), 'hF,
+             'h40A0_0000, '0, "max of four");
+    directed(VEC_FMAX, 'h0000_0000, elems4('h40A0_0000, 'h4000_0000, 'hBF80_0000, 'h4040_0000), 'h2,
+             'h0000_0000, '0, "max one live");
+    directed(VEC_FMIN, 'h0000_0000, splat('h8000_0000), 'h1, 'h8000_0000, '0, "min of zeros");
+    directed(VEC_FMAX, 'h8000_0000, splat('h0000_0000), 'h8, 'h0000_0000, '0, "max of zeros");
+    directed(VEC_FMAX, 'h0000_0000, splat('h8000_0000), 'hF, 'h0000_0000, '0,
              "max keeps plus zero");
-    directed(VEC_FMIN, 32'h7F80_0001, {4{32'h3F80_0000}}, 4'h0, 32'h7F80_0001, '0,
+    directed(VEC_FMIN, 'h7F80_0001, splat('h3F80_0000), 'h0, 'h7F80_0001, '0,
              "signaling scalar alone");
-    directed(VEC_FMIN, 32'h7FC0_1234, {4{32'h3F80_0000}}, 4'h0, 32'h7FC0_1234, '0,
+    directed(VEC_FMIN, 'h7FC0_1234, splat('h3F80_0000), 'h0, 'h7FC0_1234, '0,
              "payload scalar alone");
-    directed(VEC_FMIN, 32'h7F80_0001, {4{32'h3F80_0000}}, 4'h4, 32'h3F80_0000, Nv,
+    directed(VEC_FMIN, 'h7F80_0001, splat('h3F80_0000), 'h4, 'h3F80_0000, FlagNv,
              "signaling scalar meets live");
-    directed(VEC_FMAX, 32'h7FC0_1234, {4{32'hFF80_0001}}, 4'hF, Qnan, Nv, "all NaN canonical");
-    directed(VEC_FMAX, 32'h3F80_0000, {32'hFF80_0001, 32'h7FC0_0000, 32'h7FC0_0000, 32'h7FC0_0000},
-             4'h7, 32'h3F80_0000, '0, "signaling element masked");
-    directed(VEC_FMIN, 32'hFF80_0000, {32'h7FC0_0000, 32'h7FC0_0000, 32'h7FC0_0000, 32'h7F80_0005},
-             4'h9, 32'hFF80_0000, Nv, "signaling element live");
-  endtask
-
-  // Exact sum then round
-  function automatic logic [36:0] ref_add(input logic [31:0] a, input logic [31:0] b,
-                                          input logic [2:0] rm);
-    logic signed [299:0] xa;
-    logic signed [299:0] xb;
-    logic signed [299:0] sum;
-    logic        [299:0] mag;
-    logic        [299:0] rem;
-    logic        [299:0] half;
-    logic        [299:0] q;
-    logic                a_nan;
-    logic                b_nan;
-    logic                sign;
-    logic                up;
-    int                  p;
-    int                  shift;
-    int                  e;
-    a_nan = (a[30:23] == 8'hFF) && (a[22:0] != '0);
-    b_nan = (b[30:23] == 8'hFF) && (b[22:0] != '0);
-    if (a_nan || b_nan)
-      return {((a_nan && !a[22]) || (b_nan && !b[22])) ? 5'b10000 : 5'b0, 32'h7FC0_0000};
-    if ((a[30:0] == 31'h7F80_0000) && (b[30:0] == 31'h7F80_0000))
-      return (a[31] != b[31]) ? {5'b10000, 32'h7FC0_0000} : {5'b0, a};
-    if (a[30:0] == 31'h7F80_0000) return {5'b0, a};
-    if (b[30:0] == 31'h7F80_0000) return {5'b0, b};
-    xa = (a[30:23] == 0) ? 300'(a[22:0]) : (300'({1'b1, a[22:0]}) << (a[30:23] - 1));
-    xb = (b[30:23] == 0) ? 300'(b[22:0]) : (300'({1'b1, b[22:0]}) << (b[30:23] - 1));
-    if (a[31]) xa = -xa;
-    if (b[31]) xb = -xb;
-    sum = xa + xb;
-    if (sum == 0) return {5'b0, (a[31] == b[31]) ? a[31] : (rm == 3'd2), 31'b0};
-    sign = sum < 0;
-    mag = sign ? -sum : sum;
-    p = 0;
-    for (int i = 0; i < 300; i++) if (mag[i]) p = i;
-    shift = (p > 23) ? p - 23 : 0;
-    q = mag >> shift;
-    rem = (shift > 0) ? (mag & ((300'(1) << shift) - 1)) : '0;
-    half = (shift > 0) ? (300'(1) << (shift - 1)) : '0;
-    case (rm)
-      3'd0: up = (rem > half) || ((rem == half) && (rem != 0) && q[0]);
-      3'd1: up = 1'b0;
-      3'd2: up = (rem != 0) && sign;
-      3'd3: up = (rem != 0) && !sign;
-      default: up = (rem != 0) && (rem >= half);
-    endcase
-    q = q + 300'(up);
-    e = shift;
-    if (q[24]) begin
-      q = q >> 1;
-      e = e + 1;
-    end
-    if (!q[23]) return {(rem != 0) ? 5'b00011 : 5'b0, sign, 8'h00, q[22:0]};
-    if (e + 1 >= 255) begin
-      if ((rm == 3'd1) || ((rm == 3'd2) && !sign) || ((rm == 3'd3) && sign))
-        return {5'b00101, sign, 31'h7F7F_FFFF};
-      return {5'b00101, sign, 31'h7F80_0000};
-    end
-    return {(rem != 0) ? 5'b00001 : 5'b0, sign, 8'(e + 1), q[22:0]};
-  endfunction
-
-  logic [4:0] sum_seen;
-  initial sum_seen = '0;
-  always @(negedge clk) if (rst_n && core_en) sum_seen = sum_seen | fflags;
+    directed(VEC_FMAX, 'h7FC0_1234, splat('hFF80_0001), 'hF, Qnan, FlagNv, "all NaN canonical");
+    directed(VEC_FMAX, 'h3F80_0000, elems4('hFF80_0001, 'h7FC0_0000, 'h7FC0_0000, 'h7FC0_0000), 'h7,
+             'h3F80_0000, '0, "signaling element masked");
+    directed(VEC_FMIN, 'hFF80_0000, elems4('h7FC0_0000, 'h7FC0_0000, 'h7FC0_0000, 'h7F80_0005), 'h9,
+             'hFF80_0000, FlagNv, "signaling element live");
+  endtask  // Automatic
 
   // Sum operand values
-  function automatic logic [31:0] pick_sum();
-    logic [31:0] x;
-    x = $urandom;
+  function automatic logic [FLEN-1:0] pick_sum();
+    logic [FLEN-1:0] x;
+    x = FLEN'($urandom);
     case ($urandom_range(
         31
     ))
-      0: x[30:0] = '0;
-      1: x[30:0] = 31'h7F80_0000;
-      2: x = 32'h7FC0_0000;
-      3: x = {x[31], 8'hFF, 1'b0, x[21:1], 1'b1};
-      4, 5: x[30:23] = 8'h00;
-      6, 7: x[30:23] = 8'(250 + $urandom_range(4));
-      8: x = ($urandom_range(1) != 0) ? 32'h4B80_0000 : 32'hCB80_0000;
-      9: x = 32'h3F80_0000;
-      default: x[30:23] = 8'(120 + $urandom_range(14));
+      0: x[FLEN-2:0] = '0;
+      1: x[FLEN-2:0] = InfMag;
+      2: x = Qnan;
+      3: x = {x[FLEN-1], {ExpW{1'b1}}, 1'b0, x[FracW-2:1], 1'b1};
+      4, 5: x[FracW+:ExpW] = '0;
+      6, 7: x[FracW+:ExpW] = ExpW'((1 << ExpW) - 6 + $urandom_range(4));
+      8: x = 1'($urandom) ? 'h4B80_0000 : 'hCB80_0000;
+      9: x = 'h3F80_0000;
+      default: x[FracW+:ExpW] = ExpW'(Bias - 7 + $urandom_range(14));
     endcase
     return x;
   endfunction
 
-  logic [31:0] vals[$];
-
   // Element order sum
-  task automatic run_sum(input vec_fop_e o, input logic [31:0] seed, input logic [31:0] live,
-                         input logic [2:0] r, input int gaps, input logic stall, input string tag);
-    logic [31:0] acc;
-    logic [ 4:0] want_flags;
-    logic [36:0] step_out;
-    logic        seen;
-    logic [ 4:0] got_flags;
-    acc            = seed;
-    want_flags     = '0;
-    seen           = 1'b0;
-    sum_seen       = '0;
-    vs1_data       = pick_vec();
-    vs1_data[31:0] = seed;
+  task automatic run_sum(input vec_fop_e o, input logic [FLEN-1:0] seed,
+                         input logic [MaxSum-1:0] live, input logic [RmW-1:0] r, input int gaps,
+                         input logic stall, input string tag);
+    logic [FLEN-1:0] acc;
+    logic [FlagW-1:0] want_flags;
+    logic [FlagW+FLEN-1:0] step_out;
+    logic seen;
+    acc                = seed;
+    want_flags         = '0;
+    seen               = 1'b0;
+    sum_seen           = '0;
+    vs1_data           = pick_vec();
+    vs1_data[FLEN-1:0] = seed;
     for (int k = 0; k < vals.size(); k++) begin
       if (live[k]) begin
         step_out   = ref_add(acc, vals[k], r);
-        acc        = step_out[31:0];
-        want_flags = want_flags | step_out[36:32];
+        acc        = step_out[FLEN-1:0];
+        want_flags = want_flags | step_out[FLEN+:FlagW];
         seen       = 1'b1;
       end
-      op             = o;
-      rm             = r;
-      vs2_data       = pick_vec();
-      vs2_data[31:0] = vals[k];
-      elem_active    = pick_mask();
-      elem_active[0] = live[k];
-      first          = (k == 0);
-      step           = 1'b1;
+      op                 = o;
+      rm                 = r;
+      vs2_data           = pick_vec();
+      vs2_data[FLEN-1:0] = vals[k];
+      elem_active        = pick_mask();
+      elem_active[0]     = live[k];
+      first              = (k == 0);
+      step               = 1'b1;
       @(posedge clk);
-      #1;
-      scramble();
-      if (stall && ($urandom_range(3) == 0)) begin
-        core_en = 1'b0;
-        repeat ($urandom_range(3, 1)) @(posedge clk);
-        #1 core_en = 1'b1;
-      end
       @(negedge clk);
       scramble();
-      if (k != vals.size() - 1) begin
-        repeat (1 + $urandom_range(
-            gaps
-        )) begin
-          @(posedge clk);
-          #1;
-          @(negedge clk);
-          scramble();
-        end
-      end
+      if (stall && ($urandom_range(3) == 0)) freeze($urandom_range(3, 1));
+      if (k != vals.size() - 1) repeat (1 + $urandom_range(gaps)) idle();
     end
     repeat (AddLat) @(posedge clk);
-    #1;
-    if (!seen && (o == VEC_FREDUSUM) && (acc[30:23] == 8'hFF) && (acc[22:0] != '0)) begin
-      if (is_snan(acc)) want_flags = 5'b10000;
-      acc = 32'h7FC0_0000;
+    @(negedge clk);
+    if (!seen && (o == VEC_FREDUSUM) && is_nan(acc)) begin
+      if (is_snan(acc)) want_flags = FlagNv;
+      acc = Qnan;
     end
-    got_flags = sum_seen | fflags;
-    checks = checks + 2;
-    if ((sum_result !== acc) || (got_flags !== want_flags)) begin
-      errors = errors + 1;
-      if (errors < 12)
-        $display(
-            "FAIL %0s %0s rm %0d got=%h/%b want=%h/%b at %0t",
-            tag,
-            o.name(),
-            r,
-            sum_result,
-            got_flags,
-            acc,
-            want_flags,
-            $time
-        );
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
+    check({tag, " ", o.name(), " sum"}, sum_result, acc);
+    check({tag, " ", o.name(), " sum fflags"}, FLEN'(sum_seen | fflags), FLEN'(want_flags));
     repeat (AddLat + 1) begin
-      @(negedge clk);
       scramble();
       op = VEC_FREDUSUM;
       @(posedge clk);
-      #1;
+      @(negedge clk);
       check_quiet(tag);
     end
-    @(negedge clk);
-  endtask
+  endtask  // Automatic
 
-  task automatic check_sums();
-    logic     [31:0] live;
-    vec_fop_e        o;
-    int              n;
-    vals = '{32'h4B80_0000, 32'h3F80_0000, 32'h3F80_0000, 32'hCB80_0000};
-    for (int r = 0; r < 5; r++) begin
-      run_sum(VEC_FREDOSUM, 32'h0, '1, 3'(r), 0, 1'b0, "ordered rounding");
-      run_sum(VEC_FREDUSUM, 32'h0, '1, 3'(r), 0, 1'b0, "unordered rounding");
+  task automatic check_sums(input int random_sums);
+    logic     [MaxSum-1:0] live;
+    vec_fop_e              o;
+    int                    n;
+    vals = '{'h4B80_0000, 'h3F80_0000, 'h3F80_0000, 'hCB80_0000};
+    for (int r = 0; r <= RmRmm; r++) begin
+      run_sum(VEC_FREDOSUM, '0, '1, RmW'(r), 0, 1'b0, "ordered rounding");
+      run_sum(VEC_FREDUSUM, '0, '1, RmW'(r), 0, 1'b0, "unordered rounding");
     end
-    vals = '{32'h3F80_0000, 32'h7F80_0001};
-    run_sum(VEC_FREDOSUM, 32'h7F80_0001, '0, 3'd0, 0, 1'b0, "ordered empty signaling");
-    run_sum(VEC_FREDUSUM, 32'h7F80_0001, '0, 3'd0, 0, 1'b0, "unordered empty signaling");
-    run_sum(VEC_FREDOSUM, 32'h7FC0_1234, '0, 3'd0, 0, 1'b0, "ordered empty payload");
-    run_sum(VEC_FREDUSUM, 32'hFFC0_1234, '0, 3'd0, 0, 1'b0, "unordered empty payload");
-    run_sum(VEC_FREDUSUM, 32'h8000_0000, '0, 3'd0, 0, 1'b0, "unordered empty zero");
-    vals = '{32'h7F7F_FFFF, 32'h7F7F_FFFF};
-    for (int r = 0; r < 5; r++) run_sum(VEC_FREDOSUM, 32'h0, '1, 3'(r), 0, 1'b0, "overflow");
-    vals = '{32'h3F80_0000, 32'hBF80_0000};
-    for (int r = 0; r < 5; r++) run_sum(VEC_FREDUSUM, 32'h0, '1, 3'(r), 0, 1'b0, "exact zero");
-    for (int i = 0; i < 2500; i++) begin
-      n = 1 << $urandom_range(5);
-      if ($urandom_range(1) != 0) n = $urandom_range(n, 1);
+    vals = '{'h3F80_0000, 'h7F80_0001};
+    run_sum(VEC_FREDOSUM, 'h7F80_0001, '0, RmRne, 0, 1'b0, "ordered empty signaling");
+    run_sum(VEC_FREDUSUM, 'h7F80_0001, '0, RmRne, 0, 1'b0, "unordered empty signaling");
+    run_sum(VEC_FREDOSUM, 'h7FC0_1234, '0, RmRne, 0, 1'b0, "ordered empty payload");
+    run_sum(VEC_FREDUSUM, 'hFFC0_1234, '0, RmRne, 0, 1'b0, "unordered empty payload");
+    run_sum(VEC_FREDUSUM, 'h8000_0000, '0, RmRne, 0, 1'b0, "unordered empty zero");
+    vals = '{'h7F7F_FFFF, 'h7F7F_FFFF};
+    for (int r = 0; r <= RmRmm; r++) run_sum(VEC_FREDOSUM, '0, '1, RmW'(r), 0, 1'b0, "overflow");
+    vals = '{'h3F80_0000, 'hBF80_0000};
+    for (int r = 0; r <= RmRmm; r++) run_sum(VEC_FREDUSUM, '0, '1, RmW'(r), 0, 1'b0, "exact zero");
+    repeat (random_sums) begin
+      n = 1 << $urandom_range($clog2(MaxSum));
+      if (1'($urandom)) n = $urandom_range(n, 1);
       vals.delete();
       for (int k = 0; k < n; k++) vals.push_back(pick_sum());
       case ($urandom_range(
@@ -486,21 +363,22 @@ module vec_fp_reduce_tb ();
       ))
         0: live = '1;
         1: live = '0;
-        default: live = $urandom;
+        default: live = MaxSum'($urandom);
       endcase
-      if ($urandom_range(1) != 0) o = VEC_FREDUSUM;
+      if (1'($urandom)) o = VEC_FREDUSUM;
       else o = VEC_FREDOSUM;
-      run_sum(o, pick_sum(), live, 3'($urandom_range(4)), 2, ($urandom_range(3) == 0), "random");
+      run_sum(o, pick_sum(), live, RmW'($urandom_range(RmRmm)), 2, ($urandom_range(3) == 0),
+              "random");
     end
-  endtask
+  endtask  // Automatic
 
-  task automatic verdict();
+  task automatic do_verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
-  endtask
+  endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
@@ -510,10 +388,115 @@ module vec_fp_reduce_tb ();
 
     do_reset();
     check_directed();
-    check_random();
-    check_sums();
-    verdict();
+    check_random(6000);
+    check_sums(2500);
+    do_verdict();
   end
+
+  function automatic logic is_nan(input logic [FLEN-1:0] x);
+    return (x[FracW+:ExpW] == '1) && (x[FracW-1:0] != '0);
+  endfunction
+
+  function automatic logic is_snan(input logic [FLEN-1:0] x);
+    return is_nan(x) && !x[FracW-1];
+  endfunction
+
+  // Numeric order key
+  function automatic logic signed [FLEN:0] key(input logic [FLEN-1:0] x);
+    return x[FLEN-1] ? -($bits(key))'(x[FLEN-2:0]) : ($bits(key))'(x[FLEN-2:0]);
+  endfunction
+
+  // Minimum number pair
+  function automatic logic [FLEN-1:0] ref_pair(input vec_fop_e o, input logic [FLEN-1:0] x,
+                                               input logic [FLEN-1:0] y);
+    logic x_first;
+    if (is_nan(x) && is_nan(y)) return Qnan;
+    if (is_nan(x)) return y;
+    if (is_nan(y)) return x;
+    if (key(x) == key(y)) x_first = (o == VEC_FMAX) ? !x[FLEN-1] : x[FLEN-1];
+    else x_first = (o == VEC_FMAX) ? (key(x) > key(y)) : (key(x) < key(y));
+    return x_first ? x : y;
+  endfunction
+
+  // Element order fold
+  task automatic ref_step(input logic is_first, input vec_fop_e o, input logic [DLEN-1:0] vs1,
+                          input logic [DLEN-1:0] vs2, input logic [Elems-1:0] act);
+    logic [FLEN-1:0] v;
+    model_flags = '0;
+    if (is_first) model = vs1[FLEN-1:0];
+    for (int e = 0; e < Elems; e++) begin
+      if (act[e]) begin
+        v = vs2[e*FLEN+:FLEN];
+        if (is_snan(model) || is_snan(v)) model_flags = FlagNv;
+        model = ref_pair(o, model, v);
+      end
+    end
+  endtask  // Automatic
+
+  // Exact rounded sum
+  function automatic logic [FlagW+FLEN-1:0] ref_add(
+      input logic [FLEN-1:0] a, input logic [FLEN-1:0] b, input logic [RmW-1:0] rm);
+    logic signed [ExactW-1:0] xa;
+    logic signed [ExactW-1:0] xb;
+    logic signed [ExactW-1:0] sum;
+    logic        [ExactW-1:0] mag;
+    logic        [ExactW-1:0] rem;
+    logic        [ExactW-1:0] half;
+    logic        [ExactW-1:0] q;
+    logic                     a_nan;
+    logic                     b_nan;
+    logic                     sign;
+    logic                     up;
+    int                       p;
+    int                       shift;
+    int                       e;
+    a_nan = is_nan(a);
+    b_nan = is_nan(b);
+    if (a_nan || b_nan) return {(is_snan(a) || is_snan(b)) ? FlagNv : '0, Qnan};
+    if ((a[FLEN-2:0] == InfMag) && (b[FLEN-2:0] == InfMag))
+      return (a[FLEN-1] != b[FLEN-1]) ? {FlagNv, Qnan} : {FlagW'(0), a};
+    if (a[FLEN-2:0] == InfMag) return {FlagW'(0), a};
+    if (b[FLEN-2:0] == InfMag) return {FlagW'(0), b};
+    xa = (a[FracW+:ExpW] == 0) ? ExactW'(a[FracW-1:0]) :
+        (ExactW'({1'b1, a[FracW-1:0]}) << (a[FracW+:ExpW] - 1));
+    xb = (b[FracW+:ExpW] == 0) ? ExactW'(b[FracW-1:0]) :
+        (ExactW'({1'b1, b[FracW-1:0]}) << (b[FracW+:ExpW] - 1));
+    if (a[FLEN-1]) xa = -xa;
+    if (b[FLEN-1]) xb = -xb;
+    sum = xa + xb;
+    if (sum == 0)
+      return {FlagW'(0), (a[FLEN-1] == b[FLEN-1]) ? a[FLEN-1] : (rm == RmRdn), (FLEN - 1)'(0)};
+    sign = sum < 0;
+    mag = sign ? -sum : sum;
+    p = 0;
+    for (int i = 0; i < ExactW; i++) if (mag[i]) p = i;
+    shift = (p > FracW) ? p - FracW : 0;
+    q = mag >> shift;
+    rem = (shift > 0) ? (mag & ((ExactW'(1) << shift) - 1)) : '0;
+    half = (shift > 0) ? (ExactW'(1) << (shift - 1)) : '0;
+    case (rm)
+      RmRne:   up = (rem > half) || ((rem == half) && (rem != 0) && q[0]);
+      RmRtz:   up = 1'b0;
+      RmRdn:   up = (rem != 0) && sign;
+      RmRup:   up = (rem != 0) && !sign;
+      default: up = (rem != 0) && (rem >= half);
+    endcase
+    q = q + ExactW'(up);
+    e = shift;
+    if (q[SigW]) begin
+      q = q >> 1;
+      e = e + 1;
+    end
+    if (!q[FracW]) return {(rem != 0) ? (FlagUf | FlagNx) : '0, sign, ExpW'(0), q[FracW-1:0]};
+    if (e + 1 >= (1 << ExpW) - 1) begin
+      if ((rm == RmRtz) || ((rm == RmRdn) && !sign) || ((rm == RmRup) && sign))
+        return {FlagOf | FlagNx, sign, MaxMag};
+      return {FlagOf | FlagNx, sign, InfMag};
+    end
+    return {(rem != 0) ? FlagNx : '0, sign, ExpW'(e + 1), q[FracW-1:0]};
+  endfunction
+
+  always @(negedge clk) if (rst_n && core_en) sum_seen = sum_seen | fflags;
 
 endmodule
 
