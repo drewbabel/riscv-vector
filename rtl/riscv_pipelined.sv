@@ -11,11 +11,12 @@ module riscv_pipelined
     parameter  bit GSHARE_EN = 1'b1,
     localparam int VlW       = $clog2(VLEN + 1),
     localparam int VstartW   = $clog2(VLEN),
-    localparam int StrbW     = XLEN / 8
+    localparam int StrbW     = XLEN / 8,
+    localparam int ILEN      = arch_pkg::ILEN
 ) (
 `ifdef RISCV_FORMAL
     output logic                         dbg_valid,
-    output logic [                 31:0] dbg_insn,
+    output logic [             ILEN-1:0] dbg_insn,
     output logic [             XLEN-1:0] dbg_pc_rdata,
     output logic [             XLEN-1:0] dbg_pc_wdata,
     output logic [             XLEN-1:0] dbg_rs1_rdata,
@@ -50,14 +51,14 @@ module riscv_pipelined
     output logic [arch_pkg::NumRegs-1:0] dbg_vec_wregs,
     output logic                         dbg_vec_idle,
     output logic                         dbg_ex_commit,
-    output logic [                 31:0] dbg_ex_insn,
+    output logic [             ILEN-1:0] dbg_ex_insn,
     output logic                         dbg_s_take,
     output logic                         dbg_v_take,
 `endif
     input  wire                          clk,
     input  wire                          core_en,
     input  wire                          rst_n,
-    input  wire  [                 31:0] instr,
+    input  wire  [             ILEN-1:0] instr,
     input  wire  [         LineBits-1:0] read_data,
     input  wire                          timer_irq,
     input  wire                          ext_irq,

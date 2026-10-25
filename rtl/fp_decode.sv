@@ -4,26 +4,26 @@ module fp_decode
   import fp_pkg::*;
   import opcode_pkg::*;
 (
-    input  wire      [   31:0] instr,
-    input  wire      [RmW-1:0] frm,
-    output logic               is_fp,
-    output logic               illegal,
-    output fp_unit_e           unit,
-    output logic               frs1_read,
-    output logic               frs2_read,
-    output logic               frs3_read,
-    output logic               frd_write,
-    output logic               xrd_write,
-    output logic               xrs1_read,
-    output logic     [RmW-1:0] rm,
-    output logic               sub,
-    output logic               neg_prod,
-    output logic               neg_add,
-    output logic               to_int,
-    output logic               is_unsigned,
-    output logic               sqrt,
-    output logic     [    4:0] funct5,
-    output logic     [    2:0] funct3
+    input  wire      [arch_pkg::ILEN-1:0] instr,
+    input  wire      [           RmW-1:0] frm,
+    output logic                          is_fp,
+    output logic                          illegal,
+    output fp_unit_e                      unit,
+    output logic                          frs1_read,
+    output logic                          frs2_read,
+    output logic                          frs3_read,
+    output logic                          frd_write,
+    output logic                          xrd_write,
+    output logic                          xrs1_read,
+    output logic     [           RmW-1:0] rm,
+    output logic                          sub,
+    output logic                          neg_prod,
+    output logic                          neg_add,
+    output logic                          to_int,
+    output logic                          is_unsigned,
+    output logic                          sqrt,
+    output logic     [               4:0] funct5,
+    output logic     [               2:0] funct3
 );
 
   logic [    6:0] opcode;

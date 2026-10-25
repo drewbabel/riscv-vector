@@ -7,10 +7,11 @@ module vec_config
     parameter  int XLEN = arch_pkg::XLEN,
     parameter  int VLEN = arch_pkg::VLEN,
     parameter  int ELEN = arch_pkg::ELEN,
-    localparam int VlW  = $clog2(VLEN + 1)
+    localparam int VlW  = $clog2(VLEN + 1),
+    localparam int ILEN = arch_pkg::ILEN
 ) (
     // Setting Request
-    input  wire  [    31:0] instr,
+    input  wire  [ILEN-1:0] instr,
     input  wire  [XLEN-1:0] rs1_data,
     input  wire  [XLEN-1:0] rs2_data,
     // Current setting

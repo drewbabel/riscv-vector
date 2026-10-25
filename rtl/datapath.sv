@@ -24,6 +24,7 @@ module datapath
     localparam int RegAddrW   = arch_pkg::RegAddrW,
     localparam int InstrBytes = arch_pkg::InstrBytes,
     localparam int InstrLsb   = arch_pkg::InstrLsb,
+    localparam int ILEN       = arch_pkg::ILEN,
     localparam int VlW        = $clog2(VLEN + 1),
     localparam int VstartW    = $clog2(VLEN),
     localparam int StrbW      = XLEN / 8,
@@ -31,7 +32,7 @@ module datapath
 ) (
 `ifdef RISCV_FORMAL
     output logic                         dbg_valid,
-    output logic [                 31:0] dbg_insn,
+    output logic [             ILEN-1:0] dbg_insn,
     output logic [             XLEN-1:0] dbg_pc_rdata,
     output logic [             XLEN-1:0] dbg_pc_wdata,
     output logic [             XLEN-1:0] dbg_rs1_rdata,
@@ -66,12 +67,12 @@ module datapath
     output logic [arch_pkg::NumRegs-1:0] dbg_vec_wregs,
     output logic                         dbg_vec_idle,
     output logic                         dbg_ex_commit,
-    output logic [                 31:0] dbg_ex_insn,
+    output logic [             ILEN-1:0] dbg_ex_insn,
 `endif
     input  wire                          clk,
     input  wire                          core_en,
     input  wire                          rst_n,
-    input  wire  [                 31:0] instr,
+    input  wire  [             ILEN-1:0] instr,
     input  wire  [         LineBits-1:0] read_line,
     input  wire                          timer_irq,
     input  wire                          ext_irq,
@@ -141,7 +142,7 @@ module datapath
 
   // Pipeline registers
 
-  logic                   [        31:0] instr_id;
+  logic                   [    ILEN-1:0] instr_id;
   logic                   [    XLEN-1:0] pc_id;
   logic                   [    XLEN-1:0] pc_plus4_id;
 
@@ -225,7 +226,7 @@ module datapath
   logic                                  is_mret;
   logic                                  sys_illegal_id;
   logic                                  exc_illegal;
-  logic                   [        31:0] instr_ex;
+  logic                   [    ILEN-1:0] instr_ex;
   logic                                  csr_access_ex;
   logic                                  is_ecall_ex;
   logic                                  is_ebreak_ex;
@@ -1261,7 +1262,7 @@ module datapath
 
 `ifdef RISCV_FORMAL
   // RVFI shadow pipeline
-  logic [31:0] rvfi_insn_ex, rvfi_insn_mem, rvfi_insn_wb;
+  logic [ILEN-1:0] rvfi_insn_ex, rvfi_insn_mem, rvfi_insn_wb;
   logic [XLEN-1:0] rvfi_pc_mem, rvfi_pc_wb;
   logic [XLEN-1:0] rvfi_pcw_mem, rvfi_pcw_wb;
   logic [XLEN-1:0] rvfi_rs1d_mem, rvfi_rs1d_wb;
@@ -1333,7 +1334,7 @@ module datapath
 `ifndef SYNTHESIS
   // Pipeline view taps
   (* keep *) logic [XLEN-1:0] dbg_pc_f, dbg_pc_d, dbg_pc_e, dbg_pc_m, dbg_pc_w;
-  (* keep *) logic [31:0] dbg_insn_f, dbg_insn_d, dbg_insn_e, dbg_insn_m, dbg_insn_w;
+  (* keep *) logic [ILEN-1:0] dbg_insn_f, dbg_insn_d, dbg_insn_e, dbg_insn_m, dbg_insn_w;
   (* keep *) logic dbg_valid_f, dbg_valid_d, dbg_valid_e, dbg_valid_m, dbg_valid_w;
   (* keep *) logic dbg_hold_f, dbg_hold_d, dbg_hold_e, dbg_hold_m;
   (* keep *) logic dbg_en_d, dbg_en_e, dbg_en_m, dbg_en_w;
