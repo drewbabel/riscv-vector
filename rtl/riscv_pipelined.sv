@@ -46,7 +46,7 @@ module riscv_pipelined
     output logic [                  7:0] dbg_vtype_bits,
     output logic                         dbg_vtype_ill,
     output logic [          VstartW-1:0] dbg_vstart,
-    output logic [                  7:0] dbg_vec_tag,
+    output logic [ vec_pkg::VecTagW-1:0] dbg_vec_tag,
     output logic                         dbg_vec_retire,
     output logic [arch_pkg::NumRegs-1:0] dbg_vec_wregs,
     output logic                         dbg_vec_idle,

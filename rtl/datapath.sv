@@ -62,7 +62,7 @@ module datapath
     output logic [                  7:0] dbg_vtype_bits,
     output logic                         dbg_vtype_ill,
     output logic [          VstartW-1:0] dbg_vstart,
-    output logic [                  7:0] dbg_vec_tag,
+    output logic [ vec_pkg::VecTagW-1:0] dbg_vec_tag,
     output logic                         dbg_vec_retire,
     output logic [arch_pkg::NumRegs-1:0] dbg_vec_wregs,
     output logic                         dbg_vec_idle,
@@ -354,7 +354,7 @@ module datapath
   logic     [            FlagW-1:0] fp_xflags;
   logic                             fp_hold;
   logic                             fp_csr_ex;
-  logic     [                 11:0] csr_addr_ex;
+  logic     [         CsrAddrW-1:0] csr_addr_ex;
   logic                             csr_fflags_ex;
   logic                             csr_fcsr_ex;
   logic                             frm_write_ex;
@@ -1333,6 +1333,7 @@ module datapath
 
 `ifndef SYNTHESIS
   // Pipeline view taps
+  localparam int RedirectW = 3;
   (* keep *) logic [XLEN-1:0] dbg_pc_f, dbg_pc_d, dbg_pc_e, dbg_pc_m, dbg_pc_w;
   (* keep *) logic [ILEN-1:0] dbg_insn_f, dbg_insn_d, dbg_insn_e, dbg_insn_m, dbg_insn_w;
   (* keep *) logic dbg_valid_f, dbg_valid_d, dbg_valid_e, dbg_valid_m, dbg_valid_w;
@@ -1340,7 +1341,7 @@ module datapath
   (* keep *) logic dbg_en_d, dbg_en_e, dbg_en_m, dbg_en_w;
   (* keep *) logic dbg_bubble_d, dbg_bubble_e, dbg_bubble_m;
   (* keep *) logic dbg_flush;
-  (* keep *) logic [2:0] dbg_redirect_src;
+  (* keep *) logic [RedirectW-1:0] dbg_redirect_src;
   (* keep *) logic dbg_stall;
   (* keep *) logic [FwdW-1:0] dbg_forward_a, dbg_forward_b;
   (* keep *) logic dbg_rf_we;
@@ -1404,12 +1405,12 @@ module datapath
 
   // Mirrors pc_next priority
   always_comb begin
-    if (redirect_pending) dbg_redirect_src = 3'd5;
-    else if (trap_taken) dbg_redirect_src = 3'd1;
-    else if (mret_taken) dbg_redirect_src = 3'd2;
-    else if (mispredict) dbg_redirect_src = 3'd3;
-    else if (predict_taken) dbg_redirect_src = 3'd4;
-    else dbg_redirect_src = 3'd0;
+    if (redirect_pending) dbg_redirect_src = RedirectW'(5);
+    else if (trap_taken) dbg_redirect_src = RedirectW'(1);
+    else if (mret_taken) dbg_redirect_src = RedirectW'(2);
+    else if (mispredict) dbg_redirect_src = RedirectW'(3);
+    else if (predict_taken) dbg_redirect_src = RedirectW'(4);
+    else dbg_redirect_src = RedirectW'(0);
   end
 
   assign dbg_stall     = hazard_stall;
