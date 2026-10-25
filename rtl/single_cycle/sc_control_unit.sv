@@ -3,32 +3,33 @@
 module sc_control_unit
   import alu_pkg::*;
   import csr_pkg::*;
+  import opcode_pkg::*;
 (
-    input  wire              [ 6:0] op,
-    input  wire              [ 2:0] funct3,
-    input  wire              [11:0] funct12,
-    input  wire                     funct7b5,
-    input  wire                     zero,
-    input  wire                     lt,
-    input  wire                     ltu,
-    output logic                    reg_write,
-    output logic             [ 2:0] imm_src,
-    output logic             [ 1:0] alu_a_src,
-    output logic                    pc_target_src,
-    output logic                    alu_src,
-    output logic                    mem_write,
-    output logic             [ 1:0] result_src,
-    output logic                    pc_src,
-    output alu_pkg::alu_op_e        alu_ctrl
+    input  wire              [ OpcodeW-1:0] op,
+    input  wire              [ Funct3W-1:0] funct3,
+    input  wire              [CsrAddrW-1:0] funct12,
+    input  wire                             funct7b5,
+    input  wire                             zero,
+    input  wire                             lt,
+    input  wire                             ltu,
+    output logic                            reg_write,
+    output logic             [ ImmSrcW-1:0] imm_src,
+    output logic             [   SrcAW-1:0] alu_a_src,
+    output logic                            pc_target_src,
+    output logic                            alu_src,
+    output logic                            mem_write,
+    output logic             [ ResSrcW-1:0] result_src,
+    output logic                            pc_src,
+    output alu_pkg::alu_op_e                alu_ctrl,
+    output logic                            csr_access,
+    output logic                            is_ecall,
+    output logic                            is_ebreak,
+    output logic                            is_mret
 );
 
-  logic [1:0] alu_op;
+  logic [AluOpW-1:0] alu_op;
   logic branch;
   logic jump;
-  logic csr_access;
-  logic is_ecall;
-  logic is_ebreak;
-  logic is_mret;
 
   sc_control_decoder u_decoder (
       .op           (op),
@@ -62,13 +63,13 @@ module sc_control_unit
 
   always_comb begin
     case (funct3)
-      3'b000:  branch_taken = zero;  // beq
-      3'b001:  branch_taken = !zero;  // bne
-      3'b100:  branch_taken = lt;  // blt
-      3'b101:  branch_taken = !lt;  // bge
-      3'b110:  branch_taken = ltu;  // bltu
-      3'b111:  branch_taken = !ltu;  // bgeu
-      default: branch_taken = 1'b0;
+      Funct3Beq:  branch_taken = zero;
+      Funct3Bne:  branch_taken = !zero;
+      Funct3Blt:  branch_taken = lt;
+      Funct3Bge:  branch_taken = !lt;
+      Funct3Bltu: branch_taken = ltu;
+      Funct3Bgeu: branch_taken = !ltu;
+      default:    branch_taken = 1'b0;
     endcase
   end
 
