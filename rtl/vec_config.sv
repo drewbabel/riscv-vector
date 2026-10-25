@@ -2,6 +2,7 @@
 
 module vec_config
   import opcode_pkg::*;
+  import vec_pkg::vec_group_elems;
 #(
     parameter  int XLEN = arch_pkg::XLEN,
     parameter  int VLEN = arch_pkg::VLEN,
@@ -9,7 +10,7 @@ module vec_config
     localparam int VlW  = $clog2(VLEN + 1)
 ) (
     // Setting Request
-    input  wire  [XLEN-1:0] instr,
+    input  wire  [    31:0] instr,
     input  wire  [XLEN-1:0] rs1_data,
     input  wire  [XLEN-1:0] rs2_data,
     // Current setting
@@ -32,8 +33,7 @@ module vec_config
   logic            is_keep_vl;  // Keep across instrs
 
   function automatic logic [VlW-1:0] vlmax_of(input logic [5:0] vtype);
-    return vtype[2] ? VlW'((VLEN >> (3 + vtype[5:3])) >> (4 - vtype[1:0])) :
-                      VlW'((VLEN >> (3 + vtype[5:3])) << vtype[1:0]);
+    return VlW'(vec_group_elems(VLEN >> (3 + vtype[5:3]), vtype[2:0]));
   endfunction
 
   always_comb begin
