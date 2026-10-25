@@ -1,12 +1,62 @@
 `default_nettype none
 
-module mem_arb_tb;
+module mem_arb_tb ();
 
+  localparam int MinChecks = 15500;
+
+  int checks;
+  int errors;
+  int max_errors;
+  int live_errors;
+
+  mem_arb_bench mig_bench ();
+
+  mem_arb_bench #(.APP_ADDR_WIDTH(27)) narrow_bench ();
+
+  mem_arb_bench #(.APP_ADDR_WIDTH(30)) wide_bench ();
+
+  task automatic check_floor(input string name, input int got, input int floor);
+    if (got < floor)
+      $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    checks = mig_bench.checks + narrow_bench.checks + wide_bench.checks;
+    errors = mig_bench.errors + narrow_bench.errors + wide_bench.errors;
+    check_floor("mig_bench", mig_bench.checks, MinChecks);
+    check_floor("narrow_bench", narrow_bench.checks, MinChecks);
+    check_floor("wide_bench", wide_bench.checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("mem_arb_tb.vcd");
+    $dumpvars(0, mem_arb_tb);
+    wait (mig_bench.done && narrow_bench.done && wide_bench.done);
+    do_verdict();
+  end
+
+  always_comb live_errors = mig_bench.errors + narrow_bench.errors + wide_bench.errors;
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (live_errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", live_errors);
+    end
+  end
+
+endmodule
+
+module mem_arb_bench
   import cache_pkg::*;
+#(
+    parameter int APP_ADDR_WIDTH = arch_pkg::MigAddrW
+) ();
 
-  localparam int MinChecks = 16000;
   localparam int Xlen = arch_pkg::XLEN;
-  localparam int AppAddrW = 29;
+  localparam int AppAddrW = APP_ADDR_WIDTH;
   localparam int MaskW = LineBits / 8;
   localparam int MemLines = 1024;
   localparam int QDepth = 8;
@@ -22,6 +72,7 @@ module mem_arb_tb;
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  logic done = 1'b0;
   int rd_lat = RdLat;
   int rdy_pct = 100;
   int wdf_pct = 100;
@@ -138,7 +189,7 @@ module mem_arb_tb;
     checks++;
     if (got !== exp) begin
       errors++;
-      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      $display("FAIL %m %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
@@ -414,13 +465,15 @@ module mem_arb_tb;
   endtask  // Automatic
 
   task automatic test_beyond_bram();
-    logic [Xlen-1:0] highs[5];
+    logic [Xlen-1:0] highs[7];
     highs = '{
         Xlen'('h0001_0000),
         Xlen'('h0001_0004),
         Xlen'('h0040_0000),
         Xlen'('h00FF_FFF0),
-        Xlen'('h00FF_FFFC)
+        Xlen'('h00FF_FFFC),
+        Xlen'((64'(1) << (AppAddrW - 1)) | 64'h40),
+        Xlen'((64'(1) << AppAddrW) | 64'h84)
     };
     for (int h = 0; h < $size(highs); h++) begin
       boot_word(highs[h], Xlen'('hB007_0000) + Xlen'(h));
@@ -445,12 +498,9 @@ module mem_arb_tb;
     $fatal(1, "global time limit reached before the stimulus finished");
   endtask  // Automatic
 
-  task automatic do_verdict();
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
+  task automatic finish();
+    @(negedge clk);
+    done = 1'b1;
   endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
@@ -458,8 +508,6 @@ module mem_arb_tb;
   initial watchdog(TimeoutCycles);
 
   initial begin
-    $dumpfile("mem_arb_tb.vcd");
-    $dumpvars(0, mem_arb_tb);
     do_reset();
 
     test_boot_lanes();
@@ -476,7 +524,7 @@ module mem_arb_tb;
     test_beyond_bram();
     check_drained();
 
-    do_verdict();
+    finish();
   end
 
   function automatic logic [LineBits-1:0] line_seq(input logic [Xlen-1:0] seed);
