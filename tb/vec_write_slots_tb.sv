@@ -8,19 +8,26 @@ module vec_write_slots_tb ();
   int errors = 0;
   int max_errors = 0;
 
+  vec_write_slots_bench #(.DEPTH(2)) depth2_bench ();
+
   vec_write_slots_bench #(.DEPTH(4)) depth4_bench ();
 
   vec_write_slots_bench #(.DEPTH(5)) depth5_bench ();
 
+  vec_write_slots_bench #(.DEPTH(8)) depth8_bench ();
+
   task automatic do_verdict();
-    checks = depth4_bench.checks + depth5_bench.checks;
-    errors = depth4_bench.errors + depth5_bench.errors;
-    if (depth4_bench.checks < MinChecks || depth5_bench.checks < MinChecks)
+    checks = depth2_bench.checks + depth4_bench.checks + depth5_bench.checks + depth8_bench.checks;
+    errors = depth2_bench.errors + depth4_bench.errors + depth5_bench.errors + depth8_bench.errors;
+    if (depth2_bench.checks < MinChecks || depth4_bench.checks < MinChecks ||
+        depth5_bench.checks < MinChecks || depth8_bench.checks < MinChecks)
       $fatal(
           1,
-          "TB UNDER-RAN: %0d and %0d checks, expected at least %0d each",
+          "TB UNDER-RAN: %0d, %0d, %0d and %0d checks, expected at least %0d each",
+          depth2_bench.checks,
           depth4_bench.checks,
           depth5_bench.checks,
+          depth8_bench.checks,
           MinChecks
       );
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
@@ -31,14 +38,16 @@ module vec_write_slots_tb ();
   initial begin
     $dumpfile("vec_write_slots_tb.vcd");
     $dumpvars(0, vec_write_slots_tb);
-    wait (depth4_bench.done && depth5_bench.done);
+    wait (depth2_bench.done && depth4_bench.done && depth5_bench.done && depth8_bench.done);
     do_verdict();
   end
 
   initial begin
     if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
-      wait (depth4_bench.errors + depth5_bench.errors >= max_errors);
-      $fatal(1, "TB STOPPED: %0d mismatches", depth4_bench.errors + depth5_bench.errors);
+      wait (depth2_bench.errors + depth4_bench.errors + depth5_bench.errors + depth8_bench.errors >=
+            max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches",
+             depth2_bench.errors + depth4_bench.errors + depth5_bench.errors + depth8_bench.errors);
     end
   end
 
@@ -163,11 +172,11 @@ module vec_write_slots_bench #(
   endtask  // Automatic
 
   task automatic test_example();
-    load(4);
-    expect_free(3, 1'b0);
-    load(3);
-    expect_free(3, 1'b1);
-    load(3);
+    load(DepthW'(DEPTH));
+    expect_free(DepthW'(DEPTH - 1), 1'b0);
+    load(DepthW'(DEPTH - 1));
+    expect_free(DepthW'(DEPTH - 1), 1'b1);
+    load(DepthW'(DEPTH - 1));
     idle(DEPTH);
   endtask  // Automatic
 
@@ -191,7 +200,7 @@ module vec_write_slots_bench #(
   endtask  // Automatic
 
   task automatic test_reset_mid();
-    load(4);
+    load(DepthW'(DEPTH));
     do_reset();
     expect_free(1, 1'b1);
     load(1);
@@ -199,16 +208,16 @@ module vec_write_slots_bench #(
   endtask  // Automatic
 
   task automatic test_core_paused();
-    load(4);
+    load(DepthW'(DEPTH));
     pause(3);
-    expect_free(3, 1'b0);
-    load(3);
-    expect_free(3, 1'b1);
+    expect_free(DepthW'(DEPTH - 1), 1'b0);
+    load(DepthW'(DEPTH - 1));
+    expect_free(DepthW'(DEPTH - 1), 1'b1);
     idle(DEPTH);
 
     // Start while paused
-    pause_start(3, 2);
-    expect_free(2, 1'b1);
+    pause_start(DepthW'(DEPTH - 1), 2);
+    expect_free(DepthW'(DEPTH - 2), 1'b1);
     idle(DEPTH);
   endtask  // Automatic
 
