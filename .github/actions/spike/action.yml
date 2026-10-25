@@ -1,0 +1,35 @@
+name: Spike
+description: Build the pinned Spike once, cache it and put it on the path
+
+inputs:
+  sha:
+    description: riscv-isa-sim commit to build
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Spike
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: /opt/spike
+        key: spike-${{ inputs.sha }}
+    - name: Build Spike
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        SHA: ${{ inputs.sha }}
+      run: |
+        git clone https://github.com/riscv-software-src/riscv-isa-sim.git "$RUNNER_TEMP/riscv-isa-sim"
+        git -C "$RUNNER_TEMP/riscv-isa-sim" checkout "$SHA"
+        mkdir "$RUNNER_TEMP/riscv-isa-sim/build"
+        cd "$RUNNER_TEMP/riscv-isa-sim/build"
+        ../configure --prefix=/opt/spike
+        make -j"$(nproc)"
+        make install
+    - name: Add Spike to environment
+      shell: bash
+      run: |
+        echo "/opt/spike/bin" >> "$GITHUB_PATH"
+        echo "LD_LIBRARY_PATH=/opt/spike/lib" >> "$GITHUB_ENV"
