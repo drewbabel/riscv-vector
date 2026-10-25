@@ -13,6 +13,7 @@ module datapath
   import csr_pkg::FcsrAddr;
   import csr_pkg::MstatusAddr;
   import csr_pkg::CsrAddrW;
+  import csr_pkg::VxrmW;
   import fp_pkg::*;
 #(
     parameter  int XLEN       = arch_pkg::XLEN,
@@ -55,7 +56,7 @@ module datapath
     output logic [             XLEN-1:0] dbg_minstret,
     output logic [             XLEN-1:0] dbg_mcycleh,
     output logic [             XLEN-1:0] dbg_minstreth,
-    output logic [                  4:0] dbg_fflags,
+    output logic [            FlagW-1:0] dbg_fflags,
     output logic [              VlW-1:0] dbg_vl,
     output logic [                  7:0] dbg_vtype_bits,
     output logic                         dbg_vtype_ill,
@@ -253,7 +254,7 @@ module datapath
   logic                                  muldiv_hold;
   logic                                  commit_ready;
   logic                                  vec_is_vector;
-  logic                   [         1:0] vec_vxrm;
+  logic                   [   VxrmW-1:0] vec_vxrm;
   logic                                  vec_vxsat;
   logic                                  vec_csr_we;
   logic                   [CsrAddrW-1:0] vec_csr_waddr;
@@ -261,7 +262,7 @@ module datapath
   logic                                  vec_csr_wait;
   logic                                  vec_hold;
   logic                                  vec_vstart_set;
-  logic                   [         4:0] vec_fflags;
+  logic                   [   FlagW-1:0] vec_fflags;
   logic                                  vec_fp_id;
   logic                                  vec_fp_ex;
   logic                                  vec_issue_ok;
@@ -297,7 +298,7 @@ module datapath
   logic                             frd_write_d;
   logic                             fxrd_write_d;
   logic                             fxrs1_read_d;
-  logic     [                  2:0] fp_rm_d;
+  logic     [              RmW-1:0] fp_rm_d;
   logic                             fp_sub_d;
   logic                             fp_neg_prod_d;
   logic                             fp_neg_add_d;
@@ -332,8 +333,8 @@ module datapath
   logic     [             FLEN-1:0] fp_a_ex;
   logic     [             FLEN-1:0] fp_b_ex;
   logic     [             FLEN-1:0] fp_c_ex;
-  logic     [                  2:0] fp_rm_ex;
-  logic     [                  2:0] frm_q;
+  logic     [              RmW-1:0] fp_rm_ex;
+  logic     [              RmW-1:0] frm_q;
 
   logic                             fp_fop_ex;
   logic                             fp_xop_ex;
@@ -346,10 +347,10 @@ module datapath
   logic                             fp_wb_valid;
   logic     [         RegAddrW-1:0] fp_wb_rd;
   logic     [             FLEN-1:0] fp_wb_data;
-  logic     [                  4:0] fp_wb_flags;
+  logic     [            FlagW-1:0] fp_wb_flags;
   logic                             fp_xvalid;
   logic     [             XLEN-1:0] fp_xresult;
-  logic     [                  4:0] fp_xflags;
+  logic     [            FlagW-1:0] fp_xflags;
   logic                             fp_hold;
   logic                             fp_csr_ex;
   logic     [                 11:0] csr_addr_ex;
