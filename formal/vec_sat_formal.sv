@@ -52,7 +52,7 @@ module vec_sat_formal
     return is_fx(o) && (o != VEC_SADDU) && (o != VEC_SADD) && (o != VEC_SSUBU) && (o != VEC_SSUB);
   endfunction
 
-  // Spec reference per SEW
+  // Reference per SEW
   logic [ELEN-1:0] ref_res [Widths];
   logic            ref_sat [Widths];
   logic            ref_inc [Widths];
@@ -113,7 +113,7 @@ module vec_sat_formal
       assign sw = '0;
     end
 
-    // Chapter 12 roundoff operands
+    // Roundoff operands
     logic [R-1:0] v;
     int           d;
     logic         arith;
@@ -270,7 +270,7 @@ module vec_sat_formal
   logic [ELEN-1:0] sew_mask;
   assign sew_mask = ELEN'((64'(1) << (8 << chk_sew)) - 64'(1));
 
-  // Legal SEW and EEW
+  // Legal SEW EEW
   logic sew_ok;
   logic checked;
   assign sew_ok  = is_narrow(chk_op) ? (chk_sew < SewTop) : (chk_sew <= SewTop);
