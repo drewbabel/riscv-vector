@@ -692,18 +692,20 @@ module vec_unit_tb
                                           input logic strided, input logic vmb,
                                           input logic [AWIDTH-1:0] d);
     logic [2:0] f3;
-    f3 = (w == 2'd2) ? 3'b110 : ((w == 2'd1) ? 3'b101 : 3'b000);
-    enc_mem = {
-      3'b000,
-      1'b0,
-      strided ? 2'b10 : 2'b00,
-      vmb,
-      whole ? 5'b01000 : (strided ? AWIDTH'(12) : AWIDTH'(0)),
-      AWIDTH'(10),
-      f3,
-      d,
-      store ? opcode_pkg::OpcodeStoreFp : opcode_pkg::OpcodeLoadFp
-    };
+    logic [1:0] mop;
+    logic [AWIDTH-1:0] rs2;
+    logic [6:0] opc;
+    case (w)
+      2'd2: f3 = 3'b110;
+      2'd1: f3 = 3'b101;
+      default: f3 = 3'b000;
+    endcase
+    if (whole) rs2 = 5'b01000;
+    else if (strided) rs2 = AWIDTH'(12);
+    else rs2 = AWIDTH'(0);
+    mop = strided ? 2'b10 : 2'b00;
+    opc = store ? opcode_pkg::OpcodeStoreFp : opcode_pkg::OpcodeLoadFp;
+    enc_mem = {3'b000, 1'b0, mop, vmb, rs2, AWIDTH'(10), f3, d, opc};
   endfunction
 
   // Memory reference
@@ -1246,8 +1248,12 @@ module vec_unit_tb
     int sh;
     for (int i = 0; i < group_elems(sew, regs); i++) begin
       if ((i < len) && (vmb || shadow[0][i])) begin
-        w  = grp_get(s2, sew * 2, i);
-        sh = (form == 0) ? int'(grp_get(s1, sew, i)) : ((form == 1) ? int'(xd[5:0]) : int'(im));
+        w = grp_get(s2, sew * 2, i);
+        case (form)
+          0: sh = int'(grp_get(s1, sew, i));
+          1: sh = int'(xd[5:0]);
+          default: sh = int'(im);
+        endcase
         sh = sh % (sew * 2);
         r  = (o == VEC_NSRA) ? XLEN'($signed(sext(w, sew * 2)) >>> sh) : (w >> sh);
         grp_set(d, sew, i, r);
@@ -1933,7 +1939,8 @@ module vec_unit_tb
         if (vmb || mbit(AWIDTH'(0), i)) grp_set(d, w, i, is_id ? XLEN'(i) : XLEN'(count));
         if (!is_id && (vmb || mbit(AWIDTH'(0), i)) && mbit(s2, i)) count = count + 1;
       end
-      issue(enc(6'b010100, vmb, is_id ? AWIDTH'(0) : s2, is_id ? 5'b10001 : 5'b10000, 3'b010, d));
+      if (is_id) issue(enc(6'b010100, vmb, AWIDTH'(0), 5'b10001, 3'b010, d));
+      else issue(enc(6'b010100, vmb, s2, 5'b10000, 3'b010, d));
       drain();
       check_regs("mask index");
     end
@@ -2032,8 +2039,9 @@ module vec_unit_tb
       for (int i = 0; i < int'(len); i++) begin
         if ((vmb || mbit(AWIDTH'(0), i)) && mbit(s2, i)) count = count + 1;
       end
-      want = is_pop ? XLEN'(count) : ((ref_first_bit(s2, vmb, len) < 0) ? XLEN'('hFFFF_FFFF) :
-                                      XLEN'(ref_first_bit(s2, vmb, len)));
+      if (is_pop) want = XLEN'(count);
+      else if (ref_first_bit(s2, vmb, len) < 0) want = XLEN'('hFFFF_FFFF);
+      else want = XLEN'(ref_first_bit(s2, vmb, len));
       issue(enc(6'b010000, vmb, s2, is_pop ? 5'b10000 : 5'b10001, 3'b010, AWIDTH'(7)));
       drain();
       check("mask summary", XLEN'(xreg_result), XLEN'(want));
@@ -2340,9 +2348,8 @@ module vec_unit_tb
           grp_set(d, 2 * w, i, ref_wmul(o, w, grp_get(s2, w, i), b, grp_get(d, 2 * w, i)));
         end
       end
-      issue(enc(
-            wmul_funct6(o), vmb, s2, (form == 0) ? s1 : AWIDTH'(1), (form == 0) ? 3'b010 : 3'b110, d
-            ));
+      if (form == 0) issue(enc(wmul_funct6(o), vmb, s2, s1, 3'b010, d));
+      else issue(enc(wmul_funct6(o), vmb, s2, AWIDTH'(1), 3'b110, d));
       drain();
       check_regs($sformatf("wmul %0s sew %0d form %0d", o.name(), w, form));
     end
@@ -2429,15 +2436,17 @@ module vec_unit_tb
       input logic up, input int form, input logic [AWIDTH-1:0] s2, input logic [AWIDTH-1:0] d,
       input logic vmb, input logic [XLEN-1:0] sc);
     logic [2:0] f3;
+    logic [5:0] f6;
+    logic [AWIDTH-1:0] rs1;
     case (form)
       0: f3 = 3'b100;
       1: f3 = 3'b011;
       2: f3 = 3'b110;
       default: f3 = 3'b101;
     endcase
-    return enc(
-        up ? 6'b001110 : 6'b001111, vmb, s2, (form == 1) ? sc[AWIDTH-1:0] : AWIDTH'(1), f3, d
-    );
+    f6  = up ? 6'b001110 : 6'b001111;
+    rs1 = (form == 1) ? sc[AWIDTH-1:0] : AWIDTH'(1);
+    return enc(f6, vmb, s2, rs1, f3, d);
   endfunction
 
   task automatic run_slide(input logic up, input int form, input logic [AWIDTH-1:0] s2,
@@ -3226,7 +3235,8 @@ module vec_unit_tb
     if (s && uns) return {fp_pkg::FlagNv, lo};
     if (!s && (mag > RefW'(hi))) return {fp_pkg::FlagNv, hi};
     if (s && (mag > (RefW'(1) << (w - 1)))) return {fp_pkg::FlagNv, lo};
-    return {r[RefW] ? fp_pkg::FlagNx : FlagW'(0), s ? FLEN'(-FLEN'(mag)) : FLEN'(mag)};
+    if (s) return {r[RefW] ? fp_pkg::FlagNx : FlagW'(0), FLEN'(-FLEN'(mag))};
+    return {r[RefW] ? fp_pkg::FlagNx : FlagW'(0), FLEN'(mag)};
   endfunction
 
   // Integer to float

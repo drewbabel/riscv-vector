@@ -590,7 +590,11 @@ module fp_unit_tb
         if (n != 4) $fatal(1, "TB BAD LINE: file %0d", kind);
         load(s1, va);
         load(s2, vb);
-        f3 = (kind == 10) ? Funct3Feq : (kind == 11) ? Funct3Flt : Funct3Fle;
+        case (kind)
+          10: f3 = Funct3Feq;
+          11: f3 = Funct3Flt;
+          default: f3 = Funct3Fle;
+        endcase
         xop(FP_MISC, Funct5Fcmp, f3, 1'b0, 1'b0, RmRne, s1, s2, Xlen'(vr), FlagW'(vflag), 1'b1);
       end
       default: begin

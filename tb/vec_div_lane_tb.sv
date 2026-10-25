@@ -244,8 +244,16 @@ module vec_div_lane_tb
     case (o)
       VEC_DIVU: t = (uy == 0) ? umask(w) : ux / uy;
       VEC_REMU: t = (uy == 0) ? ux : ux % uy;
-      VEC_DIV:  t = (sy == 0) ? -1 : (sx == smin && sy == -1) ? sx : sx / sy;
-      default:  t = (sy == 0) ? sx : (sx == smin && sy == -1) ? 0 : sx % sy;
+      VEC_DIV: begin
+        if (sy == 0) t = -1;
+        else if (sx == smin && sy == -1) t = sx;
+        else t = sx / sy;
+      end
+      default: begin
+        if (sy == 0) t = sx;
+        else if (sx == smin && sy == -1) t = 0;
+        else t = sx % sy;
+      end
     endcase
     ref_lane = ELEN'(t & umask(w));
   endfunction

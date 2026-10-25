@@ -216,7 +216,11 @@ module vec_decode_tb
     logic           legal;
     vec_src_e       exp_src;
     for (int f = 0; f < 3; f++) begin
-      f3 = (f == 0) ? Fvv : ((f == 1) ? Fvx : Fvi);
+      case (f)
+        0: f3 = Fvv;
+        1: f3 = Fvx;
+        default: f3 = Fvi;
+      endcase
       exp_src = vec_src_e'(f);
       for (int m = 0; m < 2; m++) begin
         for (int b = 0; b < NumRegs; b++) begin
@@ -323,7 +327,9 @@ module vec_decode_tb
     string         name;
     instr = enc_mem(top, rs2, width, store);
     #1;
-    exp_op = vec_op_e'(!exp[5] ? VEC_ILLEGAL : (store ? VEC_STORE : VEC_LOAD));
+    if (!exp[5]) exp_op = VEC_ILLEGAL;
+    else if (store) exp_op = VEC_STORE;
+    else exp_op = VEC_LOAD;
     got = {valid, mem_width, mem_whole, mem_strided, mem_mask};
     if (!exp[5]) got[4:0] = 5'b0;
     name = $sformatf("mem top=%b rs2=%b w=%b store=%b", top, rs2, width, store);
