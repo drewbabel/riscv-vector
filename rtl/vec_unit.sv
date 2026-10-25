@@ -1221,12 +1221,13 @@ module vec_unit
     logic [FlagW+FpW-1:0] fdv_q;
 
     for (genvar w = 0; w < Widths; w++) begin : g_w
-      localparam int EW = 8 << w;
-      localparam int AW = ((2 * EW <= ELEN) && ((l + 1) * 2 * EW <= VLEN)) ? 2 * EW : EW;
-      assign a_w[w] = narrow_ex ? ELEN'(vs2_data[l*AW+:AW]) : ELEN'(vs2_data[l*EW+:EW]);
-      assign b_w[w] = ELEN'(vs1_data[l*EW+:EW]);
-      assign s_w[w] = ELEN'(vs2_data[l*EW+:EW]);
-      assign d_w[w] = wmul_ex ? ELEN'(vd_data[l*AW+:AW]) : ELEN'(vd_data[l*EW+:EW]);
+      localparam int ElemW = 8 << w;
+      localparam int WideW =
+          ((2 * ElemW <= ELEN) && ((l + 1) * 2 * ElemW <= VLEN)) ? 2 * ElemW : ElemW;
+      assign a_w[w] = narrow_ex ? ELEN'(vs2_data[l*WideW+:WideW]) : ELEN'(vs2_data[l*ElemW+:ElemW]);
+      assign b_w[w] = ELEN'(vs1_data[l*ElemW+:ElemW]);
+      assign s_w[w] = ELEN'(vs2_data[l*ElemW+:ElemW]);
+      assign d_w[w] = wmul_ex ? ELEN'(vd_data[l*WideW+:WideW]) : ELEN'(vd_data[l*ElemW+:ElemW]);
     end
 
     assign a_ex = vd_mul_ex ? d_w[vsew_ex[WSelW-1:0]] : a_w[vsew_ex[WSelW-1:0]];
@@ -1398,12 +1399,12 @@ module vec_unit
   logic [VLEN-1:0] lane_result;
 
   for (genvar w = 0; w < Widths; w++) begin : g_pack
-    localparam int EW = 8 << w;
+    localparam int ElemW = 8 << w;
     for (genvar l = 0; l < MUL_LANES; l++) begin : g_l
-      assign lane_pack[w][l*EW+:EW] = lane_res[l][EW-1:0];
+      assign lane_pack[w][l*ElemW+:ElemW] = lane_res[l][ElemW-1:0];
     end
-    if (MUL_LANES * EW < VLEN) begin : g_top
-      assign lane_pack[w][VLEN-1:MUL_LANES*EW] = '0;
+    if (MUL_LANES * ElemW < VLEN) begin : g_top
+      assign lane_pack[w][VLEN-1:MUL_LANES*ElemW] = '0;
     end
   end
 
@@ -1627,8 +1628,8 @@ module vec_unit
   logic [XLEN-1:0] elem_zero_w[Widths];
 
   for (genvar w = 0; w < Widths; w++) begin : g_zero
-    localparam int EW = 8 << w;
-    assign elem_zero_w[w] = XLEN'($signed(rdata2[EW-1:0]));
+    localparam int ElemW = 8 << w;
+    assign elem_zero_w[w] = XLEN'($signed(rdata2[ElemW-1:0]));
   end
 
   assign elem_zero = elem_zero_w[vec_sew_index(seq_vsew, Widths)];
