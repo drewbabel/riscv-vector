@@ -2,6 +2,14 @@
 
 module uart_tx_tb ();
 
+  localparam int ClkDiv = 32;
+  localparam int ClkFreqHz = arch_pkg::BoardClkHz / ClkDiv;
+  localparam int BaudRate = arch_pkg::BaudRate;
+  localparam int DataBits = 8;
+  localparam int BitFast = ((ClkFreqHz + BaudRate / 2) / BaudRate) * ClkDiv;
+  localparam int MinChecks = 6;
+  localparam int TimeoutCycles = 8 * (DataBits + 2) * BitFast;
+
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
@@ -9,26 +17,22 @@ module uart_tx_tb ();
   logic clk = 1'b0;
   logic core_en;
   logic rst_n;
-  logic [7:0] tx_data;
+  logic [DataBits-1:0] tx_data;
   logic tx_valid;
   logic tx_ready;
   logic tx_serial;
-
-  localparam int ClkDiv = 32;
-  localparam int ClkFreqHz = arch_pkg::BoardClkHz / ClkDiv;
-  localparam int BaudRate = arch_pkg::BaudRate;
-  localparam int BitFast = ((ClkFreqHz + BaudRate / 2) / BaudRate) * ClkDiv;
+  logic [$clog2(ClkDiv)-1:0] div = '0;
 
   always #5 clk = ~clk;
 
   // Core enable pulse
-  logic [$clog2(ClkDiv)-1:0] div = '0;
   always_ff @(posedge clk) div <= div + 1'b1;
   assign core_en = (div == '0);
 
   uart_tx #(
       .CLK_FREQ_HZ(ClkFreqHz),
-      .BAUD_RATE  (BaudRate)
+      .BAUD_RATE  (BaudRate),
+      .DATA_BITS  (DataBits)
   ) dut (
       .clk      (clk),
       .core_en  (core_en),
@@ -39,77 +43,88 @@ module uart_tx_tb ();
       .tx_serial(tx_serial)
   );
 
+  task automatic check(input string name, input logic [DataBits-1:0] got,
+                       input logic [DataBits-1:0] exp);
+    checks++;
+    if (got !== exp) begin
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
+  endtask  // Automatic
+
   task automatic do_reset();
     rst_n = 0;
     tx_valid = 0;
     tx_data = '0;
     repeat (2) @(posedge clk);
+    @(negedge clk);
     rst_n = 1;
-    repeat (4) @(posedge clk);
+    repeat (4) @(negedge clk);
   endtask  // Automatic
 
-  task automatic send(input logic [7:0] b);
-    @(posedge clk);
-    wait (tx_ready);
-    #1;
+  task automatic send(input logic [DataBits-1:0] b);
+    do @(negedge clk); while (!tx_ready);
     tx_data  = b;
     tx_valid = 1'b1;
     do @(posedge clk); while (!(core_en && tx_ready));
-    #1;
+    @(negedge clk);
     tx_valid = 1'b0;
   endtask  // Automatic
 
-  task automatic recv(output logic [7:0] b);
+  task automatic recv(output logic [DataBits-1:0] b);
     @(negedge tx_serial);
     repeat (BitFast / 2) @(posedge clk);
-    for (int i = 0; i < 8; i++) begin
+    for (int i = 0; i < DataBits; i++) begin
       repeat (BitFast) @(posedge clk);
       b[i] = tx_serial;
     end
     repeat (BitFast) @(posedge clk);
   endtask  // Automatic
 
-  task automatic check(input string name, input logic [7:0] got, input logic [7:0] exp);
-    checks++;
-    if (got !== exp) begin
-      $error("%s got %02x exp %02x", name, got, exp);
-      errors++;
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
+  task automatic recv_check(input string name, input logic [DataBits-1:0] exp);
+    logic [DataBits-1:0] got;
+    recv(got);
+    check(name, got, exp);
   endtask  // Automatic
 
-  task automatic verdict();
+  task automatic check_idle();
+    check("idle_high", DataBits'(tx_serial), DataBits'(1));
+    check("ready_after_reset", DataBits'(tx_ready), DataBits'(1));
+  endtask  // Automatic
+
+  task automatic stream_bytes();
+    logic [DataBits-1:0] pat[4] = '{DataBits'('h41), DataBits'('h55), '0, '1};
+    fork
+      foreach (pat[i]) send(pat[i]);
+      foreach (pat[i]) recv_check($sformatf("byte%0d", i), pat[i]);
+    join
+  endtask  // Automatic
+
+  task automatic watchdog(input int cycles);
+    repeat (cycles) @(posedge clk);
+    $fatal(1, "TIMEOUT: %0d cycles", cycles);
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask  // Automatic
 
-  logic [7:0] pat [4];
-  logic [7:0] got;
-
   initial void'($value$plusargs("max_errors=%d", max_errors));
+
+  initial watchdog(TimeoutCycles);
 
   initial begin
     $dumpfile("uart_tx_tb.vcd");
     $dumpvars(0, uart_tx_tb);
-    pat[0] = 8'h41;
-    pat[1] = 8'h55;
-    pat[2] = 8'h00;
-    pat[3] = 8'hFF;
     do_reset();
-
-    check("idle_high", 8'(tx_serial), 8'h01);
-    check("ready_after_reset", {7'b0, tx_ready}, 8'h01);
-
-    fork
-      foreach (pat[i]) send(pat[i]);
-      foreach (pat[i]) begin
-        recv(got);
-        check($sformatf("byte%0d", i), got, pat[i]);
-      end
-    join
-
-    verdict();
+    check_idle();
+    stream_bytes();
+    do_verdict();
   end
 
 endmodule
