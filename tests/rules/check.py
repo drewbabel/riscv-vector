@@ -863,7 +863,8 @@ def rule_bench_syntax(u, rep):
             txt = fn.get("text", fn.get("tag"))
             line, col = u.at(fn["start"])
             if txt == "$urandom":
-                if "kCast" not in [a.get("tag") for a in anc[-4:]]:
+                near = {a.get("tag") for a in anc[-4:]}
+                if not near & {"kCast", "kVoidcast"}:
                     rep.add(
                         u.path,
                         line,
