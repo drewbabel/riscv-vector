@@ -43,7 +43,7 @@ module fp_misc
   logic a_sign, b_sign;
   logic [ExpW-1:0] a_exp, b_exp;
   logic [FracW-1:0] a_frac, b_frac;
-  logic [FLEN-2:0] a_mag, b_mag;
+  logic [ExpW+FracW-1:0] a_mag, b_mag;
   logic a_exp_max, b_exp_max;
   logic a_exp_zero;
   logic a_man_zero, b_man_zero;
