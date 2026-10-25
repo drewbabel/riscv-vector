@@ -6,24 +6,30 @@ module vec_div_lane_tb
 
   localparam int ELEN = arch_pkg::ELEN;
   localparam int Timeout = 2000000;
+  localparam int NumEdges = 11;
+  localparam int LongW = $bits(longint);
+  localparam logic [2:0] Sew8 = 3'd0;
+  localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
+  localparam int MinChecks = 26000;
 
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  int stall_pct = 0;
 
   logic clk = 1'b0;
-  logic rst_n = 1'b0;
-  logic core_en = 1'b1;
-  logic start = 1'b0;
-  vec_op_e op = VEC_DIVU;
-  logic [2:0] vsew = 3'd0;
-  logic [ELEN-1:0] a = '0;
-  logic [ELEN-1:0] b = '0;
+  logic rst_n;
+  logic core_en;
+  logic start;
+  vec_op_e op;
+  logic [2:0] vsew;
+  logic [ELEN-1:0] a;
+  logic [ELEN-1:0] b;
   logic [ELEN-1:0] result;
   logic busy;
   logic done;
 
-  int stall_pct = 0;
+  vec_op_e ops[4] = '{VEC_DIVU, VEC_DIV, VEC_REMU, VEC_REM};
 
   always #5 clk = ~clk;
 
@@ -43,18 +49,168 @@ module vec_div_lane_tb
       .done(done)
   );
 
-  vec_op_e ops[4] = '{VEC_DIVU, VEC_DIV, VEC_REMU, VEC_REM};
-
-  // Random stalls
-  always @(negedge clk) core_en <= ($urandom_range(99) >= stall_pct);
-
-  // Handshake rule
-  always @(posedge clk)
-    if (rst_n && busy && done) begin
+  task automatic check(input string name, input logic [ELEN-1:0] got, input logic [ELEN-1:0] exp);
+    checks++;
+    if (got !== exp) begin
       errors++;
-      $display("FAIL busy and done both high at %0t", $time);
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
+  endtask  // Automatic
+
+  task automatic do_reset();
+    @(negedge clk);
+    rst_n     = 1'b0;
+    stall_pct = 0;
+    core_en   = 1'b1;
+    start     = 1'b0;
+    op        = VEC_DIVU;
+    vsew      = Sew8;
+    a         = '0;
+    b         = '0;
+    repeat (2) @(posedge clk);
+    @(negedge clk);
+    rst_n = 1'b1;
+  endtask  // Automatic
+
+  // Random stalls
+  task automatic drive_core_en();
+    core_en = ($urandom_range(99) >= stall_pct);
+  endtask  // Automatic
+
+  task automatic watchdog();
+    repeat (Timeout) @(posedge clk);
+    $fatal(1, "FAIL: timeout, %0d errors, %0d checks", errors, checks);
+  endtask  // Automatic
+
+  // Raise start until an enabled edge takes it
+  task automatic launch(input vec_op_e o, input logic [2:0] sew, input logic [ELEN-1:0] x,
+                        input logic [ELEN-1:0] y);
+    logic taken;
+    @(negedge clk);
+    // muldiv only takes start in IDLE (same rule as datapath.sv: !busy && !done)
+    while (busy || done) @(negedge clk);
+    op = o;
+    vsew = sew;
+    a = x;
+    b = y;
+    start = 1'b1;
+    taken = 1'b0;
+    while (!taken) begin
+      @(posedge clk);
+      taken = core_en;
+      @(negedge clk);
+    end
+    start = 1'b0;
+    // Scramble inputs: the lane must not depend on them after start
+    vsew = 3'($urandom);
+    a = ELEN'($urandom);
+    b = ELEN'($urandom);
+  endtask  // Automatic
+
+  // One divide
+  task automatic divide(input vec_op_e o, input logic [2:0] sew, input logic [ELEN-1:0] x,
+                        input logic [ELEN-1:0] y);
+    logic [ELEN-1:0] exp_res;
+    string name;
+    name = $sformatf("%s sew=%0d a=%h b=%h", o.name(), 8 << sew, x, y);
+    exp_res = ref_lane(o, 8 << sew, x, y);
+    launch(o, sew, x, y);
+    if (stall_pct == 0) check({name, " busy after start"}, ELEN'(busy), ELEN'(1'b1));
+    while (done !== 1'b1) @(negedge clk);
+    check(name, result, exp_res);
+    // done pulses one enabled cycle, result holds
+    if (stall_pct == 0) begin
+      @(negedge clk);
+      check({name, " done pulse"}, ELEN'(done), ELEN'(1'b0));
+      check({name, " result held"}, result, exp_res);
+    end
+  endtask  // Automatic
+
+  task automatic edges(input logic [2:0] sew);
+    int w;
+    w = 8 << sew;
+    for (int k = 0; k < $size(ops); k++)
+      for (int i = 0; i < NumEdges; i++)
+        for (int j = 0; j < NumEdges; j++)
+          divide(ops[k], sew, junk(edge_val(i, w), w), junk(edge_val(j, w), w));
+  endtask  // Automatic
+
+  task automatic edges_all();
+    for (int s = int'(Sew8); s <= int'(SewTop); s++) edges(3'(s));
+  endtask  // Automatic
+
+  task automatic random_cases(input logic [2:0] sew, input int n);
+    for (int k = 0; k < $size(ops); k++)
+      for (int i = 0; i < n; i++) divide(ops[k], sew, ELEN'($urandom), ELEN'($urandom));
+  endtask  // Automatic
+
+  task automatic random_all(input int n);
+    for (int s = int'(Sew8); s <= int'(SewTop); s++) random_cases(3'(s), n);
+  endtask  // Automatic
+
+  task automatic stalled_cases(input int pct, input int n);
+    stall_pct = pct;
+    random_cases(Sew8, n);
+    random_cases(SewTop, n);
+    stall_pct = 0;
+  endtask  // Automatic
+
+  // A second start while busy must not disturb the first divide
+  task automatic busy_start();
+    logic [ELEN-1:0] x;
+    logic [ELEN-1:0] y;
+    logic [ELEN-1:0] exp_res;
+    x = ELEN'('h1234_56F0);
+    y = ELEN'('hABCD_EF10);
+    exp_res = ref_lane(VEC_DIV, 8, x, y);
+    launch(VEC_DIV, Sew8, x, y);
+    repeat (5) @(negedge clk);
+    op = VEC_DIVU;
+    vsew = SewTop;
+    a = '1;
+    b = ELEN'(3);
+    start = 1'b1;
+    @(negedge clk);
+    start = 1'b0;
+    while (done !== 1'b1) @(negedge clk);
+    check("start while busy", result, exp_res);
+    @(negedge clk);
+  endtask  // Automatic
+
+  // Reset in the middle of a divide
+  task automatic reset_mid();
+    launch(VEC_DIVU, SewTop, ELEN'(1000), ELEN'(7));
+    repeat (10) @(negedge clk);
+    do_reset();
+    check("reset mid divide busy", ELEN'(busy), ELEN'(1'b0));
+    check("reset mid divide done", ELEN'(done), ELEN'(1'b0));
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
+
+  initial watchdog();
+
+  initial begin
+    $dumpfile("vec_div_lane_tb.vcd");
+    $dumpvars(0, vec_div_lane_tb);
+    do_reset();
+    edges_all();
+    random_all(300);
+    busy_start();
+    reset_mid();
+    stalled_cases(40, 50);
+
+    do_verdict();
+  end
 
   // Width helpers
   function automatic longint umask(input int w);
@@ -62,7 +218,7 @@ module vec_div_lane_tb
   endfunction
 
   function automatic longint uval(input logic [ELEN-1:0] x, input int w);
-    uval = longint'({{(64 - ELEN) {1'b0}}, x}) & umask(w);
+    uval = longint'({{(LongW - ELEN) {1'b0}}, x}) & umask(w);
   endfunction
 
   function automatic longint sval(input logic [ELEN-1:0] x, input int w);
@@ -94,68 +250,12 @@ module vec_div_lane_tb
     ref_lane = ELEN'(t & umask(w));
   endfunction
 
-  // Junk above the element
+  // Junk above element
   function automatic logic [ELEN-1:0] junk(input logic [ELEN-1:0] x, input int w);
     logic [ELEN-1:0] keep;
     keep = ELEN'(umask(w));
     junk = (x & keep) | (ELEN'($urandom) & ~keep);
   endfunction
-
-  // Raise start until an enabled edge takes it
-  task automatic launch(input vec_op_e o, input logic [2:0] sew, input logic [ELEN-1:0] x,
-                        input logic [ELEN-1:0] y);
-    logic taken;
-    @(negedge clk);
-    // muldiv only takes start in IDLE (same rule as datapath.sv: !busy && !done)
-    while (busy || done) @(negedge clk);
-    op = o;
-    vsew = sew;
-    a = x;
-    b = y;
-    start = 1'b1;
-    do begin
-      @(posedge clk);
-      taken = core_en;
-      @(negedge clk);
-    end while (!taken);
-    start = 1'b0;
-    // Scramble inputs: the lane must not depend on them after start
-    vsew = 3'($urandom);
-    a = ELEN'($urandom);
-    b = ELEN'($urandom);
-  endtask
-
-  // One divide
-  task automatic check(input vec_op_e o, input logic [2:0] sew, input logic [ELEN-1:0] x,
-                       input logic [ELEN-1:0] y);
-    logic [ELEN-1:0] exp_res;
-    exp_res = ref_lane(o, 8 << sew, x, y);
-    launch(o, sew, x, y);
-    if (stall_pct == 0 && busy !== 1'b1) begin
-      errors++;
-      $display("FAIL %s sew=%0d busy not high after start", o.name(), 8 << sew);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-    while (done !== 1'b1) @(negedge clk);
-    checks++;
-    if (result !== exp_res) begin
-      errors++;
-      if (errors <= 10)
-        $display(
-            "FAIL %s sew=%0d a=%h b=%h got %h exp %h", o.name(), 8 << sew, x, y, result, exp_res
-        );
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-    // done pulses one enabled cycle, result holds
-    if (stall_pct == 0) begin
-      @(negedge clk);
-      if (done !== 1'b0 || result !== exp_res) begin
-        errors++;
-        $display("FAIL %s sew=%0d done not a pulse or result not held", o.name(), 8 << sew);
-        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-      end
-    end
-  endtask
 
   // Edge values
   function automatic logic [ELEN-1:0] edge_val(input int idx, input int w);
@@ -176,102 +276,10 @@ module vec_div_lane_tb
     endcase
   endfunction
 
-  task automatic edges(input logic [2:0] sew);
-    int w;
-    w = 8 << sew;
-    for (int k = 0; k < $size(ops); k++)
-      for (int i = 0; i < 11; i++)
-        for (int j = 0; j < 11; j++)
-          check(ops[k], sew, junk(edge_val(i, w), w), junk(edge_val(j, w), w));
-  endtask
+  always @(negedge clk) drive_core_en();
 
-  task automatic random_cases(input logic [2:0] sew, input int n);
-    for (int k = 0; k < $size(ops); k++)
-      for (int i = 0; i < n; i++) check(ops[k], sew, ELEN'($urandom), ELEN'($urandom));
-  endtask
-
-  // A second start while busy must not disturb the first divide
-  task automatic busy_start();
-    logic [ELEN-1:0] exp_res;
-    exp_res = ref_lane(VEC_DIV, 8, 32'h1234_56F0, 32'hABCD_EF10);
-    launch(VEC_DIV, 3'd0, 32'h1234_56F0, 32'hABCD_EF10);
-    repeat (5) @(negedge clk);
-    op = VEC_DIVU;
-    vsew = 3'd2;
-    a = '1;
-    b = 32'd3;
-    start = 1'b1;
-    @(negedge clk);
-    start = 1'b0;
-    while (done !== 1'b1) @(negedge clk);
-    checks++;
-    if (result !== exp_res) begin
-      errors++;
-      $display("FAIL start while busy disturbed result: got %h exp %h", result, exp_res);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-    @(negedge clk);
-  endtask
-
-  // Reset in the middle of a divide
-  task automatic reset_mid();
-    launch(VEC_DIVU, 3'd2, 32'd1000, 32'd7);
-    repeat (10) @(negedge clk);
-    rst_n = 1'b0;
-    repeat (2) @(negedge clk);
-    checks++;
-    if (busy !== 1'b0 || done !== 1'b0) begin
-      errors++;
-      $display("FAIL reset mid divide: busy=%b done=%b", busy, done);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-    rst_n = 1'b1;
-  endtask
-
-  task automatic verdict();
-    $display("vec_div_lane: %0d checks, %0d errors", checks, errors);
-    if (errors != 0) $fatal(1, "vec_div_lane FAILED");
-    $finish;
-  endtask
-
-  initial void'($value$plusargs("max_errors=%d", max_errors));
-
-  initial begin
-    repeat (Timeout) @(posedge clk);
-    $fatal(1, "FAIL: timeout, %0d errors, %0d checks", errors, checks);
-  end
-
-  initial begin
-    $dumpfile("vec_div_lane_tb.vcd");
-    $dumpvars(0, vec_div_lane_tb);
-  end
-
-  initial begin
-    repeat (3) @(negedge clk);
-    rst_n = 1'b1;
-
-    // Edge operands at every width
-    edges(3'd0);
-    edges(3'd1);
-    edges(3'd2);
-
-    // Random operands
-    random_cases(3'd0, 300);
-    random_cases(3'd1, 300);
-    random_cases(3'd2, 300);
-
-    // Handshake corners
-    busy_start();
-    reset_mid();
-
-    // Random core_en stalls
-    stall_pct = 40;
-    random_cases(3'd0, 50);
-    random_cases(3'd2, 50);
-    stall_pct = 0;
-
-    verdict();
-  end
+  // Handshake rule
+  always @(negedge clk) if (rst_n && done) check("busy with done", ELEN'(busy), ELEN'(1'b0));
 
 endmodule
 
