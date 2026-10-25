@@ -2,15 +2,68 @@
 
 module imem_tb ();
 
+  localparam int MinSmallChecks = 1040;
+  localparam int MinChecks = 1100;
+  localparam int MinLargeChecks = 1700;
+
+  int checks;
+  int errors;
+  int max_errors;
+  int live_errors;
+
+  imem_bench #(.DEPTH(16)) depth16_bench ();
+
+  imem_bench #(.DEPTH(64)) depth64_bench ();
+
+  imem_bench #(.DEPTH(256)) depth256_bench ();
+
+  task automatic check_floor(input string name, input int got, input int floor);
+    if (got < floor)
+      $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    checks = depth16_bench.checks + depth64_bench.checks + depth256_bench.checks;
+    errors = depth16_bench.errors + depth64_bench.errors + depth256_bench.errors;
+    check_floor("depth16_bench", depth16_bench.checks, MinSmallChecks);
+    check_floor("depth64_bench", depth64_bench.checks, MinChecks);
+    check_floor("depth256_bench", depth256_bench.checks, MinLargeChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("imem_tb.vcd");
+    $dumpvars(0, imem_tb);
+    wait (depth16_bench.done && depth64_bench.done && depth256_bench.done);
+    do_verdict();
+  end
+
+  always_comb live_errors = depth16_bench.errors + depth64_bench.errors + depth256_bench.errors;
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (live_errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", live_errors);
+    end
+  end
+
+endmodule
+
+module imem_bench #(
+    parameter int DEPTH = 64
+) ();
+
   localparam int Xlen = arch_pkg::XLEN;
-  localparam int Depth = 64;
+  localparam int Depth = DEPTH;
   localparam int WordBytes = Xlen / 8;
   localparam int SoakOps = 1000;
-  localparam int MinChecks = 1100;
 
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  logic done = 1'b0;
 
   logic clk = 1'b0;
   logic we;
@@ -41,7 +94,7 @@ module imem_tb ();
     checks++;
     if (got !== exp) begin
       errors++;
-      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      $display("FAIL %m %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
@@ -100,17 +153,12 @@ module imem_tb ();
     end
   endtask  // Automatic
 
-  task automatic do_verdict();
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
+  task automatic finish();
+    @(negedge clk);
+    done = 1'b1;
   endtask  // Automatic
 
   initial begin
-    $dumpfile("imem_tb.vcd");
-    $dumpvars(0, imem_tb);
     do_reset();
     fill();
     check_all();
@@ -118,7 +166,7 @@ module imem_tb ();
     check_all();
     soak(SoakOps);
     check_all();
-    do_verdict();
+    finish();
   end
 
   always @(posedge clk) begin
