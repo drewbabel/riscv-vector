@@ -4,7 +4,7 @@ module mem_delay
   import cache_pkg::*;
 #(
     parameter int XLEN = arch_pkg::XLEN,
-    parameter int DEPTH = 16384,
+    parameter int DEPTH = arch_pkg::MemWords,
     parameter int Latency = arch_pkg::MemLatency,
     localparam int Lines = DEPTH / LineWords,
     localparam int LineIdxLen = $clog2(Lines),
