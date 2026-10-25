@@ -5,17 +5,17 @@ module vec_div_lane
 #(
     parameter int ELEN = arch_pkg::ELEN
 ) (
-    input  wire                     clk,
-    input  wire                     rst_n,
-    input  wire                     core_en,
-    input  wire                     start,
-    input  wire vec_op_e            op,
-    input  wire          [     2:0] vsew,
-    input  wire          [ELEN-1:0] a,
-    input  wire          [ELEN-1:0] b,
-    output logic         [ELEN-1:0] result,
-    output logic                    busy,
-    output logic                    done
+    input  wire                               clk,
+    input  wire                               rst_n,
+    input  wire                               core_en,
+    input  wire                               start,
+    input  wire vec_op_e                      op,
+    input  wire          [vec_pkg::VsewW-1:0] vsew,
+    input  wire          [          ELEN-1:0] a,
+    input  wire          [          ELEN-1:0] b,
+    output logic         [          ELEN-1:0] result,
+    output logic                              busy,
+    output logic                              done
 );
 
   localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
@@ -29,10 +29,10 @@ module vec_div_lane
   logic [ELEN-1:0] a_ext;
   logic [ELEN-1:0] b_ext;
   logic [ELEN-1:0] md_result;
-  logic [2:0] sew_q;
+  logic [vec_pkg::VsewW-1:0] sew_q;
 
-  function automatic logic [ELEN-1:0] extend(input logic [ELEN-1:0] x, input logic [2:0] sew,
-                                             input logic sgn);
+  function automatic logic [ELEN-1:0] extend(input logic [ELEN-1:0] x,
+                                             input logic [vec_pkg::VsewW-1:0] sew, input logic sgn);
     logic [ELEN-1:0] keep;
     keep = {ELEN{1'b1}} >> (ELEN - (8 << sew));
     if (sew >= SewTop) extend = x;

@@ -37,7 +37,8 @@ module vec_config
   logic            vill;  // Request is nonsense
   logic            is_keep_vl;  // Keep across instrs
 
-  function automatic logic [VlW-1:0] vlmax_of(input logic [5:0] vtype);
+  function automatic logic [VlW-1:0] vlmax_of(
+      input logic [vec_pkg::VsewW+vec_pkg::VlmulW-1:0] vtype);
     return VlW'(vec_group_elems(VLEN >> (3 + vtype[5:3]), vtype[2:0]));
   endfunction
 
