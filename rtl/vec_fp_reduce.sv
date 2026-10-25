@@ -3,10 +3,12 @@
 module vec_fp_reduce
   import vec_pkg::*;
   import fp_pkg::Funct5Fminmax, fp_pkg::Funct3Fmin, fp_pkg::Funct3Fmax;
-  import fp_pkg::FlagNv;
+  import fp_pkg::FlagNv, fp_pkg::FlagW, fp_pkg::RmW, fp_pkg::fp_canon_nan;
 #(
     parameter  int DLEN   = arch_pkg::VLEN,
-    localparam int FpW    = 32,
+    parameter  int ExpW   = fp_pkg::ExpW,
+    parameter  int FracW  = fp_pkg::FracW,
+    localparam int FpW    = 1 + ExpW + FracW,
     localparam int Elems  = DLEN / FpW,
     localparam int Levels = $clog2(Elems),
     localparam int Cut    = Levels / 2,
@@ -23,14 +25,14 @@ module vec_fp_reduce
     input wire           [ DLEN-1:0] vs2_data,
     input wire           [ DLEN-1:0] vs1_data,
     input wire           [Elems-1:0] elem_active,
-    input wire           [      2:0] rm,
+    input wire           [  RmW-1:0] rm,
 
-    output logic [DLEN-1:0] result,
-    output logic [ FpW-1:0] sum_result,
-    output logic [     4:0] fflags
+    output logic [ DLEN-1:0] result,
+    output logic [  FpW-1:0] sum_result,
+    output logic [FlagW-1:0] fflags
 );
 
-  localparam logic [FpW-1:0] CanonNan = 32'h7FC0_0000;
+  localparam logic [FpW-1:0] CanonNan = FpW'(fp_canon_nan(ExpW, FracW));
 
   if ((Elems < 2) || (Elems != (1 << Levels))) begin : g_elems
     $error("DLEN must hold a power of two float elements, at least two");
@@ -44,9 +46,9 @@ module vec_fp_reduce
     pick = (kind == VEC_FMAX) ? Funct3Fmax : Funct3Fmin;
   endfunction
 
-  logic [FpW-1:0] lo_val [2*Elems];
-  logic           lo_live[2*Elems];
-  logic [    4:0] lo_flag[2*Elems];
+  logic [  FpW-1:0] lo_val [2*Elems];
+  logic             lo_live[2*Elems];
+  logic [FlagW-1:0] lo_flag[2*Elems];
 
   for (genvar n = 0; n < Half; n++) begin : g_lo_unused
     assign lo_val[n]  = '0;
@@ -62,13 +64,14 @@ module vec_fp_reduce
 
   // Lower tree
   for (genvar n = Half; n < Elems; n++) begin : g_lo
-    logic [FpW-1:0] cmp_res;
-    logic [    4:0] cmp_flags;
-    logic           both;
+    logic [  FpW-1:0] cmp_res;
+    logic [FlagW-1:0] cmp_flags;
+    logic             both;
+    logic [  FpW-1:0] kept;
 
     fp_misc #(
-        .ExpW (8),
-        .FracW(23)
+        .ExpW (ExpW),
+        .FracW(FracW)
     ) u_cmp (
         .funct5(Funct5Fminmax),
         .funct3(pick(op)),
@@ -80,24 +83,29 @@ module vec_fp_reduce
 
     // Dead side copies
     assign both = lo_live[2*n] && lo_live[2*n+1];
-    assign lo_val[n] = both ? cmp_res : (lo_live[2*n] ? lo_val[2*n] : lo_val[2*n+1]);
+    always_comb begin
+      if (both) kept = cmp_res;
+      else if (lo_live[2*n]) kept = lo_val[2*n];
+      else kept = lo_val[2*n+1];
+    end
+    assign lo_val[n]  = kept;
     assign lo_live[n] = lo_live[2*n] || lo_live[2*n+1];
     assign lo_flag[n] = lo_flag[2*n] | lo_flag[2*n+1] | (both ? cmp_flags : '0);
   end
 
   // Mid tree cut
-  logic     [FpW-1:0] cut_val_q   [Half];
-  logic               cut_live_q  [Half];
-  logic     [    4:0] cut_flag_q  [Half];
-  logic     [FpW-1:0] seed_q;
-  vec_fop_e           op_q;
-  logic               first_q;
-  logic               step_q;
-  logic               sum_q;
-  logic               unord_q;
-  logic     [    2:0] rm_q;
-  logic     [FpW-1:0] elem_q;
-  logic               elem_live_q;
+  logic     [  FpW-1:0] cut_val_q   [Half];
+  logic                 cut_live_q  [Half];
+  logic     [FlagW-1:0] cut_flag_q  [Half];
+  logic     [  FpW-1:0] seed_q;
+  vec_fop_e             op_q;
+  logic                 first_q;
+  logic                 step_q;
+  logic                 sum_q;
+  logic                 unord_q;
+  logic     [  RmW-1:0] rm_q;
+  logic     [  FpW-1:0] elem_q;
+  logic                 elem_live_q;
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -121,9 +129,9 @@ module vec_fp_reduce
     end
   end
 
-  logic [FpW-1:0] hi_val [2*Half];
-  logic           hi_live[2*Half];
-  logic [    4:0] hi_flag[2*Half];
+  logic [  FpW-1:0] hi_val [2*Half];
+  logic             hi_live[2*Half];
+  logic [FlagW-1:0] hi_flag[2*Half];
 
   assign hi_val[0]  = '0;
   assign hi_live[0] = 1'b0;
@@ -137,13 +145,14 @@ module vec_fp_reduce
 
   // Upper tree
   for (genvar n = 1; n < Half; n++) begin : g_hi
-    logic [FpW-1:0] cmp_res;
-    logic [    4:0] cmp_flags;
-    logic           both;
+    logic [  FpW-1:0] cmp_res;
+    logic [FlagW-1:0] cmp_flags;
+    logic             both;
+    logic [  FpW-1:0] kept;
 
     fp_misc #(
-        .ExpW (8),
-        .FracW(23)
+        .ExpW (ExpW),
+        .FracW(FracW)
     ) u_cmp (
         .funct5(Funct5Fminmax),
         .funct3(pick(op_q)),
@@ -154,24 +163,29 @@ module vec_fp_reduce
     );
 
     assign both = hi_live[2*n] && hi_live[2*n+1];
-    assign hi_val[n] = both ? cmp_res : (hi_live[2*n] ? hi_val[2*n] : hi_val[2*n+1]);
+    always_comb begin
+      if (both) kept = cmp_res;
+      else if (hi_live[2*n]) kept = hi_val[2*n];
+      else kept = hi_val[2*n+1];
+    end
+    assign hi_val[n]  = kept;
     assign hi_live[n] = hi_live[2*n] || hi_live[2*n+1];
     assign hi_flag[n] = hi_flag[2*n] | hi_flag[2*n+1] | (both ? cmp_flags : '0);
   end
 
   // Carried accumulator
-  logic [    4:0] sum_flags;
-  logic [FpW-1:0] acc_q;
-  logic [FpW-1:0] base;
-  logic [FpW-1:0] acc_res;
-  logic [    4:0] acc_flags;
-  logic [FpW-1:0] acc_next;
+  logic [FlagW-1:0] sum_flags;
+  logic [  FpW-1:0] acc_q;
+  logic [  FpW-1:0] base;
+  logic [  FpW-1:0] acc_res;
+  logic [FlagW-1:0] acc_flags;
+  logic [  FpW-1:0] acc_next;
 
   assign base = first_q ? seed_q : acc_q;
 
   fp_misc #(
-      .ExpW (8),
-      .FracW(23)
+      .ExpW (ExpW),
+      .FracW(FracW)
   ) u_acc (
       .funct5(Funct5Fminmax),
       .funct3(pick(op_q)),
@@ -201,7 +215,7 @@ module vec_fp_reduce
   logic [   FpW-1:0] sum_base;
   logic              launch;
   logic [   FpW-1:0] add_res;
-  logic [       4:0] add_flags;
+  logic [ FlagW-1:0] add_flags;
   logic              add_done;
   logic [AddLat-1:0] add_v_q;
   logic [AddLat-1:0] fin_v_q;
@@ -213,8 +227,8 @@ module vec_fp_reduce
   assign launch   = sum_q && elem_live_q;
 
   fp_add #(
-      .ExpW (8),
-      .FracW(23)
+      .ExpW (ExpW),
+      .FracW(FracW)
   ) u_add (
       .clk(clk),
       .rst_n(rst_n),
@@ -251,14 +265,14 @@ module vec_fp_reduce
   logic canon;
 
   assign fin_done = fin_v_q[AddLat-1];
-  assign sum_nan = (sum_now[30:23] == 8'hFF) && (sum_now[22:0] != '0);
-  assign sum_snan = sum_nan && !sum_now[22];
+  assign sum_nan = (&sum_now[FpW-2:FracW]) && (sum_now[FracW-1:0] != '0);
+  assign sum_snan = sum_nan && !sum_now[FracW-1];
   assign canon = fin_done && fin_unord_q[AddLat-1] && sum_nan;
 
   assign sum_result = canon ? CanonNan : sum_now;
-  assign sum_flags = (add_done ? add_flags : '0) | ((canon && sum_snan) ? FlagNv : '0);
+  assign sum_flags = (add_flags & {FlagW{add_done}}) | (FlagNv & {FlagW{canon && sum_snan}});
 
-  assign fflags = ((step_q && hi_live[1]) ? (hi_flag[1] | acc_flags) : '0) | sum_flags;
+  assign fflags = ((hi_flag[1] | acc_flags) & {FlagW{step_q && hi_live[1]}}) | sum_flags;
 
 endmodule
 
