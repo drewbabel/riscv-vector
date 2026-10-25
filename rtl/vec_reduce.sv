@@ -27,8 +27,8 @@ module vec_reduce
     output logic [DLEN-1:0] result
 );
 
-  if ((ELEN < 8) || (ELEN > DLEN) || (ELEN != (8 << (Widths - 1)))) begin : g_elen_error
-    $error("ELEN must be a power of two from 8 to DLEN");
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
   end
 
   if (MaxElems != (1 << $clog2(MaxElems))) begin : g_dlen_error
