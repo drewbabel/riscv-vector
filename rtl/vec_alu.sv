@@ -4,8 +4,10 @@ module vec_alu
   import vec_pkg::*;
 #(
     parameter  int DLEN     = arch_pkg::VLEN,
+    parameter  int ELEN     = arch_pkg::ELEN,
     parameter  int XLEN     = arch_pkg::XLEN,
-    localparam int MaxElems = DLEN / 8
+    localparam int MaxElems = DLEN / 8,
+    localparam int Widths   = $clog2(ELEN / 8) + 1
 ) (
     input  wire vec_op_e                 op,
     input  wire vec_src_e                src,
@@ -19,70 +21,38 @@ module vec_alu
     output logic          [    DLEN-1:0] result
 );
 
-  logic [DLEN-1:0] res8;
-  logic [DLEN-1:0] res16;
-  logic [DLEN-1:0] res32;
+  if ((ELEN < 8) || (ELEN > DLEN) || (ELEN != (8 << (Widths - 1)))) begin : g_elen_error
+    $error("ELEN must be a power of two from 8 to DLEN");
+  end
+
+  logic [DLEN-1:0] res_w [Widths];
+  logic            is_vv;
+
+  assign is_vv = (src == VEC_SRC_VV);
 
   // Scalar operand
   logic [XLEN-1:0] scalar;
   assign scalar = (src == VEC_SRC_VI) ? {{(XLEN - 5) {simm[4]}}, simm} : xdata;
 
-  // Byte elements
-  for (genvar e = 0; e < DLEN / 8; e++) begin : g_e8
-    logic [7:0] b8;
-    assign b8 = (src == VEC_SRC_VV) ? vs1_data[e*8+:8] : scalar[7:0];
-    vec_alu_lane #(
-        .W(8)
-    ) u_lane (
-        .op(op),
-        .vm(vm),
-        .mask_bit(mask_bits[e]),
-        .a(vs2_data[e*8+:8]),
-        .b(b8),
-        .result(res8[e*8+:8])
-    );
+  for (genvar w = 0; w < Widths; w++) begin : g_w
+    localparam int EW = 8 << w;
+    for (genvar e = 0; e < DLEN / EW; e++) begin : g_e
+      logic [EW-1:0] b;
+      assign b = is_vv ? vs1_data[e*EW+:EW] : EW'($signed(scalar));
+      vec_alu_lane #(
+          .W(EW)
+      ) u_lane (
+          .op(op),
+          .vm(vm),
+          .mask_bit(mask_bits[e]),
+          .a(vs2_data[e*EW+:EW]),
+          .b(b),
+          .result(res_w[w][e*EW+:EW])
+      );
+    end
   end
 
-  // Half elements
-  for (genvar e = 0; e < DLEN / 16; e++) begin : g_e16
-    logic [15:0] b16;
-    assign b16 = (src == VEC_SRC_VV) ? vs1_data[e*16+:16] : scalar[15:0];
-    vec_alu_lane #(
-        .W(16)
-    ) u_lane (
-        .op(op),
-        .vm(vm),
-        .mask_bit(mask_bits[e]),
-        .a(vs2_data[e*16+:16]),
-        .b(b16),
-        .result(res16[e*16+:16])
-    );
-  end
-
-  // Word elements
-  for (genvar e = 0; e < DLEN / 32; e++) begin : g_e32
-    logic [31:0] b32;
-    assign b32 = (src == VEC_SRC_VV) ? vs1_data[e*32+:32] : scalar[31:0];
-    vec_alu_lane #(
-        .W(32)
-    ) u_lane (
-        .op(op),
-        .vm(vm),
-        .mask_bit(mask_bits[e]),
-        .a(vs2_data[e*32+:32]),
-        .b(b32),
-        .result(res32[e*32+:32])
-    );
-  end
-
-  // Width select
-  always_comb begin
-    case (vsew)
-      3'd0:    result = res8;
-      3'd1:    result = res16;
-      default: result = res32;
-    endcase
-  end
+  assign result = res_w[vec_sew_index(vsew, Widths)];
 
 endmodule
 
