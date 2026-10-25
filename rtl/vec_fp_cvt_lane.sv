@@ -2,28 +2,33 @@
 
 module vec_fp_cvt_lane
   import vec_pkg::*;
-  import fp_pkg::RmRtz;
-(
-    input  wire                  clk,
-    input  wire                  rst_n,
-    input  wire                  core_en,
-    input  wire                  valid,
-    input  wire vec_fop_e        op,
-    input  wire vec_eew_e        eew,
-    input  wire           [ 2:0] vsew,
-    input  wire           [ 2:0] rm,
-    input  wire           [31:0] a,
-    output logic          [31:0] result,
-    output logic          [ 4:0] fflags,
-    output logic                 result_valid
+  import fp_pkg::RmRtz, fp_pkg::FlagW, fp_pkg::RmW;
+#(
+    parameter  int ExpW  = fp_pkg::ExpW,
+    parameter  int FracW = fp_pkg::FracW,
+    localparam int FLEN  = 1 + ExpW + FracW
+) (
+    input  wire                       clk,
+    input  wire                       rst_n,
+    input  wire                       core_en,
+    input  wire                       valid,
+    input  wire vec_fop_e             op,
+    input  wire vec_eew_e             eew,
+    input  wire           [      2:0] vsew,
+    input  wire           [  RmW-1:0] rm,
+    input  wire           [ FLEN-1:0] a,
+    output logic          [ FLEN-1:0] result,
+    output logic          [FlagW-1:0] fflags,
+    output logic                      result_valid
 );
 
   localparam int Latency = VecFpLatency;
+  localparam logic [2:0] HalfSew = 3'($clog2(FLEN / 16));
 
-  logic       to_int_d;
-  logic       uns_d;
-  logic       half_d;
-  logic [2:0] rm_d;
+  logic           to_int_d;
+  logic           uns_d;
+  logic           half_d;
+  logic [RmW-1:0] rm_d;
 
   always_comb begin
     to_int_d = 1'b1;
@@ -46,13 +51,13 @@ module vec_fp_cvt_lane
   end
 
   // Sixteen bit integers
-  assign half_d = (eew != VEC_EEW_SAME) && (vsew == 3'd1);
+  assign half_d = (eew != VEC_EEW_SAME) && (vsew == HalfSew);
 
-  logic        to_int_q;
-  logic        uns_q;
-  logic        half_q;
-  logic [ 2:0] rm_q;
-  logic [31:0] a_q;
+  logic            to_int_q;
+  logic            uns_q;
+  logic            half_q;
+  logic [ RmW-1:0] rm_q;
+  logic [FLEN-1:0] a_q;
 
   always_ff @(posedge clk) begin
     if (core_en) begin
@@ -64,13 +69,13 @@ module vec_fp_cvt_lane
     end
   end
 
-  logic [31:0] cvt_res;
-  logic [ 4:0] cvt_flags;
+  logic [ FLEN-1:0] cvt_res;
+  logic [FlagW-1:0] cvt_flags;
 
   fp_cvt #(
-      .XLEN (32),
-      .ExpW (8),
-      .FracW(23)
+      .XLEN (FLEN),
+      .ExpW (ExpW),
+      .FracW(FracW)
   ) u_cvt (
       .to_int(to_int_q),
       .is_unsigned(uns_q),
@@ -81,7 +86,7 @@ module vec_fp_cvt_lane
       .fflags(cvt_flags)
   );
 
-  logic [36:0] pipe[Latency-1];
+  logic [FlagW+FLEN-1:0] pipe[Latency-1];
 
   always_comb pipe[0] = {cvt_flags, cvt_res};
 
