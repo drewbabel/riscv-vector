@@ -110,20 +110,7 @@ def make_tree(pkg):
             raise SystemExit(f"cannot override {k}: {n} declarations")
         with open(path, "w") as f:
             f.write(new)
-    vlen = package_value(tree, "arch_pkg", "VLEN")
-    cos = os.path.join(tree, "tests", "cosim.py")
-    if vlen and os.path.exists(cos):
-        with open(cos) as f:
-            text = f.read()
-        with open(cos, "w") as f:
-            f.write(text.replace("zvl128b", f"zvl{vlen}b"))
     return tree
-
-
-def package_value(tree, pkg, name):
-    with open(os.path.join(tree, "rtl", f"{pkg}.sv")) as f:
-        m = re.search(rf"\b{name}\s*=\s*(\d+)\s*;", f.read())
-    return m.group(1) if m else None
 
 
 def run(cmd, cwd, timeout=None, env=None):
