@@ -69,14 +69,14 @@ module dcache
   logic                            req_rw;
   logic                            refill;
 
-  logic [ TagWordW-1:0]            tag_rd       [DcWays];
-  logic [ LineBits-1:0]            line_rd      [DcWays];
-  logic [ TagWordW-1:0]            tag_q        [DcWays];
-  logic [ LineBits-1:0]            line_q       [DcWays];
+  logic [ TagWordW-1:0]            tag_rd          [DcWays];
+  logic [ LineBits-1:0]            line_rd         [DcWays];
+  logic [ TagWordW-1:0]            tag_q           [DcWays];
+  logic [ LineBits-1:0]            line_q          [DcWays];
 
-  logic [ TagWordW-1:0]            tag_wdata    [DcWays];
-  logic                            tag_we       [DcWays];
-  logic                            data_we      [DcWays];
+  logic [ TagWordW-1:0]            tag_wdata       [DcWays];
+  logic                            tag_we          [DcWays];
+  logic                            data_we         [DcWays];
   logic [ LineBits-1:0]            data_wdata;
 
   logic                            fill_q;
@@ -105,9 +105,11 @@ module dcache
   logic                            install;
   logic [ DcWaySel-1:0]            touch_way;
   logic                            init_done;
+  logic                            unused_addr_lsb;
 
   assign addr_tag = req_addr[XLEN-1 : XLEN-DcTagLen];
   assign addr_idx = req_addr[XLEN-DcTagLen-1 : XLEN-DcTagLen-DcIdxLen];
+  assign unused_addr_lsb = ^req_addr[IdxLsb-1:0];
 
   // Read index early
   assign rd_idx = (state == IDLE) ? cpu_addr[IdxLsb+:DcIdxLen] : addr_idx;
