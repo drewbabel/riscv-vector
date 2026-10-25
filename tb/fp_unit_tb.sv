@@ -7,12 +7,13 @@ module fp_unit_tb
   localparam int Xlen = arch_pkg::XLEN;
   localparam int NRegs = arch_pkg::NumRegs;
   localparam int AWIDTH = arch_pkg::RegAddrW;
-  localparam int DataW = (FLEN > Xlen) ? FLEN : Xlen;
+  localparam int WordMax = (FLEN > Xlen) ? FLEN : Xlen;
+  localparam int DataW = (NRegs > WordMax) ? NRegs : WordMax;
   localparam int FlagW = fp_pkg::FlagW;
   localparam int RmW = fp_pkg::RmW;
   localparam int F5W = $bits(Funct5Fadd);
   localparam int F3W = $bits(Funct3Fsgnj);
-  localparam int RandOps = 1200;
+  localparam int RandOps = 1400;
   localparam int MinChecks = 150000;
   localparam int MinStalls = 500;
   localparam int Timeout = 100000;
@@ -289,25 +290,25 @@ module fp_unit_tb
     load(AWIDTH'(3), 32'hBFC0_0000);
     load(AWIDTH'(4), 32'h3EAA_AAAB);
 
-    fop(FP_ADD, Funct5Fadd, RmRne, RmRne, AWIDTH'(10), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+    fop(FP_ADD, Funct5Fadd, RmRne, RmRne, AWIDTH'(5), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
         32'h4080_0000, '0);
-    fop(FP_ADD, Funct5Fsub, RmRne, RmRne, AWIDTH'(11), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+    fop(FP_ADD, Funct5Fsub, RmRne, RmRne, AWIDTH'(6), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
         32'hC000_0000, '0);
-    fop(FP_MUL, Funct5Fmul, RmRne, RmRne, AWIDTH'(12), AWIDTH'(2), AWIDTH'(3), AWIDTH'(0), '0,
+    fop(FP_MUL, Funct5Fmul, RmRne, RmRne, AWIDTH'(7), AWIDTH'(2), AWIDTH'(3), AWIDTH'(0), '0,
         32'hC090_0000, '0);
-    fop(FP_FMA, F5W'(0), RmRne, RmRne, AWIDTH'(13), AWIDTH'(1), AWIDTH'(2), AWIDTH'(3), '0,
+    fop(FP_FMA, F5W'(0), RmRne, RmRne, AWIDTH'(8), AWIDTH'(1), AWIDTH'(2), AWIDTH'(3), '0,
         32'h3FC0_0000, '0);
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(14), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(9), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
         32'h3EAA_AAAB, FlagNx);
-    fop(FP_DIV_SQRT, Funct5Fsqrt, RmRne, RmRne, AWIDTH'(15), AWIDTH'(2), AWIDTH'(0), AWIDTH'(0), '0,
+    fop(FP_DIV_SQRT, Funct5Fsqrt, RmRne, RmRne, AWIDTH'(10), AWIDTH'(2), AWIDTH'(0), AWIDTH'(0), '0,
         32'h3FDD_B3D7, FlagNx);
-    fop(FP_MISC, Funct5Fsgnj, Funct3Fsgnjn, RmRne, AWIDTH'(16), AWIDTH'(2), AWIDTH'(3), AWIDTH'(0),
+    fop(FP_MISC, Funct5Fsgnj, Funct3Fsgnjn, RmRne, AWIDTH'(11), AWIDTH'(2), AWIDTH'(3), AWIDTH'(0),
         '0, 32'h4040_0000, '0);
-    fop(FP_MISC, Funct5Fminmax, Funct3Fmin, RmRne, AWIDTH'(17), AWIDTH'(1), AWIDTH'(3), AWIDTH'(0),
+    fop(FP_MISC, Funct5Fminmax, Funct3Fmin, RmRne, AWIDTH'(12), AWIDTH'(1), AWIDTH'(3), AWIDTH'(0),
         '0, 32'hBFC0_0000, '0);
-    fop(FP_CVT, Funct5FcvtSW, F3W'(0), RmRne, AWIDTH'(18), AWIDTH'(0), AWIDTH'(0), AWIDTH'(0),
+    fop(FP_CVT, Funct5FcvtSW, F3W'(0), RmRne, AWIDTH'(13), AWIDTH'(0), AWIDTH'(0), AWIDTH'(0),
         32'hFFFF_FFF9, 32'hC0E0_0000, '0);
-    fop(FP_CVT, Funct5FcvtSW, F3W'(1), RmRne, AWIDTH'(19), AWIDTH'(0), AWIDTH'(0), AWIDTH'(0),
+    fop(FP_CVT, Funct5FcvtSW, F3W'(1), RmRne, AWIDTH'(14), AWIDTH'(0), AWIDTH'(0), AWIDTH'(0),
         32'hFFFF_FFF9, 32'h4F80_0000, FlagNx);
     drain();
 
@@ -317,8 +318,7 @@ module fp_unit_tb
         1'b1);
     xop(FP_MV_X_W, Funct5FmvXW, Funct3Fmv, 1'b0, 1'b0, RmRne, AWIDTH'(4), AWIDTH'(0), 32'h3EAA_AAAB,
         '0, 1'b1);
-    xop(FP_CVT, Funct5FcvtWS, F3W'(0), 1'b1, 1'b0, RmRtz, AWIDTH'(3), AWIDTH'(0), 32'hFFFF_FFFF,
-        FlagNx, 1'b1);
+    xop(FP_CVT, Funct5FcvtWS, F3W'(0), 1'b1, 1'b0, RmRtz, AWIDTH'(3), AWIDTH'(0), '1, FlagNx, 1'b1);
     xop(FP_CVT, Funct5FcvtWS, F3W'(0), 1'b1, 1'b1, RmRne, AWIDTH'(3), AWIDTH'(0), Xlen'(0), FlagNv,
         1'b1);
   endtask  // Automatic
@@ -415,14 +415,14 @@ module fp_unit_tb
     prior = flags_dut;
     unit = FP_DIV_SQRT;
     funct5 = Funct5Fdiv;
-    rd = AWIDTH'(20);
+    rd = AWIDTH'(12);
     a = shadow[1];
     b = shadow[2];
     #1;
     check(at("cancel_ready"), DataW'(ready), DataW'(1'b1));
     tick();
     unit = FP_ADD;
-    rd = AWIDTH'(21);
+    rd = AWIDTH'(13);
     a = 32'h7F80_0001;
     #1;
     tick();
@@ -435,7 +435,7 @@ module fp_unit_tb
     xop(FP_MISC, Funct5Fcmp, Funct3Feq, 1'b0, 1'b0, RmRne, AWIDTH'(3), AWIDTH'(1), Xlen'(0), FlagNv,
         1'b0);
     check(at("cancelled_xop_no_flags"), DataW'(flags_dut), DataW'(prior));
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(20), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(12), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
         PosInf, FlagDz);
     drain();
     check(at("retired_div_flags"), DataW'(flags_dut), DataW'(prior | FlagDz));
@@ -575,15 +575,15 @@ module fp_unit_tb
       6, 7: begin
         n = $fscanf(fd[kind], "%h %h %h\n", va, vr, vflag);
         if (n != 3) $fatal(1, "TB BAD LINE: file %0d", kind);
-        fop(FP_CVT, Funct5FcvtSW, F3W'(kind == 7), mode, dst, dst, dst, dst, Xlen'(va), vr,
-            FlagW'(vflag));
+        fop(FP_CVT, Funct5FcvtSW, F3W'(kind == 7), mode, dst, dst, dst, dst, Xlen'({
+            32'($urandom), va}), vr, FlagW'(vflag));
       end
       8, 9: begin
         n = $fscanf(fd[kind], "%h %h %h\n", va, vr, vflag);
         if (n != 3) $fatal(1, "TB BAD LINE: file %0d", kind);
         load(s1, va);
-        xop(FP_CVT, Funct5FcvtWS, F3W'(0), 1'b1, kind == 9, mode, s1, s1, Xlen'(vr), FlagW'(vflag),
-            1'b1);
+        xop(FP_CVT, Funct5FcvtWS, F3W'(0), 1'b1, kind == 9, mode, s1, s1, Xlen'($signed(vr)),
+            FlagW'(vflag), 1'b1);
       end
       10, 11, 12: begin
         n = $fscanf(fd[kind], "%h %h %h %h\n", va, vb, vr, vflag);
@@ -620,7 +620,8 @@ module fp_unit_tb
                 1'b1);
           end
           default:
-          xop(FP_MV_X_W, Funct5FmvXW, Funct3Fmv, 1'b0, 1'b0, RmRne, s2, s2, Xlen'(vb), '0, 1'b1);
+          xop(FP_MV_X_W, Funct5FmvXW, Funct3Fmv, 1'b0, 1'b0, RmRne, s2, s2, Xlen'($signed(vb)), '0,
+              1'b1);
         endcase
       end
     endcase
