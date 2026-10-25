@@ -14,20 +14,20 @@ module vec_sequencer
     localparam int OffW = $clog2(VLEN),
     localparam int CntW = $clog2(MaxElems + 1)
 ) (
-    input wire                clk,
-    input wire                rst_n,
-    input wire                core_en,
-    input wire                start,
-    input wire [  AWIDTH-1:0] vs1,
-    input wire [  AWIDTH-1:0] vs2,
-    input wire [  AWIDTH-1:0] vd,
-    input wire                reads_vd,
-    input wire [     VlW-1:0] vl,
-    input wire [         2:0] vsew,
-    input wire [         2:0] vlmul,
-    input wire                vm,
-    input wire [MaxElems-1:0] mask_bits,
-    input wire [    VLEN-1:0] v0_bits,
+    input wire                       clk,
+    input wire                       rst_n,
+    input wire                       core_en,
+    input wire                       start,
+    input wire [         AWIDTH-1:0] vs1,
+    input wire [         AWIDTH-1:0] vs2,
+    input wire [         AWIDTH-1:0] vd,
+    input wire                       reads_vd,
+    input wire [            VlW-1:0] vl,
+    input wire [ vec_pkg::VsewW-1:0] vsew,
+    input wire [vec_pkg::VlmulW-1:0] vlmul,
+    input wire                       vm,
+    input wire [       MaxElems-1:0] mask_bits,
+    input wire [           VLEN-1:0] v0_bits,
 
     // Element geometry
     input wire vec_rel_e d_rel,
@@ -78,11 +78,11 @@ module vec_sequencer
   end
 
   // Element widths
-  logic [    2:0] lsew;
-  logic [    2:0] ld;
-  logic [    2:0] ls1;
-  logic [    2:0] ls2;
-  logic [    2:0] lmax;
+  logic [vec_pkg::SewLog2W-1:0] lsew;
+  logic [vec_pkg::SewLog2W-1:0] ld;
+  logic [vec_pkg::SewLog2W-1:0] ls1;
+  logic [vec_pkg::SewLog2W-1:0] ls2;
+  logic [vec_pkg::SewLog2W-1:0] lmax;
   logic [LnW-1:0] ln;
 
   assign lsew = vsew + ByteLog2;

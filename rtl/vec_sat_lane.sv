@@ -6,16 +6,16 @@ module vec_sat_lane
 #(
     parameter int ELEN = arch_pkg::ELEN
 ) (
-    input  wire                       clk,
-    input  wire                       core_en,
-    input  wire vec_op_e              op,
-    input  wire          [       2:0] vsew,
-    input  wire          [ VxrmW-1:0] vxrm,
-    input  wire          [  ELEN-1:0] a,
-    input  wire          [  ELEN-1:0] b,
-    input  wire          [2*ELEN-1:0] product,
-    output logic         [  ELEN-1:0] result,
-    output logic                      sat
+    input  wire                               clk,
+    input  wire                               core_en,
+    input  wire vec_op_e                      op,
+    input  wire          [vec_pkg::VsewW-1:0] vsew,
+    input  wire          [         VxrmW-1:0] vxrm,
+    input  wire          [          ELEN-1:0] a,
+    input  wire          [          ELEN-1:0] b,
+    input  wire          [        2*ELEN-1:0] product,
+    output logic         [          ELEN-1:0] result,
+    output logic                              sat
 );
 
   localparam int ExtW = ELEN + 2;
@@ -28,47 +28,47 @@ module vec_sat_lane
     $error("ELEN must be 32 (Zve32f)");
   end
 
-  logic    [   PosW:0] w;
-  logic    [ PosW+1:0] w2;
-  logic    [ ELEN-1:0] wmask;
-  logic    [ ExtW-1:0] m2;
-  logic    [ProdW-1:0] pm;
-  logic    [ ELEN-1:0] smax;
-  logic    [ ELEN-1:0] smin;
-  logic    [ PosW-1:0] shamt;
-  logic    [ PosW-1:0] shamt2;
-  logic    [ PosW-1:0] top2;
+  logic    [            PosW:0] w;
+  logic    [          PosW+1:0] w2;
+  logic    [          ELEN-1:0] wmask;
+  logic    [          ExtW-1:0] m2;
+  logic    [         ProdW-1:0] pm;
+  logic    [          ELEN-1:0] smax;
+  logic    [          ELEN-1:0] smin;
+  logic    [          PosW-1:0] shamt;
+  logic    [          PosW-1:0] shamt2;
+  logic    [          PosW-1:0] top2;
 
-  logic    [ ExtW-1:0] ua;
-  logic    [ ExtW-1:0] ub;
-  logic    [ ExtW-1:0] sa;
-  logic    [ ExtW-1:0] sb;
-  logic    [ ExtW-1:0] ua2;
-  logic    [ ExtW-1:0] sa2;
-  logic    [ProdW-1:0] pu;
-  logic    [ProdW-1:0] ps;
-  logic    [ProdW-1:0] psh;
+  logic    [          ExtW-1:0] ua;
+  logic    [          ExtW-1:0] ub;
+  logic    [          ExtW-1:0] sa;
+  logic    [          ExtW-1:0] sb;
+  logic    [          ExtW-1:0] ua2;
+  logic    [          ExtW-1:0] sa2;
+  logic    [         ProdW-1:0] pu;
+  logic    [         ProdW-1:0] ps;
+  logic    [         ProdW-1:0] psh;
 
-  logic    [ ExtW-1:0] v;
-  logic    [ ExtW-1:0] shifted;
-  logic    [ PosW-1:0] d;
-  logic                r;
-  logic    [ ExtW-1:0] sum1;
-  logic                borrow1;
+  logic    [          ExtW-1:0] v;
+  logic    [          ExtW-1:0] shifted;
+  logic    [          PosW-1:0] d;
+  logic                         r;
+  logic    [          ExtW-1:0] sum1;
+  logic                         borrow1;
 
   // Second stage registers
-  vec_op_e             op_q;
-  logic    [      2:0] vsew_q;
-  logic    [   PosW:0] w_q;
-  logic    [ ELEN-1:0] wmask_q;
-  logic    [ ELEN-1:0] smax_q;
-  logic    [ ELEN-1:0] smin_q;
-  logic    [ ExtW-1:0] sum_q;
-  logic                borrow_q;
-  logic    [ ExtW-1:0] shifted_q;
-  logic                r_q;
-  logic    [ProdW-1:0] psh_q;
-  logic    [ ELEN-1:0] res;
+  vec_op_e                      op_q;
+  logic    [vec_pkg::VsewW-1:0] vsew_q;
+  logic    [            PosW:0] w_q;
+  logic    [          ELEN-1:0] wmask_q;
+  logic    [          ELEN-1:0] smax_q;
+  logic    [          ELEN-1:0] smin_q;
+  logic    [          ExtW-1:0] sum_q;
+  logic                         borrow_q;
+  logic    [          ExtW-1:0] shifted_q;
+  logic                         r_q;
+  logic    [         ProdW-1:0] psh_q;
+  logic    [          ELEN-1:0] res;
 
   // Element width
   assign w = (PosW + 1)'(8) << vsew;

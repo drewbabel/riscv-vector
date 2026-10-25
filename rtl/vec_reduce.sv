@@ -15,14 +15,14 @@ module vec_reduce
     input wire rst_n,
     input wire core_en,
 
-    input wire vec_op_e                op,
-    input wire          [         2:0] vsew,
-    input wire                         widen,
-    input wire                         first,
-    input wire                         step,
-    input wire          [    DLEN-1:0] vs2_data,
-    input wire          [    DLEN-1:0] vs1_data,
-    input wire          [MaxElems-1:0] elem_active,
+    input wire vec_op_e                      op,
+    input wire          [vec_pkg::VsewW-1:0] vsew,
+    input wire                               widen,
+    input wire                               first,
+    input wire                               step,
+    input wire          [          DLEN-1:0] vs2_data,
+    input wire          [          DLEN-1:0] vs1_data,
+    input wire          [      MaxElems-1:0] elem_active,
 
     output logic [DLEN-1:0] result
 );

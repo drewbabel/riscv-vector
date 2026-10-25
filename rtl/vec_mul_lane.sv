@@ -5,15 +5,15 @@ module vec_mul_lane
 #(
     parameter int ELEN = arch_pkg::ELEN
 ) (
-    input  wire                       clk,
-    input  wire                       core_en,
-    input  wire vec_op_e              op,
-    input  wire          [       2:0] vsew,
-    input  wire          [  ELEN-1:0] a,
-    input  wire          [  ELEN-1:0] b,
-    input  wire          [  ELEN-1:0] c,
-    output logic         [  ELEN-1:0] result,
-    output logic         [2*ELEN-1:0] product
+    input  wire                               clk,
+    input  wire                               core_en,
+    input  wire vec_op_e                      op,
+    input  wire          [vec_pkg::VsewW-1:0] vsew,
+    input  wire          [          ELEN-1:0] a,
+    input  wire          [          ELEN-1:0] b,
+    input  wire          [          ELEN-1:0] c,
+    output logic         [          ELEN-1:0] result,
+    output logic         [        2*ELEN-1:0] product
 );
 
   if (ELEN != 32) begin : g_elen
@@ -22,7 +22,7 @@ module vec_mul_lane
 
   localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
 
-  function automatic int unsigned sew_width(input logic [2:0] sew);
+  function automatic int unsigned sew_width(input logic [vec_pkg::VsewW-1:0] sew);
     sew_width = (sew <= SewTop) ? 8 << sew : 0;
   endfunction
 
@@ -88,7 +88,7 @@ module vec_mul_lane
   // Product register
   logic signed [2*ELEN+1:0] product_q;
   vec_op_e op_q;
-  logic [2:0] vsew_q;
+  logic [vec_pkg::VsewW-1:0] vsew_q;
   logic [ELEN-1:0] c_q;
 
   always_ff @(posedge clk) begin

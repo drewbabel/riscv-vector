@@ -18,14 +18,14 @@ module vec_unit
     localparam int NRegs     = 1 << AWIDTH
 ) (
 `ifdef RISCV_FORMAL
-    output logic [      7:0] dbg_vec_tag,
-    output logic             dbg_vec_retire,
-    output logic [NRegs-1:0] dbg_vec_wregs,
-    output logic             dbg_vec_idle,
+    output logic [vec_pkg::VecTagW-1:0] dbg_vec_tag,
+    output logic                        dbg_vec_retire,
+    output logic [           NRegs-1:0] dbg_vec_wregs,
+    output logic                        dbg_vec_idle,
 `endif
-    input  wire              clk,
-    input  wire              rst_n,
-    input  wire              core_en,
+    input  wire                         clk,
+    input  wire                         rst_n,
+    input  wire                         core_en,
 
     // Execute stage
     input wire vec_dec_t            dec,
@@ -37,10 +37,10 @@ module vec_unit
     input wire           [XLEN-1:0] fdata,
 
     // Live configuration
-    input wire           vill,
-    input wire [VlW-1:0] vl,
-    input wire [    2:0] vsew,
-    input wire [    2:0] vlmul,
+    input wire                       vill,
+    input wire [            VlW-1:0] vl,
+    input wire [ vec_pkg::VsewW-1:0] vsew,
+    input wire [vec_pkg::VlmulW-1:0] vlmul,
 
     // Memory port
     input  wire  [  VLEN-1:0] mem_rdata,
@@ -104,8 +104,6 @@ module vec_unit
   localparam int FpW = fp_pkg::FLEN;
   localparam int HalfW = FpW / 2;
   localparam logic [2:0] ElenLog2 = 3'($clog2(ELEN));
-  localparam logic [2:0] FpSew = 3'($clog2(FpW / 8));
-  localparam logic [2:0] FpHalfSew = 3'($clog2(HalfW / 8));
 
   // Float stage sized
   if (FpWb != LaneWb + 1) begin : g_fp_depth
@@ -125,203 +123,203 @@ module vec_unit
   end
 
   // Decoded fields
-  logic                     dec_valid;
-  vec_op_e                  dec_op;
-  vec_src_e                 dec_src;
-  vec_eew_e                 dec_eew;
-  logic                     dec_vm;
-  logic      [  AWIDTH-1:0] dec_vs1;
-  logic      [  AWIDTH-1:0] dec_vs2;
-  logic      [  AWIDTH-1:0] dec_vd;
-  logic      [         4:0] dec_simm;
-  logic                     dec_reads_vd;
-  logic                     dec_reads_xreg;
-  logic                     dec_writes_xreg;
-  logic                     dec_writes_freg;
-  logic                     dec_writes_mask;
-  logic      [         1:0] dec_width;
-  logic                     dec_whole;
-  logic      [         2:0] dec_nf;
-  logic                     dec_mask_ls;
-  logic                     dec_strided;
+  logic                            dec_valid;
+  vec_op_e                         dec_op;
+  vec_src_e                        dec_src;
+  vec_eew_e                        dec_eew;
+  logic                            dec_vm;
+  logic      [         AWIDTH-1:0] dec_vs1;
+  logic      [         AWIDTH-1:0] dec_vs2;
+  logic      [         AWIDTH-1:0] dec_vd;
+  logic      [                4:0] dec_simm;
+  logic                            dec_reads_vd;
+  logic                            dec_reads_xreg;
+  logic                            dec_writes_xreg;
+  logic                            dec_writes_freg;
+  logic                            dec_writes_mask;
+  logic      [                1:0] dec_width;
+  logic                            dec_whole;
+  logic      [                2:0] dec_nf;
+  logic                            dec_mask_ls;
+  logic                            dec_strided;
 
   // Issued instruction
-  vec_op_e                  seq_op;
-  vec_src_e                 seq_src;
-  vec_eew_e                 seq_eew;
-  logic                     seq_start;
-  logic      [  AWIDTH-1:0] seq_vs1;
-  logic      [  AWIDTH-1:0] seq_vs2;
-  logic      [  AWIDTH-1:0] seq_vd;
-  logic                     seq_vm;
-  logic                     seq_reads_vd;
-  logic      [         4:0] seq_simm;
-  logic      [    XLEN-1:0] seq_xdata;
-  logic      [    XLEN-1:0] seq_xstride;
-  logic      [     VlW-1:0] seq_vl;
-  logic      [         2:0] seq_vsew;
-  logic      [         2:0] seq_vlmul;
-  logic      [   VxrmW-1:0] seq_vxrm;
-  vec_fop_e                 seq_fop;
-  logic      [     RmW-1:0] seq_frm;
+  vec_op_e                         seq_op;
+  vec_src_e                        seq_src;
+  vec_eew_e                        seq_eew;
+  logic                            seq_start;
+  logic      [         AWIDTH-1:0] seq_vs1;
+  logic      [         AWIDTH-1:0] seq_vs2;
+  logic      [         AWIDTH-1:0] seq_vd;
+  logic                            seq_vm;
+  logic                            seq_reads_vd;
+  logic      [                4:0] seq_simm;
+  logic      [           XLEN-1:0] seq_xdata;
+  logic      [           XLEN-1:0] seq_xstride;
+  logic      [            VlW-1:0] seq_vl;
+  logic      [ vec_pkg::VsewW-1:0] seq_vsew;
+  logic      [vec_pkg::VlmulW-1:0] seq_vlmul;
+  logic      [          VxrmW-1:0] seq_vxrm;
+  vec_fop_e                        seq_fop;
+  logic      [            RmW-1:0] seq_frm;
 
   // Sequencer outputs
-  logic      [  AWIDTH-1:0] raddr1;
-  logic      [  AWIDTH-1:0] raddr2;
-  logic      [  AWIDTH-1:0] raddr3;
-  logic      [  AWIDTH-1:0] waddr;
-  logic      [    VLEN-1:0] wstrb;
-  logic                     wen;
-  logic      [    OffW-1:0] s1_off;
-  logic      [    OffW-1:0] s2_off;
-  logic      [    OffW-1:0] d_off;
-  logic      [     VlW-1:0] elem_base;
-  logic      [  CountW-1:0] elem_count;
-  logic      [MaxElems-1:0] elem_active;
-  logic                     seq_last;
-  logic                     seq_reg_done;
-  logic                     m_reg_done;
-  logic                     seq_busy;
-  logic                     seq_done;
+  logic      [         AWIDTH-1:0] raddr1;
+  logic      [         AWIDTH-1:0] raddr2;
+  logic      [         AWIDTH-1:0] raddr3;
+  logic      [         AWIDTH-1:0] waddr;
+  logic      [           VLEN-1:0] wstrb;
+  logic                            wen;
+  logic      [           OffW-1:0] s1_off;
+  logic      [           OffW-1:0] s2_off;
+  logic      [           OffW-1:0] d_off;
+  logic      [            VlW-1:0] elem_base;
+  logic      [         CountW-1:0] elem_count;
+  logic      [       MaxElems-1:0] elem_active;
+  logic                            seq_last;
+  logic                            seq_reg_done;
+  logic                            m_reg_done;
+  logic                            seq_busy;
+  logic                            seq_done;
 
   // Register file data
-  logic      [    VLEN-1:0] rdata1;
-  logic      [    VLEN-1:0] rdata2;
-  logic      [    VLEN-1:0] rdata3;
-  logic      [    VLEN-1:0] rdata0;
+  logic      [           VLEN-1:0] rdata1;
+  logic      [           VLEN-1:0] rdata2;
+  logic      [           VLEN-1:0] rdata3;
+  logic      [           VLEN-1:0] rdata0;
 
   // Lane results
-  logic      [    VLEN-1:0] alu_result;
-  logic      [    VLEN-1:0] mixed_result;
-  logic      [    VLEN-1:0] red_result;
-  logic      [    VLEN-1:0] mask_result;
-  logic      [    XLEN-1:0] mask_xresult;
-  logic      [    VLEN-1:0] raw_result;
-  logic      [    VLEN-1:0] wdata;
+  logic      [           VLEN-1:0] alu_result;
+  logic      [           VLEN-1:0] mixed_result;
+  logic      [           VLEN-1:0] red_result;
+  logic      [           VLEN-1:0] mask_result;
+  logic      [           XLEN-1:0] mask_xresult;
+  logic      [           VLEN-1:0] raw_result;
+  logic      [           VLEN-1:0] wdata;
 
   // Memory sequencer
-  logic                     seq_mem;
-  logic      [  AWIDTH-1:0] m_raddr;
-  logic                     m_wen;
-  logic      [    VLEN-1:0] m_wstrb;
-  logic      [    VLEN-1:0] m_wdata;
-  logic                     m_busy;
-  logic                     m_done;
+  logic                            seq_mem;
+  logic      [         AWIDTH-1:0] m_raddr;
+  logic                            m_wen;
+  logic      [           VLEN-1:0] m_wstrb;
+  logic      [           VLEN-1:0] m_wdata;
+  logic                            m_busy;
+  logic                            m_done;
 
   // Slide lane
-  logic                     seq_slide;
-  logic      [  AWIDTH-1:0] sl_raddr_lo;
-  logic      [  AWIDTH-1:0] sl_raddr_hi;
-  logic                     sl_wen;
-  logic      [  AWIDTH-1:0] sl_waddr;
-  logic      [    VLEN-1:0] sl_wstrb;
-  logic      [    VLEN-1:0] sl_wdata;
-  logic                     sl_busy;
-  logic                     sl_done;
+  logic                            seq_slide;
+  logic      [         AWIDTH-1:0] sl_raddr_lo;
+  logic      [         AWIDTH-1:0] sl_raddr_hi;
+  logic                            sl_wen;
+  logic      [         AWIDTH-1:0] sl_waddr;
+  logic      [           VLEN-1:0] sl_wstrb;
+  logic      [           VLEN-1:0] sl_wdata;
+  logic                            sl_busy;
+  logic                            sl_done;
 
-  logic      [MaxElems-1:0] mask_bits;
-  logic                     issue_hold;
-  logic                     x_done;
+  logic      [       MaxElems-1:0] mask_bits;
+  logic                            issue_hold;
+  logic                            x_done;
 
   // Pipeline registers
-  logic                     valid_ex;
-  vec_op_e                  op_ex;
-  vec_src_e                 src_ex;
-  vec_eew_e                 eew_ex;
-  logic      [         2:0] vsew_ex;
-  logic      [   VxrmW-1:0] vxrm_ex;
-  vec_fop_e                 fop_ex;
-  logic      [     RmW-1:0] frm_ex;
-  logic                     vm_ex;
-  logic      [         4:0] simm_ex;
-  logic      [    XLEN-1:0] xdata_ex;
-  logic      [     VlW-1:0] vl_ex;
-  logic      [    VLEN-1:0] rdata1_ex;
-  logic      [    VLEN-1:0] rdata2_ex;
-  logic      [    VLEN-1:0] rdata3_ex;
-  logic      [    VLEN-1:0] rdata0_ex;
-  logic      [MaxElems-1:0] mask_bits_ex;
-  logic      [MaxElems-1:0] elem_active_ex;
-  logic      [     VlW-1:0] elem_base_ex;
-  logic      [    OffW-1:0] s1_off_ex;
-  logic      [    OffW-1:0] s2_off_ex;
-  logic      [    OffW-1:0] d_off_ex;
-  logic      [  AWIDTH-1:0] waddr_ex;
-  logic      [    VLEN-1:0] wstrb_ex;
-  logic                     wen_ex;
-  logic                     reg_done_ex;
-  logic                     last_ex;
-  logic                     slot_first_ex;
+  logic                            valid_ex;
+  vec_op_e                         op_ex;
+  vec_src_e                        src_ex;
+  vec_eew_e                        eew_ex;
+  logic      [ vec_pkg::VsewW-1:0] vsew_ex;
+  logic      [          VxrmW-1:0] vxrm_ex;
+  vec_fop_e                        fop_ex;
+  logic      [            RmW-1:0] frm_ex;
+  logic                            vm_ex;
+  logic      [                4:0] simm_ex;
+  logic      [           XLEN-1:0] xdata_ex;
+  logic      [            VlW-1:0] vl_ex;
+  logic      [           VLEN-1:0] rdata1_ex;
+  logic      [           VLEN-1:0] rdata2_ex;
+  logic      [           VLEN-1:0] rdata3_ex;
+  logic      [           VLEN-1:0] rdata0_ex;
+  logic      [       MaxElems-1:0] mask_bits_ex;
+  logic      [       MaxElems-1:0] elem_active_ex;
+  logic      [            VlW-1:0] elem_base_ex;
+  logic      [           OffW-1:0] s1_off_ex;
+  logic      [           OffW-1:0] s2_off_ex;
+  logic      [           OffW-1:0] d_off_ex;
+  logic      [         AWIDTH-1:0] waddr_ex;
+  logic      [           VLEN-1:0] wstrb_ex;
+  logic                            wen_ex;
+  logic                            reg_done_ex;
+  logic                            last_ex;
+  logic                            slot_first_ex;
 
-  logic                     valid_x2;
-  vec_cls_e                 cls_x2;
-  vec_op_e                  op_x2;
-  vec_fop_e                 fop_x2;
-  logic      [     RmW-1:0] frm_x2;
-  logic      [         2:0] vsew_x2;
-  logic      [   VxrmW-1:0] vxrm_x2;
-  logic                     wmul_x2;
-  logic      [    OffW-1:0] d_off_x2;
-  logic      [  AWIDTH-1:0] waddr_x2;
-  logic      [    VLEN-1:0] wstrb_x2;
-  logic                     wen_x2;
-  logic                     reg_done_x2;
-  logic                     last_x2;
+  logic                            valid_x2;
+  vec_cls_e                        cls_x2;
+  vec_op_e                         op_x2;
+  vec_fop_e                        fop_x2;
+  logic      [            RmW-1:0] frm_x2;
+  logic      [ vec_pkg::VsewW-1:0] vsew_x2;
+  logic      [          VxrmW-1:0] vxrm_x2;
+  logic                            wmul_x2;
+  logic      [           OffW-1:0] d_off_x2;
+  logic      [         AWIDTH-1:0] waddr_x2;
+  logic      [           VLEN-1:0] wstrb_x2;
+  logic                            wen_x2;
+  logic                            reg_done_x2;
+  logic                            last_x2;
 
-  logic                     valid_x3;
-  vec_cls_e                 cls_x3;
-  vec_op_e                  op_x3;
-  logic      [         2:0] vsew_x3;
-  logic      [   VxrmW-1:0] vxrm_x3;
-  logic                     wmul_x3;
-  logic      [    OffW-1:0] d_off_x3;
-  logic      [  AWIDTH-1:0] waddr_x3;
-  logic      [    VLEN-1:0] wstrb_x3;
-  logic                     wen_x3;
-  logic                     reg_done_x3;
-  logic                     last_x3;
-  logic                     valid_x4;
-  vec_cls_e                 cls_x4;
-  vec_op_e                  op_x4;
-  logic      [         2:0] vsew_x4;
-  logic                     wmul_x4;
-  logic      [    OffW-1:0] d_off_x4;
-  logic      [  AWIDTH-1:0] waddr_x4;
-  logic      [    VLEN-1:0] wstrb_x4;
-  logic                     wen_x4;
-  logic                     reg_done_x4;
-  logic                     last_x4;
-  logic                     valid_x5;
-  vec_cls_e                 cls_x5;
-  logic      [    OffW-1:0] d_off_x5;
-  logic      [  AWIDTH-1:0] waddr_x5;
-  logic      [    VLEN-1:0] wstrb_x5;
-  logic                     wen_x5;
-  logic                     reg_done_x5;
-  logic                     last_x5;
+  logic                            valid_x3;
+  vec_cls_e                        cls_x3;
+  vec_op_e                         op_x3;
+  logic      [ vec_pkg::VsewW-1:0] vsew_x3;
+  logic      [          VxrmW-1:0] vxrm_x3;
+  logic                            wmul_x3;
+  logic      [           OffW-1:0] d_off_x3;
+  logic      [         AWIDTH-1:0] waddr_x3;
+  logic      [           VLEN-1:0] wstrb_x3;
+  logic                            wen_x3;
+  logic                            reg_done_x3;
+  logic                            last_x3;
+  logic                            valid_x4;
+  vec_cls_e                        cls_x4;
+  vec_op_e                         op_x4;
+  logic      [ vec_pkg::VsewW-1:0] vsew_x4;
+  logic                            wmul_x4;
+  logic      [           OffW-1:0] d_off_x4;
+  logic      [         AWIDTH-1:0] waddr_x4;
+  logic      [           VLEN-1:0] wstrb_x4;
+  logic                            wen_x4;
+  logic                            reg_done_x4;
+  logic                            last_x4;
+  logic                            valid_x5;
+  vec_cls_e                        cls_x5;
+  logic      [           OffW-1:0] d_off_x5;
+  logic      [         AWIDTH-1:0] waddr_x5;
+  logic      [           VLEN-1:0] wstrb_x5;
+  logic                            wen_x5;
+  logic                            reg_done_x5;
+  logic                            last_x5;
 
-  vec_cls_e                 cls_wb;
-  logic      [    XLEN-1:0] xdata_wb;
-  logic      [    VLEN-1:0] alu_result_wb;
-  logic      [    VLEN-1:0] mixed_result_wb;
-  logic      [    VLEN-1:0] red_result_wb;
-  logic      [    VLEN-1:0] mask_result_wb;
-  logic      [    VLEN-1:0] lane_result_wb;
-  logic      [    OffW-1:0] d_off_wb;
-  logic      [  AWIDTH-1:0] waddr_wb;
-  logic      [    VLEN-1:0] wstrb_wb;
-  logic                     valid_wb;
-  logic                     wen_wb;
-  logic                     reg_done_wb;
-  logic                     last_wb;
+  vec_cls_e                        cls_wb;
+  logic      [           XLEN-1:0] xdata_wb;
+  logic      [           VLEN-1:0] alu_result_wb;
+  logic      [           VLEN-1:0] mixed_result_wb;
+  logic      [           VLEN-1:0] red_result_wb;
+  logic      [           VLEN-1:0] mask_result_wb;
+  logic      [           VLEN-1:0] lane_result_wb;
+  logic      [           OffW-1:0] d_off_wb;
+  logic      [         AWIDTH-1:0] waddr_wb;
+  logic      [           VLEN-1:0] wstrb_wb;
+  logic                            valid_wb;
+  logic                            wen_wb;
+  logic                            reg_done_wb;
+  logic                            last_wb;
 
   // Instruction classes
-  vec_cls_e                 dec_cls;
-  vec_cls_e                 seq_cls;
-  vec_cls_e                 cls_ex;
-  vec_geom_t                dec_geom_s;
-  vec_geom_t                seq_geom_s;
-  vec_geom_t                geom_ex;
+  vec_cls_e                        dec_cls;
+  vec_cls_e                        seq_cls;
+  vec_cls_e                        cls_ex;
+  vec_geom_t                       dec_geom_s;
+  vec_geom_t                       seq_geom_s;
+  vec_geom_t                       geom_ex;
 
   // Divide forms
   function automatic logic is_div(input vec_op_e op);
@@ -356,14 +354,14 @@ module vec_unit
   end
 
   // Element widths
-  logic [2:0] lsew;
-  logic [2:0] dec_ld;
-  logic [2:0] dec_ls1;
-  logic [2:0] dec_ls2;
-  logic       width_legal;
+  logic [vec_pkg::SewLog2W-1:0] lsew;
+  logic [vec_pkg::SewLog2W-1:0] dec_ld;
+  logic [vec_pkg::SewLog2W-1:0] dec_ls1;
+  logic [vec_pkg::SewLog2W-1:0] dec_ls2;
+  logic                         width_legal;
 
   // Element width fits
-  function automatic logic width_fits(input logic [2:0] lw);
+  function automatic logic width_fits(input logic [vec_pkg::SewLog2W-1:0] lw);
     width_fits = (lw >= ByteLog2) && (lw <= ElenLog2);
   endfunction
 
@@ -387,11 +385,11 @@ module vec_unit
   assign slide_legal = ((dec_op != VEC_SLIDEUP) && (dec_op != VEC_SLIDE1UP)) || (dec_vd != dec_vs2);
 
   // Whole register forms
-  logic              dec_mvnr;
-  logic              dec_full;
-  logic        [2:0] full_nf;
-  logic signed [3:0] full_emul;
-  logic              full_nop;
+  logic                             dec_mvnr;
+  logic                             dec_full;
+  logic        [               2:0] full_nf;
+  logic signed [vec_pkg::EmulW-1:0] full_emul;
+  logic                             full_nop;
 
   assign dec_mvnr  = (dec_op == VEC_MVNRR);
   assign dec_full  = dec_whole || dec_mvnr;
@@ -402,18 +400,19 @@ module vec_unit
   assign full_nop  = dec_mvnr && (dec_vd == dec_vs2);
 
   // Memory snapshot
-  logic                   dec_mem;
-  logic signed [     3:0] emul_log2;
-  logic                   emul_ok;
-  logic        [ VlW-1:0] issue_vl;
-  logic        [     2:0] issue_vsew;
-  logic        [     2:0] issue_vlmul;
-  logic        [XLEN-1:0] issue_stride;
-  logic                   base_off;
-  logic                   stride_off;
+  logic                              dec_mem;
+  logic signed [ vec_pkg::EmulW-1:0] emul_log2;
+  logic                              emul_ok;
+  logic        [            VlW-1:0] issue_vl;
+  logic        [ vec_pkg::VsewW-1:0] issue_vsew;
+  logic        [vec_pkg::VlmulW-1:0] issue_vlmul;
+  logic        [           XLEN-1:0] issue_stride;
+  logic                              base_off;
+  logic                              stride_off;
 
   // Multiplier in range
-  function automatic logic width_in_range(input logic signed [3:0] emul, input logic used);
+  function automatic logic width_in_range(input logic signed [vec_pkg::EmulW-1:0] emul,
+                                          input logic used);
     width_in_range = !used || ((emul >= -4'sd3) && (emul <= 4'sd3));
   endfunction
 
@@ -440,7 +439,7 @@ module vec_unit
 
   always_comb begin
     if (dec_mem) issue_vsew = {1'b0, dec_width};
-    else if (dec_mvnr) issue_vsew = 3'd0;
+    else if (dec_mvnr) issue_vsew = Sew8;
     else issue_vsew = vsew;
   end
 
@@ -456,9 +455,9 @@ module vec_unit
 
   // Permitted overlap
   function automatic logic pair_ok(input logic [GrpW-1:0] bd, input logic [GrpW-1:0] nd,
-                                   input logic [2:0] wd, input logic [GrpW-1:0] bs,
-                                   input logic [GrpW-1:0] ns, input logic [2:0] ws,
-                                   input logic src_whole);
+                                   input logic [vec_pkg::SewLog2W-1:0] wd,
+                                   input logic [GrpW-1:0] bs, input logic [GrpW-1:0] ns,
+                                   input logic [vec_pkg::SewLog2W-1:0] ws, input logic src_whole);
     logic hit;
     begin
       hit = (bd < (bs + ns)) && (bs < (bd + nd));
@@ -470,29 +469,29 @@ module vec_unit
   endfunction
 
   // Group legality
-  logic                   dec_store;
-  logic                   dec_ext;
-  logic                   dec_funary;
-  logic                   dec_fcvt;
-  logic                   has_vd;
-  logic                   uses_vs1;
-  logic                   uses_vs2;
-  logic signed [     3:0] lmul_log2;
-  logic signed [     3:0] d_delta;
-  logic signed [     3:0] s1_delta;
-  logic signed [     3:0] s2_delta;
-  logic signed [     3:0] d_emul;
-  logic signed [     3:0] s1_emul;
-  logic signed [     3:0] s2_emul;
-  logic        [GrpW-1:0] d_regs;
-  logic        [GrpW-1:0] s1_regs;
-  logic        [GrpW-1:0] s2_regs;
-  logic                   emul_legal;
-  logic                   align_ok;
-  logic        [     2:0] dest_lw;
-  logic                   overlap_ok;
-  logic                   mask_ok;
-  logic                   group_legal;
+  logic                                dec_store;
+  logic                                dec_ext;
+  logic                                dec_funary;
+  logic                                dec_fcvt;
+  logic                                has_vd;
+  logic                                uses_vs1;
+  logic                                uses_vs2;
+  logic signed [   vec_pkg::EmulW-1:0] lmul_log2;
+  logic signed [   vec_pkg::EmulW-1:0] d_delta;
+  logic signed [   vec_pkg::EmulW-1:0] s1_delta;
+  logic signed [   vec_pkg::EmulW-1:0] s2_delta;
+  logic signed [   vec_pkg::EmulW-1:0] d_emul;
+  logic signed [   vec_pkg::EmulW-1:0] s1_emul;
+  logic signed [   vec_pkg::EmulW-1:0] s2_emul;
+  logic        [             GrpW-1:0] d_regs;
+  logic        [             GrpW-1:0] s1_regs;
+  logic        [             GrpW-1:0] s2_regs;
+  logic                                emul_legal;
+  logic                                align_ok;
+  logic        [vec_pkg::SewLog2W-1:0] dest_lw;
+  logic                                overlap_ok;
+  logic                                mask_ok;
+  logic                                group_legal;
 
   assign dec_store = (dec_op == VEC_STORE);
   assign has_vd = (dec_cls != VEC_CLS_XS) && (dec_cls != VEC_CLS_XM);
@@ -638,10 +637,10 @@ module vec_unit
   assign id_legal = (dec_op != VEC_ID) || (dec_vs2 == '0);
 
   // Float needs e32
-  logic       dec_fp;
-  logic       dec_fcvt_wn;
-  logic [2:0] fp_sew;
-  logic       fp_legal;
+  logic                      dec_fp;
+  logic                      dec_fcvt_wn;
+  logic [vec_pkg::VsewW-1:0] fp_sew;
+  logic                      fp_legal;
   assign dec_fp = vec_is_fp(dec_op, dec.reads_freg, dec_writes_freg);
 
   // Wide conversions e16
