@@ -20,6 +20,7 @@ package opcode_pkg;
   localparam logic [6:0] OpcodeLoadFp = 7'b0000111;
   localparam logic [6:0] OpcodeStoreFp = 7'b0100111;
   localparam logic [2:0] Funct3Opcfg = 3'b111;
+  localparam logic [2:0] Funct3Opmvv = 3'b010;
 
   // Float opcodes
   localparam logic [6:0] OpcodeOpFp = 7'b1010011;

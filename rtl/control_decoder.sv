@@ -28,7 +28,6 @@ module control_decoder
     output muldiv_pkg::muldiv_op_e                muldiv_op
 );
 
-  localparam logic [2:0] Funct3Opmvv = 3'b010;
   localparam logic [5:0] Funct6Vwxunary = 6'b010000;
 
   logic [$bits(Funct7MulDiv)-1:0] funct7;
