@@ -18,6 +18,12 @@ module vec_div_lane
     output logic                    done
 );
 
+  localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
+
+  if ((ELEN < 16) || (ELEN != (8 << SewTop))) begin : g_elen_error
+    $error("ELEN must be a power of two from 16");
+  end
+
   logic is_signed;
   muldiv_op_e md_op;
   logic [ELEN-1:0] a_ext;
@@ -27,11 +33,11 @@ module vec_div_lane
 
   function automatic logic [ELEN-1:0] extend(input logic [ELEN-1:0] x, input logic [2:0] sew,
                                              input logic sgn);
-    case (sew)
-      3'd0: extend = sgn ? ELEN'($signed(x[7:0])) : ELEN'(x[7:0]);
-      3'd1: extend = sgn ? ELEN'($signed(x[15:0])) : ELEN'(x[15:0]);
-      default: extend = x;
-    endcase
+    logic [ELEN-1:0] keep;
+    keep = {ELEN{1'b1}} >> (ELEN - (8 << sew));
+    if (sew >= SewTop) extend = x;
+    else if (sgn && x[(8<<sew)-1]) extend = x | ~keep;
+    else extend = x & keep;
   endfunction
 
   assign is_signed = (op == VEC_DIV) || (op == VEC_REM);
