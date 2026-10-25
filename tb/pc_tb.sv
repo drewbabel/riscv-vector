@@ -3,13 +3,64 @@
 module pc_tb ();
 
   localparam int Xlen = arch_pkg::XLEN;
-  localparam logic [Xlen-1:0] ResetAddr = '0;
-  localparam int ResetEvery = 6;
   localparam int MinChecks = 1000;
+
+  int checks;
+  int errors;
+  int max_errors;
+
+  pc_bench #(.RESET_ADDR('0)) zero_bench ();
+
+  pc_bench #(.RESET_ADDR(Xlen'(256))) high_bench ();
+
+  pc_bench #(.RESET_ADDR(Xlen'(32'h8000_0000))) top_bench ();
+
+  task automatic do_verdict();
+    checks = zero_bench.checks + high_bench.checks + top_bench.checks;
+    errors = zero_bench.errors + high_bench.errors + top_bench.errors;
+    if (zero_bench.checks < MinChecks || high_bench.checks < MinChecks ||
+        top_bench.checks < MinChecks)
+      $fatal(
+          1,
+          "TB UNDER-RAN: %0d, %0d and %0d checks, expected at least %0d each",
+          zero_bench.checks,
+          high_bench.checks,
+          top_bench.checks,
+          MinChecks
+      );
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("pc_tb.vcd");
+    $dumpvars(0, pc_tb);
+    wait (zero_bench.done && high_bench.done && top_bench.done);
+    do_verdict();
+  end
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (zero_bench.errors + high_bench.errors + top_bench.errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches",
+             zero_bench.errors + high_bench.errors + top_bench.errors);
+    end
+  end
+
+endmodule
+
+module pc_bench #(
+    parameter logic [arch_pkg::XLEN-1:0] RESET_ADDR = '0
+) ();
+
+  localparam int Xlen = arch_pkg::XLEN;
+  localparam logic [Xlen-1:0] ResetAddr = RESET_ADDR;
+  localparam int ResetEvery = 6;
 
   int checks = 0;
   int errors = 0;
-  int max_errors = 0;
+  logic done = 1'b0;
 
   logic clk = 0;
   logic rst_n;
@@ -33,8 +84,7 @@ module pc_tb ();
     checks++;
     if (got !== exp) begin
       errors++;
-      $display("FAIL %s: got %h, expected %h", name, got, exp);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+      $display("FAIL RESET_ADDR %0h %s: got %h, expected %h", ResetAddr, name, got, exp);
     end
   endtask  // Automatic
 
@@ -46,13 +96,9 @@ module pc_tb ();
     rst_n = 1;
   endtask  // Automatic
 
-  task automatic do_verdict();
+  task automatic finish();
     @(posedge clk);
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
+    done = 1'b1;
   endtask  // Automatic
 
   task automatic pc_suite(input logic rst_in, input logic [Xlen-1:0] exp_pc, input logic reg_check);
@@ -69,15 +115,12 @@ module pc_tb ();
     for (int i = 0; i < n; i++) pc_suite(1'((i % ResetEvery) != 0), Xlen'($urandom), 1'($urandom));
   endtask  // Automatic
 
-  initial void'($value$plusargs("max_errors=%d", max_errors));
-
   initial begin
-    $dumpfile("pc_tb.vcd");
-    $dumpvars(0, pc_tb);
     do_reset();
     soak(1000);
-    do_verdict();
+    finish();
   end
+
 endmodule
 
 `default_nettype wire
