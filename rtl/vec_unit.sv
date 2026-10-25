@@ -85,6 +85,10 @@ module vec_unit
     $error("ELEN must be 32 (Zve32f)");
   end
 
+  if ((1 << AWIDTH) != 32) begin : g_vregs
+    $error("vector register file must hold 32 registers");
+  end
+
   localparam int OffW = $clog2(VLEN);
   localparam int CountW = $clog2(MaxElems + 1);
   localparam int GrpW = AWIDTH + 1;
