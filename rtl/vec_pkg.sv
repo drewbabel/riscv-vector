@@ -182,6 +182,8 @@ package vec_pkg;
     VEC_FREDUSUM
   } vec_fop_e;
 
+  localparam logic [2:0] ByteLog2 = 3'($clog2(8));
+
   localparam int VecFpUnitLatency = fp_pkg::FpMaxLatency;
   localparam int VecFpLatency = VecFpUnitLatency + 2;
 
@@ -234,6 +236,21 @@ package vec_pkg;
       VEC_REL_QUARTER: vec_rel_regs = (base > 4'd3) ? 5'(base >> 2) : 5'd1;
       default:         vec_rel_regs = 5'(base);
     endcase
+  endfunction
+
+  function automatic int vec_group_regs(input logic signed [3:0] emul);
+    if (emul <= 4'sd0) vec_group_regs = 1;
+    else vec_group_regs = 1 << emul[2:0];
+  endfunction
+
+  function automatic int vec_group_elems(input int reg_elems, input logic [2:0] vlmul);
+    if (vlmul[2]) vec_group_elems = reg_elems >> (3'd0 - vlmul);
+    else vec_group_elems = reg_elems << vlmul[1:0];
+  endfunction
+
+  function automatic int vec_sew_index(input logic [2:0] sew, input int widths);
+    if (int'(sew) < widths) vec_sew_index = int'(sew);
+    else vec_sew_index = widths - 1;
   endfunction
 
   function automatic vec_cls_e vec_class(input vec_op_e op);
@@ -366,6 +383,12 @@ package vec_pkg;
     logic mem_mask;
     logic mem_strided;
   } vec_dec_t;
+
+  function automatic logic vec_is_fp(input vec_op_e op, input logic reads_freg,
+                                     input logic writes_freg);
+    vec_is_fp = (op == VEC_FARITH) || (op == VEC_FCMP) || (op == VEC_FRED) || reads_freg ||
+        writes_freg;
+  endfunction
 
 endpackage
 
