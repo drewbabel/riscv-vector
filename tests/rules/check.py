@@ -28,6 +28,7 @@ PKGS = [
 ]
 HASH = "\x23"
 MAX_WORDS = 4
+SECTION_WORDS = 4
 ARTICLES = {"a", "an", "the"}
 PRAGMA = re.compile(
     r"^\s*(verilator|verible|synopsys|pragma|yosys|spyglass|noqa|type:|shellcheck|fmt:)"
@@ -931,16 +932,42 @@ def rule_bench_syntax(u, rep):
         if n.get("tag") != "kInitialStatement":
             continue
         a, b = span(n)
-        for ca, _, _, _ in comments:
-            if a <= ca < b:
-                line, col = u.at(ca)
-                rep.add(
-                    u.path,
-                    line,
-                    col,
-                    "bench-call-comment",
-                    "comment in the initial block, put it above the task",
-                )
+        for ca, ce, kind, body in comments:
+            if not a <= ca < b:
+                continue
+            start = u.src.text.rfind("\n", 0, ca) + 1
+            lead = u.src.text[start:ca].strip()
+            if (
+                kind == "line"
+                and not lead
+                and len(body.split()) <= SECTION_WORDS
+                and section_calls(u.src.text, ce, b) > 1
+            ):
+                continue
+            line, col = u.at(ca)
+            rep.add(
+                u.path,
+                line,
+                col,
+                "bench-call-comment",
+                "case comment in the initial block, put it above the task",
+            )
+
+
+def section_calls(text, off, end):
+    n = depth = 0
+    for line in text[off:end].split("\n")[1:]:
+        s = line.strip()
+        if not s or s.startswith("//"):
+            break
+        for ch in s:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == ";" and depth == 0:
+                n += 1
+    return n
 
 
 def is_bench(path):
