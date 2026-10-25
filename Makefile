@@ -10,6 +10,8 @@
 #   make view-rvfi CHECK=insn_addi_ch0   open a riscv-formal counterexample in surfer
 #   make hex PROG=program        assemble tests/$(PROG).s -> tests/$(PROG).hex for $readmemh
 #   make dis PROG=program        disassemble the built elf (sanity-check the machine code)
+#   make sw PROG=hello           build sw/hello/*.c into build/hello.hex
+#   make sw-run PROG=hello       run it on the Nexys video board model
 #   make cosim PROG=cosim1       lockstep-compare tests/cosim1.s against Spike (needs spike installed)
 #   make cosim PROG=cosim1 TRACE=1   same, plus build/cosim1.trace, one line per retired instruction
 #   make clean                   delete build artifacts (build/, *.vcd)
@@ -32,9 +34,10 @@ RVFI_DIR := $(or $(RISCV_FORMAL_DIR),build/riscv-formal)/cores/rv32i_pipe/checks
 FORMAL := formal/$(MOD).sby
 
 # program build: RISC-V assembly -> hex words for $readmemh
-RVGCC   := riscv64-elf-gcc
-RVCOPY  := riscv64-elf-objcopy
-RVDUMP  := riscv64-elf-objdump
+RVPREFIX ?= riscv64-elf-
+RVGCC   := $(RVPREFIX)gcc
+RVCOPY  := $(RVPREFIX)objcopy
+RVDUMP  := $(RVPREFIX)objdump
 RVFLAGS := -march=rv32im_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T tests/link.ld
 
 # TestFloat reference files
@@ -174,6 +177,35 @@ cosim:
 	@test -n "$(PROG)" || { echo "usage: make cosim PROG=<name>  (lockstep tests/$(PROG).s vs Spike)"; exit 1; }
 	python3 tests/cosim.py $(if $(TRACE),--trace) $(PROG)
 
+SWPREFIX  ?= riscv64-unknown-elf-
+SWCOMMON  := sw/common
+SWARCH    := rv32imf_zicsr_zve32f_zvl128b
+SWCFLAGS  := -march=$(SWARCH) -mabi=ilp32 -O2 -fno-tree-vectorize -I$(SWCOMMON)
+SWLDFLAGS := -march=$(SWARCH) -mabi=ilp32 -specs=nano.specs -nostartfiles -Wl,--no-warn-rwx-segments -T $(SWCOMMON)/board.ld
+SWLIMIT   ?= 4294967295
+BOARD_RTL := $(PKGS) $(filter-out $(PKGS),$(wildcard rtl/*.sv)) $(wildcard rtl/single_cycle/*.sv) rtl/boards/nexys_video/board_top.sv
+
+sw:
+	@test -n "$(PROG)" || { echo "usage: make sw PROG=<name>  (sources in sw/<name>/)"; exit 1; }
+	@mkdir -p build
+	$(SWPREFIX)gcc $(SWCFLAGS) $(SWLDFLAGS) -o build/$(PROG).elf $(SWCOMMON)/crt.S $(SWCOMMON)/sys.c sw/$(PROG)/*.c -lm
+	$(SWPREFIX)objcopy -O binary build/$(PROG).elf build/$(PROG).bin
+	python3 $(SWCOMMON)/bin2hex.py build/$(PROG).bin build/$(PROG).hex
+	@echo "built build/$(PROG).hex"
+
+build/board_sim: $(BOARD_RTL) tb/mig_7series_0.sv tb/board_run_tb.sv
+	@mkdir -p build
+	verilator --binary --timing -O3 -j 8 -Wno-fatal -Wno-WIDTH -Wno-MULTITOP \
+		--top-module board_run_tb -Mdir build/obj_board -o board_sim \
+		$(BOARD_RTL) tb/mig_7series_0.sv tb/board_run_tb.sv
+	cp build/obj_board/board_sim build/board_sim
+
+sw-run:
+	@test -n "$(PROG)" || { echo "usage: make sw-run PROG=<name>"; exit 1; }
+	$(MAKE) -s sw PROG=$(PROG)
+	$(MAKE) -s build/board_sim
+	build/board_sim +HEX=build/$(PROG).hex +LIMIT=$(SWLIMIT)
+
 $(SOFTFLOAT_SRC):
 	git clone -q https://github.com/ucb-bar/berkeley-softfloat-3.git $@
 	git -C $@ checkout -q $(SOFTFLOAT_SHA)
@@ -200,4 +232,4 @@ clean:
 	rm -rf build *.vcd sim_build results.xml
 
 .DEFAULT_GOAL := run
-.PHONY: run vsim prog wave fmt formal view view-rvfi trace view-formal hex dis cosim testfloat clean
+.PHONY: run vsim prog wave fmt formal view view-rvfi trace view-formal hex dis cosim testfloat clean sw sw-run

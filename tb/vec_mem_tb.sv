@@ -94,6 +94,7 @@ module vec_mem_tb ();
       .mem_addr(mem_addr),
       .mem_wdata(mem_wdata),
       .mem_wstrb(mem_wstrb),
+      .reg_done(),
       .busy(busy),
       .done(done)
   );

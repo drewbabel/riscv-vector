@@ -38,6 +38,7 @@ module vec_sequencer
     input wire           mask_dest,
     input wire           mask_whole,
     input wire           mask_src,
+    input wire           serial,
 
     // Register ports
     output logic [AWIDTH-1:0] raddr1,
@@ -108,16 +109,18 @@ module vec_sequencer
   always_comb begin
     ln = LnW'(OffW) - LnW'(lmax);
     if (mul_rate && (ln > LnW'(MulLn))) ln = LnW'(MulLn);
+    if (serial) ln = '0;
   end
 
   assign elem_count = mask_whole ? CntW'(1) : CntW'(CntW'(1) << ln);
 
   // Group geometry
-  logic [    4:0] regs_per_group;
+  logic [VlW-1:0] reg_elems;
   logic [VlW-1:0] total_elems;
 
-  assign regs_per_group = vlmul[2] ? 5'd1 : 5'(5'd1 << vlmul[1:0]);
-  assign total_elems = mask_whole ? VlW'(1) : (VlW'(regs_per_group) << (LnW'(OffW) - LnW'(lsew)));
+  assign reg_elems = VlW'(VlW'(1) << (LnW'(OffW) - LnW'(lsew)));
+  assign total_elems = mask_whole ? VlW'(1) :
+      (vlmul[2] ? (reg_elems >> (3'd0 - vlmul)) : (reg_elems << vlmul[1:0]));
 
   // Element counter
   logic [VlW-1:0] elem_q;

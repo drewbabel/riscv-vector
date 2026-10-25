@@ -43,6 +43,7 @@ module vec_alu_lane
       VEC_ADC:   result = a + b + W'(mask_bit);
       VEC_SBC:   result = a - b - W'(mask_bit);
       VEC_MERGE: result = sel ? b : a;
+      VEC_MVNRR: result = a;
       default:   result = '0;
     endcase
   end

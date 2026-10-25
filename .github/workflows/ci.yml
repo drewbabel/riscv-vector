@@ -4,6 +4,7 @@ env:
   OSS_CAD_SUITE: '2026-07-24'
   SV2V: 'v0.0.13'
   RISCV_FORMAL_SHA: '2bd7410'
+  SPIKE_SHA: '55b4658dbf574ba0b714083ec436ce2cb5be1998'
 
 on:
   push:
@@ -22,7 +23,7 @@ jobs:
       - name: Split testbenches into groups
         id: list
         run: |
-          groups=$(ls tb/*_tb.sv | sed 's#.*/##;s#_tb\.sv$##' | grep -vE '^(coremark_boot|coremark_predict|embench_boot|freertos_boot|gate_check)$' | python3 -c "import sys, json; n=[l.strip() for l in sys.stdin if l.strip()]; g=[[] for _ in range(4)]; [g[i % 4].append(x) for i, x in enumerate(n)]; print(json.dumps([' '.join(x) for x in g if x]))")
+          groups=$(ls tb/*_tb.sv | sed 's#.*/##;s#_tb\.sv$##' | grep -vE '^(coremark_boot|coremark_predict|embench_boot|freertos_boot|gate_check|board_run)$' | python3 -c "import sys, json; n=[l.strip() for l in sys.stdin if l.strip()]; g=[[] for _ in range(4)]; [g[i % 4].append(x) for i, x in enumerate(n)]; print(json.dumps([' '.join(x) for x in g if x]))")
           echo "groups=$groups" >> "$GITHUB_OUTPUT"
 
   testbenches:
@@ -210,11 +211,12 @@ jobs:
         uses: actions/cache@v6
         with:
           path: /opt/spike
-          key: spike-riscv-isa-sim-v1
+          key: spike-${{ env.SPIKE_SHA }}
       - name: Build Spike
         if: steps.spike-cache.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 https://github.com/riscv-software-src/riscv-isa-sim.git
+          git clone https://github.com/riscv-software-src/riscv-isa-sim.git
+          git -C riscv-isa-sim checkout "$SPIKE_SHA"
           cd riscv-isa-sim && mkdir build && cd build
           ../configure --prefix=/opt/spike
           make -j"$(nproc)"
@@ -249,10 +251,57 @@ jobs:
         run: python3 tests/cosim.py --vec vecxres
       - name: Scalar float co-sim
         run: python3 tests/cosim.py --fp cosim_f
+      - name: Vector float co-sim
+        run: python3 tests/cosim.py --vec --fp vecfp
+      - name: Vector float move co-sim
+        run: python3 tests/cosim.py --vec --fp vecfmv
+      - name: Vector float move behind divide co-sim
+        run: python3 tests/cosim.py --vec --fp vecfmvdiv
+      - name: Vector float reduction co-sim
+        run: python3 tests/cosim.py --vec --fp vecfred
+      - name: Vector float sum co-sim
+        run: python3 tests/cosim.py --vec --fp vecfsum
+      - name: Vector float unary co-sim
+        run: python3 tests/cosim.py --vec --fp vecfunary
+      - name: Vector slide co-sim
+        run: python3 tests/cosim.py --vec --fp vecslide
+      - name: Vector float divide co-sim
+        run: python3 tests/cosim.py --vec --fp vecfdiv
+      - name: Vector float convert co-sim
+        run: python3 tests/cosim.py --vec --fp vecfcvt
+      - name: Vector float widen and narrow co-sim
+        run: python3 tests/cosim.py --vec --fp vecfcvtw
+      - name: Float load and store co-sim
+        run: python3 tests/cosim.py --fp --vec cosim_fls
+      - name: Fractional group co-sim
+        run: python3 tests/cosim.py --vec --fp vecfrac
+      - name: Vector float arithmetic co-sim
+        run: python3 tests/cosim.py --vec --fp vecfarith
+      - name: Vector float min, max, sign and compare co-sim
+        run: python3 tests/cosim.py --vec --fp vecfminmax
+      - name: Vector float fused multiply-add co-sim
+        run: python3 tests/cosim.py --vec --fp vecffma
+      - name: Vector float reduction forms co-sim
+        run: python3 tests/cosim.py --vec --fp vecfredall
+      - name: Vector float move and merge co-sim
+        run: python3 tests/cosim.py --vec --fp vecfmove
+      - name: Vector float rounding mode co-sim
+        run: python3 tests/cosim.py --vec --fp vecfround
+      - name: Vector float invalid frm and flags co-sim
+        run: python3 tests/cosim.py --vec --fp vecffrm
+      - name: Vector float widening trap co-sim
+        run: python3 tests/cosim.py --vec --fp vecfwtrap
+      - name: Vector SEW 64 vill co-sim
+        run: python3 tests/cosim.py --vec --fp vecve64
+      - name: Draw the random co-sim seed
+        run: |
+          seed=$(( $(od -An -N4 -tu4 /dev/urandom) % 1000000000 ))
+          echo "RAND_SEED=$seed" >> "$GITHUB_ENV"
+          echo "random co-sim seed $seed"
       - name: Randomized vector memory co-sim (100 programs)
-        run: python3 tests/cosim.py --vec --rand 100
+        run: python3 tests/cosim.py --vec --stall --irq --rand 100 "$RAND_SEED"
       - name: Randomized co-sim regression (500 programs)
-        run: python3 tests/cosim.py --rand 500
+        run: python3 tests/cosim.py --stall --irq --rand 500 "$RAND_SEED"
       - name: Generated RVV test sweep
         run: |
           git clone -q https://github.com/chipsalliance/riscv-vector-tests.git build/rvv-gen

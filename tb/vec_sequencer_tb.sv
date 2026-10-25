@@ -14,6 +14,7 @@ module vec_sequencer_tb ();
   int                      checks = 0;
   int                      errors = 0;
   int                      max_errors = 0;
+  int                      reg_dones = 0;
 
   logic                    clk = 1'b0;
   logic                    rst_n;
@@ -36,6 +37,7 @@ module vec_sequencer_tb ();
   logic                    mask_dest;
   logic                    mask_whole;
   logic                    mask_src;
+  logic                    serial;
   logic     [  AWIDTH-1:0] raddr1;
   logic     [  AWIDTH-1:0] raddr2;
   logic     [  AWIDTH-1:0] raddr3;
@@ -49,6 +51,7 @@ module vec_sequencer_tb ();
   logic     [    CntW-1:0] elem_count;
   logic     [MaxElems-1:0] elem_active;
   logic                    last;
+  logic                    reg_done;
   logic                    busy;
   logic                    done;
 
@@ -72,6 +75,7 @@ module vec_sequencer_tb ();
       .vlmul       (vlmul),
       .vm          (vm),
       .mask_bits   (mask_bits),
+      .v0_bits     ({VLEN{1'b1}}),
       .d_rel       (d_rel),
       .s1_rel      (s1_rel),
       .s2_rel      (s2_rel),
@@ -80,6 +84,7 @@ module vec_sequencer_tb ();
       .mask_dest   (mask_dest),
       .mask_whole  (mask_whole),
       .mask_src    (mask_src),
+      .serial      (serial),
       .raddr1      (raddr1),
       .raddr2      (raddr2),
       .raddr3      (raddr3),
@@ -93,9 +98,12 @@ module vec_sequencer_tb ();
       .elem_count  (elem_count),
       .elem_active (elem_active),
       .last        (last),
+      .reg_done    (reg_done),
       .busy        (busy),
       .done        (done)
   );
+
+  always @(posedge clk) if (core_en && reg_done) reg_dones++;
 
   // Reference model
   function automatic int ref_regs(input logic [2:0] lmul);
@@ -123,10 +131,12 @@ module vec_sequencer_tb ();
     end
     n = VLEN / widest;
     if (mr && (n > MulLanes)) n = MulLanes;
+    if (serial) n = 1;
     return n;
   endfunction
 
   function automatic int ref_total(input logic [2:0] sew, input logic [2:0] lmul);
+    if (lmul[2]) return (VLEN / (8 << sew)) >> (4 - lmul[1:0]);
     return ref_regs(lmul) * (VLEN / (8 << sew));
   endfunction
 
@@ -180,6 +190,7 @@ module vec_sequencer_tb ();
     mask_dest    = 1'b0;
     mask_whole   = 1'b0;
     mask_src     = 1'b0;
+    serial       = 1'b0;
   endtask
 
   task automatic do_reset();
@@ -201,6 +212,7 @@ module vec_sequencer_tb ();
                             input logic [VlW-1:0] len, input logic use_all,
                             input logic [MaxElems-1:0] msk, input logic sw, input logic is_last);
     logic [VLEN-1:0] exp_strb;
+    logic            exp_done;
     int dw, w1, w2, n, roff_d, roff_1, roff_2;
     dw       = ref_width(d_rel, sew);
     w1       = ref_width(s1_rel, sew);
@@ -210,6 +222,7 @@ module vec_sequencer_tb ();
     roff_1   = sw ? 0 : ref_reg_of(eb, w1);
     roff_2   = ref_reg_of(eb, w2);
     exp_strb = ref_strb(eb, sew, len, use_all, msk, sw, is_last);
+    exp_done = is_last || (!sw && (ref_reg_of(eb + n, dw) != roff_d));
     checks++;
     if (raddr1 !== a1 + AWIDTH'(roff_1)) fail("raddr1");
     else if (raddr2 !== a2 + AWIDTH'(roff_2)) fail("raddr2");
@@ -222,6 +235,7 @@ module vec_sequencer_tb ();
     else if (s2_off !== OffW'(ref_bit_of(eb, w2))) fail("s2_off");
     else if (d_off !== OffW'(sw ? 0 : ref_bit_of(eb, dw))) fail("d_off");
     else if (last !== is_last) fail("last");
+    else if (reg_done !== exp_done) fail("reg_done");
     else if (wen !== (exp_strb != '0)) fail("wen");
   endtask
 
@@ -345,6 +359,49 @@ module vec_sequencer_tb ();
           set_shape(VEC_REL_SAME, VEC_REL_SAME, VEC_REL_SAME, 1'b0, 1'b1);
           run_case(5'd1, 5'd8, 5'd16, 1'b0, VlW'(t == 0 ? vmax : (t == 1 ? vmax / 2 : 1)), 3'(sew),
                    3'(lm), 1'b1, '1);
+          serial = 1'b1;
+          run_case(5'd1, 5'd8, 5'd16, 1'b0, VlW'(t == 0 ? vmax : (t == 1 ? vmax / 2 : 1)), 3'(sew),
+                   3'(lm), 1'($urandom), 16'($urandom));
+          serial = 1'b0;
+        end
+      end
+    end
+  endtask
+
+  // Destination group size
+  task automatic run_counted(input logic rd_vd, input logic [VlW-1:0] len, input logic [2:0] sew,
+                             input logic [2:0] lmul);
+    int dregs;
+    dregs = (ref_total(sew, lmul) * ref_width(d_rel, sew)) / VLEN;
+    if (dregs < 1) dregs = 1;
+    reg_dones = 0;
+    run_case(5'd4, 5'd8, 5'd16, rd_vd, len, sew, lmul, 1'b1, '1);
+    checks++;
+    if (reg_dones != dregs) fail("registers finished");
+  endtask
+
+  // Wide and narrow
+  task automatic check_group_shapes();
+    for (int i = 0; i < 5; i++) begin
+      for (int sew = 0; sew < 2; sew++) begin
+        logic [2:0] lm;
+        int vmax;
+        lm = 3'(i + 6);
+        if ((lm == 3'd6) && (sew > 0)) continue;
+        vmax = ref_total(3'(sew), lm);
+        for (int t = 0; t < 2; t++) begin
+          logic [VlW-1:0] len;
+          len = VlW'(t == 0 ? vmax : 1);
+          set_shape(VEC_REL_WIDE, VEC_REL_SAME, VEC_REL_SAME, 1'b0, 1'b0);
+          run_counted(1'b1, len, 3'(sew), lm);
+          set_shape(VEC_REL_WIDE, VEC_REL_SAME, VEC_REL_WIDE, 1'b0, 1'b0);
+          run_counted(1'b0, len, 3'(sew), lm);
+          set_shape(VEC_REL_WIDE, VEC_REL_SAME, VEC_REL_SAME, 1'b1, 1'b0);
+          run_counted(1'b1, len, 3'(sew), lm);
+          set_shape(VEC_REL_SAME, VEC_REL_SAME, VEC_REL_WIDE, 1'b0, 1'b0);
+          run_counted(1'b0, len, 3'(sew), lm);
+          set_shape(VEC_REL_SAME, VEC_REL_SAME, VEC_REL_WIDE, 1'b1, 1'b0);
+          run_counted(1'b0, len, 3'(sew), lm);
         end
       end
     end
@@ -406,10 +463,18 @@ module vec_sequencer_tb ();
     set_shape(VEC_REL_SAME, VEC_REL_SAME, VEC_REL_SAME, 1'b0, 1'b1);
     run_case(5'd2, 5'd4, 5'd8, 1'b0, 8'd8, 3'd1, 3'd1, 1'b1, '1);
 
+    // One element steps
+    serial = 1'b1;
+    run_case(5'd2, 5'd4, 5'd8, 1'b0, 8'd16, 3'd2, 3'd2, 1'b1, '1);
+    run_case(5'd2, 5'd8, 5'd8, 1'b0, 8'd5, 3'd2, 3'd1, 1'b0, 16'b0000_0000_0000_0101);
+    serial = 1'b0;
+
     check_clock_enable();
 
     // Exhaustive sweep
     sweep();
+
+    check_group_shapes();
 
     verdict();
   end

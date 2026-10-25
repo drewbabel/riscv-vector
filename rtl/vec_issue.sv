@@ -15,6 +15,7 @@ module vec_issue
     // Execute stage
     input wire                        instr_valid,
     input wire                        cancel,
+    input wire                        ex_advance,
     input wire vec_op_e               op,
     input wire vec_src_e              src,
     input wire vec_eew_e              eew,
@@ -27,6 +28,7 @@ module vec_issue
     input wire           [       4:0] simm,
     input wire           [  XLEN-1:0] xdata,
     input wire           [  XLEN-1:0] xstride,
+    input wire vec_fop_e              fop,
 
     // Register groups
     input wire [  AWIDTH:0] wr_regs,
@@ -43,6 +45,7 @@ module vec_issue
     input wire [2:0] vsew,
     input wire [2:0] vlmul,
     input wire [1:0] vxrm,
+    input wire [2:0] frm,
 
     // Sequencer status
     input wire seq_busy,
@@ -67,6 +70,8 @@ module vec_issue
     output logic     [       2:0] seq_vsew,
     output logic     [       2:0] seq_vlmul,
     output logic     [       1:0] seq_vxrm,
+    output vec_fop_e              seq_fop,
+    output logic     [       2:0] seq_frm,
 
     // Pipeline handshake
     output logic vec_hold,
@@ -93,6 +98,8 @@ module vec_issue
   logic     [       2:0] q_vsew;
   logic     [       2:0] q_vlmul;
   logic     [       1:0] q_vxrm;
+  vec_fop_e              q_fop;
+  logic     [       2:0] q_frm;
   logic     [  AWIDTH:0] q_wr_regs;
   logic     [AWIDTH-1:0] q_rd1;
   logic     [  AWIDTH:0] q_rd1_regs;
@@ -132,8 +139,12 @@ module vec_issue
       .any(regs_busy)
   );
 
+  // Write port owners
+  logic q_port;
+  assign q_port = (q_op == VEC_LOAD) || (vec_class(q_op) == VEC_CLS_SLIDE);
+
   // Loads own write port
-  assign launch = q_valid && !e_valid && regs_ready && !((q_op == VEC_LOAD) && pipe_busy);
+  assign launch = q_valid && !e_valid && regs_ready && !(q_port && pipe_busy);
   assign x_wait = (q_valid && q_xreg) || x_pend;
   assign accept = instr_valid && !cancel && !x_wait && !x_spent && (!q_valid || launch);
   assign x_hold = instr_valid && (x_wait || writes_xreg) && !x_spent;
@@ -153,7 +164,7 @@ module vec_issue
       x_pend    <= 1'b0;
     end else if (core_en) begin
       seq_start <= 1'b0;
-      x_spent   <= x_done && x_pend;
+      x_spent   <= (x_done && x_pend) || (x_spent && !ex_advance);
 
       // Scalar result pending
       if (launch && q_xreg) x_pend <= 1'b1;
@@ -180,6 +191,8 @@ module vec_issue
         seq_vsew     <= q_vsew;
         seq_vlmul    <= q_vlmul;
         seq_vxrm     <= q_vxrm;
+        seq_fop      <= q_fop;
+        seq_frm      <= q_frm;
         q_valid      <= 1'b0;
       end
 
@@ -202,6 +215,8 @@ module vec_issue
         q_vsew     <= vsew;
         q_vlmul    <= vlmul;
         q_vxrm     <= vxrm;
+        q_fop      <= fop;
+        q_frm      <= frm;
         q_wr_regs  <= wr_regs;
         q_rd1      <= rd1;
         q_rd1_regs <= rd1_regs;

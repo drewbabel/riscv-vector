@@ -19,9 +19,15 @@ module vec_decode
     output logic            writes_xreg,
     output logic            writes_mask,
 
+    // Float forms
+    output vec_fop_e fop,
+    output logic     reads_freg,
+    output logic     writes_freg,
+
     // Memory forms
     output logic [1:0] mem_width,
     output logic       mem_whole,
+    output logic [2:0] mem_nf,
     output logic       mem_mask,
     output logic       mem_strided
 );
@@ -31,19 +37,25 @@ module vec_decode
   localparam logic [2:0] Funct3Opivi = 3'b011;
   localparam logic [2:0] Funct3Opmvv = 3'b010;
   localparam logic [2:0] Funct3Opmvx = 3'b110;
+  localparam logic [2:0] Funct3Opfvv = 3'b001;
+  localparam logic [2:0] Funct3Opfvf = 3'b101;
 
   // Instruction fields
   logic [5:0] funct6;
   logic [2:0] funct3;
+  logic [2:0] nf;
   logic is_opv;
   logic is_v, is_x, is_i, is_mv, is_mx;
+  logic is_fv, is_ff;
   logic    is_load;
   logic    is_store;
   logic    width_ok;
+  logic    nf_ok;
   vec_op_e mem_op;
 
   assign funct6 = instr[31:26];
   assign funct3 = instr[14:12];
+  assign nf = instr[31:29];
   assign vm = instr[25];
   assign vs2 = instr[24:20];
   assign vs1 = instr[19:15];
@@ -57,8 +69,13 @@ module vec_decode
   assign is_i = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opivi);
   assign is_mv = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opmvv);
   assign is_mx = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opmvx);
+  assign is_fv = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opfvv);
+  assign is_ff = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opfvf);
   assign is_load = (instr[6:0] == OpcodeLoadFp);
   assign is_store = (instr[6:0] == OpcodeStoreFp);
+
+  // Whole register counts
+  assign nf_ok = (nf == 3'd0) || (nf == 3'd1) || (nf == 3'd3) || (nf == 3'd7);
 
   always_comb begin
     op = VEC_ILLEGAL;
@@ -66,15 +83,18 @@ module vec_decode
     reads_vd = 1'b0;
     writes_xreg = 1'b0;
     writes_mask = 1'b0;
+    writes_freg = 1'b0;
+    fop = VEC_FADD;
     mem_width = 2'd0;
     mem_whole = 1'b0;
+    mem_nf = 3'd0;
     mem_mask = 1'b0;
     mem_strided = 1'b0;
     width_ok = 1'b0;
     mem_op = VEC_LOAD;
 
     // Loads and stores
-    if ((is_load || is_store) && (instr[31:28] == 4'b0000)) begin
+    if ((is_load || is_store) && !instr[28]) begin
       case (funct3)
         3'b000:  width_ok = 1'b1;
         3'b101:  width_ok = 1'b1;
@@ -86,19 +106,22 @@ module vec_decode
       if (width_ok) begin
         case (instr[27:26])
           2'b00: begin
-            if (vs2 == 5'b00000) op = mem_op;
-            if ((vs2 == 5'b01000) && vm && (is_load || funct3 == 3'b000)) begin
+            if ((vs2 == 5'b00000) && (nf == 3'd0)) op = mem_op;
+            if ((vs2 == 5'b01000) && vm && nf_ok && (is_load || funct3 == 3'b000)) begin
               op = mem_op;
               mem_whole = 1'b1;
+              mem_nf = nf;
             end
-            if ((vs2 == 5'b01011) && vm && (funct3 == 3'b000)) begin
+            if ((vs2 == 5'b01011) && vm && (funct3 == 3'b000) && (nf == 3'd0)) begin
               op = mem_op;
               mem_mask = 1'b1;
             end
           end
           2'b10: begin
-            op = mem_op;
-            mem_strided = 1'b1;
+            if (nf == 3'd0) begin
+              op = mem_op;
+              mem_strided = 1'b1;
+            end
           end
           default: ;
         endcase
@@ -132,7 +155,7 @@ module vec_decode
           op = VEC_MSBC;
           writes_mask = 1'b1;
         end
-        6'b010111: op = VEC_MERGE;
+        6'b010111: if (!vm || (vs2 == 5'b00000)) op = VEC_MERGE;
         6'b011000: begin
           op = VEC_MSEQ;
           writes_mask = 1'b1;
@@ -174,7 +197,11 @@ module vec_decode
         6'b100010: if (is_v || is_x) op = VEC_SSUBU;
         6'b100011: if (is_v || is_x) op = VEC_SSUB;
         6'b100101: op = VEC_SLL;
-        6'b100111: op = vec_pkg::vec_op_e'(is_i ? VEC_MVNRR : VEC_SMUL);
+        6'b100111: begin
+          if (!is_i) op = VEC_SMUL;
+          else if (vm && (simm == 5'd0 || simm == 5'd1 || simm == 5'd3 || simm == 5'd7))
+            op = VEC_MVNRR;
+        end
         6'b101000: op = VEC_SRL;
         6'b101001: op = VEC_SRA;
         6'b101010: op = VEC_SSRL;
@@ -420,6 +447,257 @@ module vec_decode
         default: ;
       endcase
     end
+
+    // Float arithmetic
+    if (is_fv || is_ff) begin
+      case (funct6)
+        6'b000000: begin
+          op  = VEC_FARITH;
+          fop = VEC_FADD;
+        end
+        6'b000010: begin
+          op  = VEC_FARITH;
+          fop = VEC_FSUB;
+        end
+        6'b000100: begin
+          op  = VEC_FARITH;
+          fop = VEC_FMIN;
+        end
+        6'b000110: begin
+          op  = VEC_FARITH;
+          fop = VEC_FMAX;
+        end
+
+        // Float reductions
+        6'b000001:
+        if (is_fv) begin
+          op  = VEC_FRED;
+          fop = VEC_FREDUSUM;
+        end
+        6'b000011:
+        if (is_fv) begin
+          op  = VEC_FRED;
+          fop = VEC_FREDOSUM;
+        end
+        6'b000101:
+        if (is_fv) begin
+          op  = VEC_FRED;
+          fop = VEC_FMIN;
+        end
+        6'b000111:
+        if (is_fv) begin
+          op  = VEC_FRED;
+          fop = VEC_FMAX;
+        end
+        6'b001000: begin
+          op  = VEC_FARITH;
+          fop = VEC_FSGNJ;
+        end
+        6'b001001: begin
+          op  = VEC_FARITH;
+          fop = VEC_FSGNJN;
+        end
+        6'b001010: begin
+          op  = VEC_FARITH;
+          fop = VEC_FSGNJX;
+        end
+        6'b100100: begin
+          op  = VEC_FARITH;
+          fop = VEC_FMUL;
+        end
+        6'b100000: begin
+          op  = VEC_FARITH;
+          fop = VEC_FDIV;
+        end
+        6'b100001:
+        if (is_ff) begin
+          op  = VEC_FARITH;
+          fop = VEC_FRDIV;
+        end
+
+        // Float conversions
+        6'b010010:
+        if (is_fv) begin
+          case (vs1)
+            5'b00000: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_XU_F;
+            end
+            5'b00001: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_X_F;
+            end
+            5'b00010: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_F_XU;
+            end
+            5'b00011: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_F_X;
+            end
+            5'b00110: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_RTZ_XU_F;
+            end
+            5'b00111: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_RTZ_X_F;
+            end
+            5'b01010: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_F_XU;
+              eew = VEC_EEW_WIDEN;
+            end
+            5'b01011: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_F_X;
+              eew = VEC_EEW_WIDEN;
+            end
+            5'b10000: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_XU_F;
+              eew = VEC_EEW_NARROW;
+            end
+            5'b10001: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_X_F;
+              eew = VEC_EEW_NARROW;
+            end
+            5'b10110: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_RTZ_XU_F;
+              eew = VEC_EEW_NARROW;
+            end
+            5'b10111: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCVT_RTZ_X_F;
+              eew = VEC_EEW_NARROW;
+            end
+            default: ;
+          endcase
+        end
+
+        // Float unary
+        6'b010011:
+        if (is_fv) begin
+          case (vs1)
+            5'b00000: begin
+              op  = VEC_FARITH;
+              fop = VEC_FSQRT;
+            end
+            5'b00100: begin
+              op  = VEC_FARITH;
+              fop = VEC_FRSQRT7;
+            end
+            5'b00101: begin
+              op  = VEC_FARITH;
+              fop = VEC_FREC7;
+            end
+            5'b10000: begin
+              op  = VEC_FARITH;
+              fop = VEC_FCLASS;
+            end
+            default: ;
+          endcase
+        end
+        6'b100111:
+        if (is_ff) begin
+          op  = VEC_FARITH;
+          fop = VEC_FRSUB;
+        end
+
+        // Fused multiply add
+        6'b101000: begin
+          op       = VEC_FARITH;
+          fop      = VEC_FMADD;
+          reads_vd = 1'b1;
+        end
+        6'b101001: begin
+          op       = VEC_FARITH;
+          fop      = VEC_FNMADD;
+          reads_vd = 1'b1;
+        end
+        6'b101010: begin
+          op       = VEC_FARITH;
+          fop      = VEC_FMSUB;
+          reads_vd = 1'b1;
+        end
+        6'b101011: begin
+          op       = VEC_FARITH;
+          fop      = VEC_FNMSUB;
+          reads_vd = 1'b1;
+        end
+        6'b101100: begin
+          op       = VEC_FARITH;
+          fop      = VEC_FMACC;
+          reads_vd = 1'b1;
+        end
+        6'b101101: begin
+          op       = VEC_FARITH;
+          fop      = VEC_FNMACC;
+          reads_vd = 1'b1;
+        end
+        6'b101110: begin
+          op       = VEC_FARITH;
+          fop      = VEC_FMSAC;
+          reads_vd = 1'b1;
+        end
+        6'b101111: begin
+          op       = VEC_FARITH;
+          fop      = VEC_FNMSAC;
+          reads_vd = 1'b1;
+        end
+
+        // Float compares
+        6'b011000: begin
+          op          = VEC_FCMP;
+          fop         = VEC_MFEQ;
+          writes_mask = 1'b1;
+        end
+        6'b011001: begin
+          op          = VEC_FCMP;
+          fop         = VEC_MFLE;
+          writes_mask = 1'b1;
+        end
+        6'b011011: begin
+          op          = VEC_FCMP;
+          fop         = VEC_MFLT;
+          writes_mask = 1'b1;
+        end
+        6'b011100: begin
+          op          = VEC_FCMP;
+          fop         = VEC_MFNE;
+          writes_mask = 1'b1;
+        end
+        6'b011101:
+        if (is_ff) begin
+          op          = VEC_FCMP;
+          fop         = VEC_MFGT;
+          writes_mask = 1'b1;
+        end
+        6'b011111:
+        if (is_ff) begin
+          op          = VEC_FCMP;
+          fop         = VEC_MFGE;
+          writes_mask = 1'b1;
+        end
+
+        // Float slides
+        6'b001110: if (is_ff) op = VEC_SLIDE1UP;
+        6'b001111: if (is_ff) op = VEC_SLIDE1DOWN;
+
+        // Float moves
+        6'b010111: if (is_ff && (!vm || (vs2 == 5'b00000))) op = VEC_MERGE;
+        6'b010000: begin
+          if (is_fv && (vs1 == 5'b00000)) begin
+            op          = VEC_MV_X_S;
+            writes_freg = 1'b1;
+          end
+          if (is_ff && (vs2 == 5'b00000)) op = VEC_MV_S_X;
+        end
+        default:   ;
+      endcase
+    end
   end
 
   // Source form
@@ -428,15 +706,17 @@ module vec_decode
       src = VEC_SRC_NONE;
     end else begin
       case (funct3)
-        Funct3Opivv, Funct3Opmvv: src = VEC_SRC_VV;
-        Funct3Opivx, Funct3Opmvx: src = VEC_SRC_VX;
+        Funct3Opivv, Funct3Opmvv, Funct3Opfvv: src = VEC_SRC_VV;
+        Funct3Opivx, Funct3Opmvx, Funct3Opfvf: src = VEC_SRC_VX;
         Funct3Opivi: src = VEC_SRC_VI;
         default: src = VEC_SRC_NONE;
       endcase
     end
   end
 
-  assign reads_xreg = ((src == VEC_SRC_VX) || is_load || is_store) && (op != VEC_ILLEGAL);
+  assign reads_freg = is_ff && (op != VEC_ILLEGAL);
+  assign reads_xreg = (((src == VEC_SRC_VX) && !is_ff) || is_load || is_store) &&
+      (op != VEC_ILLEGAL);
   assign valid = (op != VEC_ILLEGAL);
 
 endmodule
