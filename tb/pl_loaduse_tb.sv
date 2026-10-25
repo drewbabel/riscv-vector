@@ -24,12 +24,16 @@ module pl_loaduse_tb ();
   top #(
       .XLEN(Xlen)
   ) dut (
-      .clk       (clk),
-      .rst_n     (rst_n),
-      .pc        (pc),
-      .alu_result(alu_result),
-      .write_data(write_data),
-      .mem_write (mem_write)
+      .clk             (clk),
+      .rst_n           (rst_n),
+      .pc              (pc),
+      .alu_result      (alu_result),
+      .write_data      (write_data),
+      .mem_write       (mem_write),
+      .sim_branch      (),
+      .sim_branch_taken(),
+      .sim_mispredict  (),
+      .sim_muldiv_hold ()
   );
 
   task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);

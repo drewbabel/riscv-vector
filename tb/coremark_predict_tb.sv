@@ -39,6 +39,8 @@ module coremark_predict_tb ();
       .sim_branch_taken(),
       .sim_mispredict  (mis),
       .sim_muldiv_hold (),
+      .sim_tx_valid    (),
+      .sim_tx_data     (),
       .clk             (clk),
       .rst             (rst),
       .sw              (sw),
