@@ -24,7 +24,7 @@ module fp_unit
     input wire                       sqrt,
     input wire           [      4:0] funct5,
     input wire           [      2:0] funct3,
-    input wire           [      2:0] rm,
+    input wire           [  RmW-1:0] rm,
     input wire           [AddrW-1:0] rd,
     input wire           [ FLEN-1:0] a,
     input wire           [ FLEN-1:0] b,
@@ -38,11 +38,11 @@ module fp_unit
     output logic             wb_valid,
     output logic [AddrW-1:0] wb_rd,
     output logic [ FLEN-1:0] wb_data,
-    output logic [      4:0] wb_flags,
+    output logic [FlagW-1:0] wb_flags,
 
-    output logic            xvalid,
-    output logic [XLEN-1:0] xresult,
-    output logic [     4:0] xflags
+    output logic             xvalid,
+    output logic [ XLEN-1:0] xresult,
+    output logic [FlagW-1:0] xflags
 );
 
   localparam int CvtW = (FLEN > XLEN) ? FLEN : XLEN;
@@ -53,27 +53,27 @@ module fp_unit
     SRC_MUL,
     SRC_FMA,
     SRC_ONE
-  } src_e;
+  } src_t;
 
   logic [FLEN-1:0] add_result, mul_result, fma_result, misc_result, div_result;
-  logic [4:0] add_flags, mul_flags, fma_flags, misc_flags, cvt_flags, div_flags;
+  logic [FlagW-1:0] add_flags, mul_flags, fma_flags, misc_flags, cvt_flags, div_flags;
   logic [CvtW-1:0] cvt_a, cvt_result;
   logic div_start, div_busy, div_done;
 
   logic             fixed;
   logic [ LatW-1:0] lat;
-  src_e             src;
+  src_t             src;
   logic             fixed_free;
   logic             div_free;
 
   logic [ MaxLat:0] bk;
-  src_e             bk_src      [MaxLat+1];
-  logic [AddrW-1:0] bk_rd       [MaxLat+1];
+  src_t             bk_src         [MaxLat+1];
+  logic [AddrW-1:0] bk_rd          [MaxLat+1];
 
   logic [ FLEN-1:0] one_data;
-  logic [      4:0] one_flags;
-  logic [ FLEN-1:0] one_d;
-  logic [      4:0] one_flags_d;
+  logic [FlagW-1:0] one_flags;
+  logic [ FLEN-1:0] one_data_next;
+  logic [FlagW-1:0] one_flags_next;
 
   logic             div_wait;
   logic             div_pend;
@@ -159,11 +159,11 @@ module fp_unit
   );
 
   always_comb begin
-    fixed       = 1'b1;
-    lat         = LatW'(1);
-    src         = SRC_ONE;
-    one_d       = misc_result;
-    one_flags_d = misc_flags;
+    fixed          = 1'b1;
+    lat            = LatW'(1);
+    src            = SRC_ONE;
+    one_data_next  = misc_result;
+    one_flags_next = misc_flags;
     case (unit)
       FP_ADD: begin
         lat = LatW'(FpAddLatency);
@@ -178,12 +178,12 @@ module fp_unit
         src = SRC_FMA;
       end
       FP_CVT: begin
-        one_d       = FLEN'(cvt_result);
-        one_flags_d = cvt_flags;
+        one_data_next  = FLEN'(cvt_result);
+        one_flags_next = cvt_flags;
       end
       FP_MV_W_X: begin
-        one_d       = FLEN'(xa);
-        one_flags_d = '0;
+        one_data_next  = FLEN'(xa);
+        one_flags_next = '0;
       end
       FP_DIV_SQRT: fixed = 1'b0;
       default: ;
@@ -262,8 +262,8 @@ module fp_unit
       one_data  <= '0;
       one_flags <= '0;
     end else if (core_en && start && fixed && (src == SRC_ONE)) begin
-      one_data  <= one_d;
-      one_flags <= one_flags_d;
+      one_data  <= one_data_next;
+      one_flags <= one_flags_next;
     end
   end
 
