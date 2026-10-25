@@ -15,7 +15,10 @@ module dmem
     output logic [ LineBits-1:0] rdata
 );
 
-  logic [LineBits-1:0] mem[Lines];
+  logic [LineBits-1:0] mem         [Lines];
+  logic                unused_addr;
+
+  assign unused_addr = ^{addr[XLEN-1:IdxLsb+LineIdxW], addr[IdxLsb-1:0]};
 
   assign rdata = mem[addr[IdxLsb+:LineIdxW]];
 
