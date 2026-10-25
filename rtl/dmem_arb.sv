@@ -33,6 +33,7 @@ module dmem_arb #(
 
   logic [1:0] grant;
   logic       grant_vec;
+  logic       unused_grant_valid;
 
   rr_arbiter #(
       .N(2)
@@ -43,7 +44,7 @@ module dmem_arb #(
       .req({v_req, s_req}),
       .hold(!ready),
       .grant(grant),
-      .grant_valid()
+      .grant_valid(unused_grant_valid)
   );
 
   assign grant_vec = grant[1];
