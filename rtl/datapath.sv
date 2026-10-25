@@ -12,19 +12,25 @@ module datapath
   import csr_pkg::FrmAddr;
   import csr_pkg::FcsrAddr;
   import csr_pkg::MstatusAddr;
+  import csr_pkg::CsrAddrW;
   import fp_pkg::*;
 #(
-    parameter  int XLEN      = arch_pkg::XLEN,
-    parameter  int VLEN      = arch_pkg::VLEN,
-    parameter  bit GSHARE_EN = 1'b1,
-    localparam int VlW       = $clog2(VLEN + 1),
-    localparam int VstartW   = $clog2(VLEN),
-    localparam int StrbW     = XLEN / 8,
-    localparam int ByteOffW  = $clog2(StrbW)
+    parameter  int XLEN       = arch_pkg::XLEN,
+    parameter  int VLEN       = arch_pkg::VLEN,
+    parameter  int ELEN       = arch_pkg::ELEN,
+    parameter  int MUL_LANES  = arch_pkg::MulLanes,
+    parameter  bit GSHARE_EN  = 1'b1,
+    localparam int RegAddrW   = arch_pkg::RegAddrW,
+    localparam int InstrBytes = arch_pkg::InstrBytes,
+    localparam int InstrLsb   = arch_pkg::InstrLsb,
+    localparam int VlW        = $clog2(VLEN + 1),
+    localparam int VstartW    = $clog2(VLEN),
+    localparam int StrbW      = XLEN / 8,
+    localparam int ByteOffW   = $clog2(StrbW)
 ) (
 `ifdef RISCV_FORMAL
     output logic                         dbg_valid,
-    output logic [             XLEN-1:0] dbg_insn,
+    output logic [                 31:0] dbg_insn,
     output logic [             XLEN-1:0] dbg_pc_rdata,
     output logic [             XLEN-1:0] dbg_pc_wdata,
     output logic [             XLEN-1:0] dbg_rs1_rdata,
@@ -59,12 +65,12 @@ module datapath
     output logic [arch_pkg::NumRegs-1:0] dbg_vec_wregs,
     output logic                         dbg_vec_idle,
     output logic                         dbg_ex_commit,
-    output logic [             XLEN-1:0] dbg_ex_insn,
+    output logic [                 31:0] dbg_ex_insn,
 `endif
     input  wire                          clk,
     input  wire                          core_en,
     input  wire                          rst_n,
-    input  wire  [             XLEN-1:0] instr,
+    input  wire  [                 31:0] instr,
     input  wire  [         LineBits-1:0] read_line,
     input  wire                          timer_irq,
     input  wire                          ext_irq,
@@ -90,6 +96,16 @@ module datapath
     $error("VLEN must equal LineBits");
   end
 
+  if (XLEN != 32) begin : g_xlen
+    $error("datapath implements RV32 only");
+  end
+
+  localparam int FwdSelW = 2;
+  localparam logic [FwdSelW-1:0] FwdSelRs = 2'b00;
+  localparam logic [FwdSelW-1:0] FwdSelAlu = 2'b01;
+  localparam logic [FwdSelW-1:0] FwdSelPc4 = 2'b10;
+  localparam logic [FwdSelW-1:0] FwdSelWb = 2'b11;
+
   logic                   [    XLEN-1:0] pc_next;
   logic                   [    XLEN-1:0] pc_plus4;
   logic                   [    XLEN-1:0] rs1_data;
@@ -108,10 +124,10 @@ module datapath
 
   logic                                  reg_write;
   logic                                  mem_write_dec;
-  logic                   [         2:0] imm_src;
-  logic                   [         1:0] alu_a_src;
+  logic                   [ ImmSrcW-1:0] imm_src;
+  logic                   [   SrcAW-1:0] alu_a_src;
   logic                                  alu_src;
-  logic                   [         1:0] result_src;
+  logic                   [ ResSrcW-1:0] result_src;
   logic                                  pc_target_src;
   alu_pkg::alu_op_e                      alu_ctrl;
   logic                                  zero;
@@ -124,25 +140,25 @@ module datapath
 
   // Pipeline registers
 
-  logic                   [    XLEN-1:0] instr_id;
+  logic                   [        31:0] instr_id;
   logic                   [    XLEN-1:0] pc_id;
   logic                   [    XLEN-1:0] pc_plus4_id;
 
   logic                   [    XLEN-1:0] pc_ex;
   logic                   [    XLEN-1:0] pc_plus4_ex;
-  logic                   [         2:0] funct3_ex;
+  logic                   [ Funct3W-1:0] funct3_ex;
   logic                   [    XLEN-1:0] imm_ext_ex;
-  logic                   [         1:0] alu_a_src_ex;
+  logic                   [   SrcAW-1:0] alu_a_src_ex;
   logic                                  pc_target_src_ex;
   logic                                  alu_src_ex;
   logic                                  mem_write_ex;
-  logic                   [         1:0] result_src_ex;
+  logic                   [ ResSrcW-1:0] result_src_ex;
   alu_pkg::alu_op_e                      alu_ctrl_ex;
   logic                   [    XLEN-1:0] rs1_data_ex;
   logic                   [    XLEN-1:0] rs2_data_ex;
-  logic                   [         4:0] rs1_ex;
-  logic                   [         4:0] rs2_ex;
-  logic                   [         4:0] rd_ex;
+  logic                   [RegAddrW-1:0] rs1_ex;
+  logic                   [RegAddrW-1:0] rs2_ex;
+  logic                   [RegAddrW-1:0] rd_ex;
   logic                                  reg_write_ex;
   logic                                  branch_ex;
   logic                                  jump_ex;
@@ -151,17 +167,17 @@ module datapath
 
   logic                   [    XLEN-1:0] alu_result_mem;
   logic                   [    XLEN-1:0] pc_plus4_mem;
-  logic                   [         1:0] result_src_mem;
+  logic                   [ ResSrcW-1:0] result_src_mem;
   logic                   [    XLEN-1:0] write_data_mem;
   logic                                  mem_write_mem;
-  logic                   [         2:0] funct3_mem;
-  logic                   [         4:0] rd_mem;
+  logic                   [ Funct3W-1:0] funct3_mem;
+  logic                   [RegAddrW-1:0] rd_mem;
   logic                                  reg_write_mem;
 
-  logic                   [         1:0] result_src_wb;
+  logic                   [ ResSrcW-1:0] result_src_wb;
   logic                   [    XLEN-1:0] pc_plus4_wb;
   logic                   [    XLEN-1:0] alu_result_wb;
-  logic                   [         4:0] rd_wb;
+  logic                   [RegAddrW-1:0] rd_wb;
   logic                   [    XLEN-1:0] load_data_wb;
   logic                                  reg_write_wb;
 
@@ -185,10 +201,14 @@ module datapath
   logic                                  ex_hold;
   logic                                  mem_hold;
   logic                                  pc_en;
-  logic                   [         1:0] forward_a;
-  logic                   [         1:0] forward_b;
-  logic                   [         1:0] fwd_a;
-  logic                   [         1:0] fwd_b;
+  logic                   [ OpcodeW-1:0] opcode_id;
+  logic                   [ OpcodeW-1:0] opcode_ex;
+  logic                                  opcode_known_id;
+  logic                                  is_load_ex;
+  logic                   [    FwdW-1:0] forward_a;
+  logic                   [    FwdW-1:0] forward_b;
+  logic                   [ FwdSelW-1:0] fwd_a;
+  logic                   [ FwdSelW-1:0] fwd_b;
   logic                                  fwd_hold;
   logic                                  mem_pc4;
 
@@ -203,7 +223,7 @@ module datapath
   logic                                  is_ebreak;
   logic                                  is_mret;
   logic                                  exc_illegal;
-  logic                   [    XLEN-1:0] instr_ex;
+  logic                   [        31:0] instr_ex;
   logic                                  csr_access_ex;
   logic                                  is_ecall_ex;
   logic                                  is_ebreak_ex;
@@ -235,7 +255,7 @@ module datapath
   logic                   [         1:0] vec_vxrm;
   logic                                  vec_vxsat;
   logic                                  vec_csr_we;
-  logic                   [        11:0] vec_csr_waddr;
+  logic                   [CsrAddrW-1:0] vec_csr_waddr;
   logic                   [    XLEN-1:0] vec_csr_wdata;
   logic                                  vec_csr_wait;
   logic                                  vec_hold;
@@ -323,7 +343,7 @@ module datapath
   logic                             fp_idle;
   logic     [arch_pkg::NumRegs-1:0] fp_busy;
   logic                             fp_wb_valid;
-  logic     [                  4:0] fp_wb_rd;
+  logic     [         RegAddrW-1:0] fp_wb_rd;
   logic     [             FLEN-1:0] fp_wb_data;
   logic     [                  4:0] fp_wb_flags;
   logic                             fp_xvalid;
@@ -335,7 +355,7 @@ module datapath
 
   pc #(
       .XLEN(XLEN),
-      .RESET_ADDR('h0000_0000)
+      .RESET_ADDR(XLEN'(arch_pkg::ResetAddr))
   ) pc_inst (
       .clk(clk),
       .core_en(core_en && pc_en),
@@ -354,7 +374,7 @@ module datapath
       predict_target_id <= '0;
       bp_index_id       <= '0;
     end else if (core_en && (flush || (ifid_en && ifid_bubble))) begin
-      instr_id          <= 32'h0000_0013;  // NOP
+      instr_id          <= InstrNop;  // NOP
       pc_id             <= '0;
       pc_plus4_id       <= '0;
       predict_taken_id  <= 1'b0;
@@ -375,9 +395,9 @@ module datapath
   vec_pkg::vec_src_e vec_dec_id_src;
   vec_pkg::vec_eew_e vec_dec_id_eew;
   logic vec_dec_id_vm;
-  logic [4:0] vec_dec_id_vs1;
-  logic [4:0] vec_dec_id_vs2;
-  logic [4:0] vec_dec_id_vd;
+  logic [RegAddrW-1:0] vec_dec_id_vs1;
+  logic [RegAddrW-1:0] vec_dec_id_vs2;
+  logic [RegAddrW-1:0] vec_dec_id_vd;
   logic [4:0] vec_dec_id_simm;
   logic vec_dec_id_reads_vd;
   logic vec_dec_id_reads_xreg;
@@ -445,7 +465,7 @@ module datapath
   vec_pkg::vec_dec_t vec_dec_ex;
 
   control_unit control_unit_inst (
-      .op           (instr_id[6:0]),
+      .op           (opcode_id),
       .funct3       (instr_id[14:12]),
       .funct12      (instr_id[31:20]),
       .funct7b5     (instr_id[30]),
@@ -467,16 +487,19 @@ module datapath
       .muldiv_op    (muldiv_op)
   );
 
-  assign exc_illegal = !((instr_id[6:0] == OpcodeOp) || (instr_id[6:0] == OpcodeOpImm) ||
-      (instr_id[6:0] == OpcodeLoad) || (instr_id[6:0] == OpcodeStore) ||
-      (instr_id[6:0] == OpcodeBranch) || (instr_id[6:0] == OpcodeJal) ||
-      (instr_id[6:0] == OpcodeJalr) || (instr_id[6:0] == OpcodeLui) ||
-      (instr_id[6:0] == OpcodeAuipc) || (instr_id[6:0] == OpcodeMiscMem) ||
-      (instr_id[6:0] == OpcodeSystem) || (instr_id[6:0] == OpcodeOpV) ||
-      (instr_id[6:0] == OpcodeLoadFp) || (instr_id[6:0] == OpcodeStoreFp) ||
-      (instr_id[6:0] == OpcodeOpFp) || (instr_id[6:0] == OpcodeFmadd) ||
-      (instr_id[6:0] == OpcodeFmsub) || (instr_id[6:0] == OpcodeFnmsub) ||
-      (instr_id[6:0] == OpcodeFnmadd)) || fp_illegal_d;
+  assign opcode_id = instr_id[6:0];
+
+  always_comb begin
+    case (opcode_id)
+      OpcodeOp, OpcodeOpImm, OpcodeLoad, OpcodeStore, OpcodeBranch, OpcodeJal, OpcodeJalr,
+          OpcodeLui, OpcodeAuipc, OpcodeMiscMem, OpcodeSystem, OpcodeOpV, OpcodeLoadFp,
+          OpcodeStoreFp, OpcodeOpFp, OpcodeFmadd, OpcodeFmsub, OpcodeFnmsub, OpcodeFnmadd:
+      opcode_known_id = 1'b1;
+      default: opcode_known_id = 1'b0;
+    endcase
+  end
+
+  assign exc_illegal = !opcode_known_id || fp_illegal_d;
 
   fp_decode u_fp_decode (
       .instr      (instr_id),
@@ -573,13 +596,13 @@ module datapath
         alu_a_src_ex      <= alu_a_src;
         pc_target_src_ex  <= pc_target_src;
         alu_src_ex        <= alu_src;
-        result_src_ex     <= idex_bubble ? 2'd0 : result_src;
+        result_src_ex     <= idex_bubble ? ResAlu : result_src;
         alu_ctrl_ex       <= alu_ctrl;
         rs1_data_ex       <= rs1_data;
         rs2_data_ex       <= rs2_data;
         reg_write_ex      <= (reg_write && !idex_bubble);
         mem_write_ex      <= (mem_write_dec && !idex_bubble);
-        rd_ex             <= idex_bubble ? 5'd0 : instr_id[11:7];
+        rd_ex             <= idex_bubble ? '0 : instr_id[11:7];
         rs1_ex            <= instr_id[19:15];
         rs2_ex            <= instr_id[24:20];
         branch_ex         <= (branch && !idex_bubble);
@@ -685,7 +708,7 @@ module datapath
   assign if_hold = !imem_ready;
   assign id_hold = hazard_stall;
   assign ex_hold = muldiv_hold || vec_hold || vmem_hold || fp_hold;
-  assign dmem_req = valid_mem && ((result_src_mem == 2'd1) || mem_write_mem);
+  assign dmem_req = valid_mem && ((result_src_mem == ResMem) || mem_write_mem);
   assign mem_hold = dmem_req && !dmem_ready;
 
   assign ifid_en = !id_hold && !ex_hold && !mem_hold;
@@ -702,42 +725,44 @@ module datapath
   assign fwd_hold = muldiv_hold && !muldiv_start;
 
   // Vector memory ordering
-  assign is_fence_ex = (instr_ex[6:0] == OpcodeMiscMem) && (funct3_ex == 3'b000);
-  assign vmem_hold = valid_ex && (((result_src_ex == 2'd1) && vec_store_pending) ||
+  assign opcode_ex = instr_ex[6:0];
+  assign is_load_ex = (result_src_ex == ResMem);
+  assign is_fence_ex = (opcode_ex == OpcodeMiscMem) && (funct3_ex == Funct3Fence);
+  assign vmem_hold = valid_ex && ((is_load_ex && vec_store_pending) ||
       (mem_write_ex && (vec_load_pending || vec_store_pending)) || (is_fence_ex && !vec_idle));
 
-  assign mem_pc4 = (result_src_mem == 2'd2);
+  assign mem_pc4 = (result_src_mem == ResPc4);
 
   always_comb begin
-    if (fwd_hold) fwd_a = 2'b00;
-    else if (forward_a == 2'b01) fwd_a = mem_pc4 ? 2'b10 : 2'b01;
-    else if (forward_a == 2'b10) fwd_a = 2'b11;
-    else fwd_a = 2'b00;
+    if (fwd_hold) fwd_a = FwdSelRs;
+    else if (forward_a == FwdMem) fwd_a = mem_pc4 ? FwdSelPc4 : FwdSelAlu;
+    else if (forward_a == FwdWb) fwd_a = FwdSelWb;
+    else fwd_a = FwdSelRs;
 
-    if (fwd_hold) fwd_b = 2'b00;
-    else if (forward_b == 2'b01) fwd_b = mem_pc4 ? 2'b10 : 2'b01;
-    else if (forward_b == 2'b10) fwd_b = 2'b11;
-    else fwd_b = 2'b00;
+    if (fwd_hold) fwd_b = FwdSelRs;
+    else if (forward_b == FwdMem) fwd_b = mem_pc4 ? FwdSelPc4 : FwdSelAlu;
+    else if (forward_b == FwdWb) fwd_b = FwdSelWb;
+    else fwd_b = FwdSelRs;
 
     case (fwd_a)
-      2'b01:   forwarded_rs1 = alu_result_mem;
-      2'b10:   forwarded_rs1 = pc_plus4_mem;
-      2'b11:   forwarded_rs1 = result;
-      default: forwarded_rs1 = rs1_data_ex;
+      FwdSelAlu: forwarded_rs1 = alu_result_mem;
+      FwdSelPc4: forwarded_rs1 = pc_plus4_mem;
+      FwdSelWb:  forwarded_rs1 = result;
+      default:   forwarded_rs1 = rs1_data_ex;
     endcase
 
     case (fwd_b)
-      2'b01:   forwarded_rs2 = alu_result_mem;
-      2'b10:   forwarded_rs2 = pc_plus4_mem;
-      2'b11:   forwarded_rs2 = result;
-      default: forwarded_rs2 = rs2_data_ex;
+      FwdSelAlu: forwarded_rs2 = alu_result_mem;
+      FwdSelPc4: forwarded_rs2 = pc_plus4_mem;
+      FwdSelWb:  forwarded_rs2 = result;
+      default:   forwarded_rs2 = rs2_data_ex;
     endcase
 
     case (alu_a_src_ex)
-      2'd0:    src_a = forwarded_rs1;
-      2'd1:    src_a = pc_ex;
-      2'd2:    src_a = '0;
-      default: src_a = '0;
+      SrcARs1:  src_a = forwarded_rs1;
+      SrcAPc:   src_a = pc_ex;
+      SrcAZero: src_a = '0;
+      default:  src_a = '0;
     endcase
 
     src_b = alu_src_ex ? imm_ext_ex : forwarded_rs2;
@@ -778,7 +803,7 @@ module datapath
   assign fp_csr_ex = valid_ex && csr_access_ex && ((instr_ex[31:20] == FflagsAddr) ||
       (instr_ex[31:20] == FrmAddr) || (instr_ex[31:20] == FcsrAddr));
   assign frm_write_ex = fp_csr_ex && (instr_ex[31:20] != FflagsAddr) &&
-      (!funct3_ex[1] || (instr_ex[19:15] != 5'd0));
+      (!funct3_ex[1] || (instr_ex[19:15] != '0));
   assign fp_hold = (fp_fop_ex && !fp_ready) || (fp_xop_ex && !fp_xvalid) || (fp_csr_ex && !fp_idle);
   assign fp_start = fp_fop_ex && commit_valid && !trap_taken;
   assign fp_xstart = fp_xop_ex && !fp_xvalid;
@@ -872,17 +897,21 @@ module datapath
   // Operands not ready
   assign mispredict = commit_valid && ((predict_taken_ex != pc_src_ex) ||
       (pc_src_ex && predict_taken_ex && predict_target_ex != pc_target_ex));
-  assign correct_pc = mispredict ? (pc_src_ex ? pc_target_ex : pc_plus4_ex) : '0;
+  always_comb begin
+    if (!mispredict) correct_pc = '0;
+    else if (pc_src_ex) correct_pc = pc_target_ex;
+    else correct_pc = pc_plus4_ex;
+  end
 
   // Branch resolution
   always_comb begin
     case (funct3_ex)
-      3'b000:  branch_taken_ex = zero;  // beq
-      3'b001:  branch_taken_ex = !zero;  // bne
-      3'b100:  branch_taken_ex = lt;  // blt
-      3'b101:  branch_taken_ex = !lt;  // bge
-      3'b110:  branch_taken_ex = ltu;  // bltu
-      3'b111:  branch_taken_ex = !ltu;  // bgeu
+      Funct3Beq: branch_taken_ex = zero;
+      Funct3Bne: branch_taken_ex = !zero;
+      Funct3Blt: branch_taken_ex = lt;
+      Funct3Bge: branch_taken_ex = !lt;
+      Funct3Bltu: branch_taken_ex = ltu;
+      Funct3Bgeu: branch_taken_ex = !ltu;
       default: branch_taken_ex = 1'b0;
     endcase
   end
@@ -892,21 +921,21 @@ module datapath
 
   // EX exceptions
   assign exc_instr_misaligned = commit_valid && (branch_ex || jump_ex) && pc_src_ex &&
-      (pc_target_ex[1:0] != 2'b00);
+      (pc_target_ex[InstrLsb-1:0] != '0);
 
   // Alignment by width
   always_comb begin
     case (funct3_ex)
-      3'b001, 3'b101: mem_misaligned = alu_result[0];  // halfword
-      3'b010:         mem_misaligned = |alu_result[1:0];  // word
-      default:        mem_misaligned = 1'b0;
+      Funct3Lh, Funct3Lhu: mem_misaligned = alu_result[0];
+      Funct3Lw:            mem_misaligned = |alu_result[1:0];
+      default:             mem_misaligned = 1'b0;
     endcase
   end
 
-  assign exc_load_misaligned = commit_valid && (((result_src_ex == 2'd1) && mem_misaligned) ||
-      ((instr_ex[6:0] == OpcodeLoadFp) && vec_misaligned));
+  assign exc_load_misaligned = commit_valid && ((is_load_ex && mem_misaligned) ||
+      ((opcode_ex == OpcodeLoadFp) && vec_misaligned));
   assign exc_store_misaligned = commit_valid && ((mem_write_ex && mem_misaligned) ||
-      ((instr_ex[6:0] == OpcodeStoreFp) && vec_misaligned));
+      ((opcode_ex == OpcodeStoreFp) && vec_misaligned));
   always_comb begin
     if (exc_instr_misaligned) bad_addr = pc_target_ex;
     else if (vec_misaligned) bad_addr = vec_bad_addr;
@@ -932,13 +961,14 @@ module datapath
       (vec_dec_ex.op == vec_pkg::VEC_FCMP) || (vec_dec_ex.op == vec_pkg::VEC_FRED) ||
       vec_dec_ex.reads_freg || vec_dec_ex.writes_freg);
 
-  assign exc_vec_encoding = (((instr_ex[6:0] == OpcodeOpV) && !is_vset) ||
-      (instr_ex[6:0] == OpcodeLoadFp) || (instr_ex[6:0] == OpcodeStoreFp)) && !vec_is_vector &&
+  assign exc_vec_encoding = (((opcode_ex == OpcodeOpV) && !is_vset) ||
+      (opcode_ex == OpcodeLoadFp) || (opcode_ex == OpcodeStoreFp)) && !vec_is_vector &&
       !fp_load_ex && !fp_store_ex;
 
   vec_config #(
       .XLEN(XLEN),
-      .VLEN(VLEN)
+      .VLEN(VLEN),
+      .ELEN(ELEN)
   ) vec_config_inst (
       .instr   (instr_ex),
       .rs1_data(forwarded_rs1),
@@ -954,8 +984,10 @@ module datapath
 
   /* verilator lint_off PINCONNECTEMPTY */
   vec_unit #(
-      .XLEN(XLEN),
-      .VLEN(VLEN)
+      .XLEN     (XLEN),
+      .VLEN     (VLEN),
+      .ELEN     (ELEN),
+      .MUL_LANES(MUL_LANES)
   ) vec_unit_inst (
 `ifdef RISCV_FORMAL
       .dbg_vec_tag   (dbg_vec_tag),
@@ -1151,11 +1183,11 @@ module datapath
     ld_byte = read_data[{alu_result_mem[ByteOffW-1:0], 3'b000}+:8];
     ld_half = read_data[{alu_result_mem[ByteOffW-1:1], 4'b0000}+:16];
     case (funct3_mem)
-      3'b000:  load_data = XLEN'($signed(ld_byte));  // lb
-      3'b100:  load_data = XLEN'(ld_byte);  // lbu
-      3'b001:  load_data = XLEN'($signed(ld_half));  // lh
-      3'b101:  load_data = XLEN'(ld_half);  // lhu
-      default: load_data = read_data;  // lw
+      Funct3Lb:  load_data = XLEN'($signed(ld_byte));
+      Funct3Lbu: load_data = XLEN'(ld_byte);
+      Funct3Lh:  load_data = XLEN'($signed(ld_half));
+      Funct3Lhu: load_data = XLEN'(ld_half);
+      default:   load_data = read_data;  // lw
     endcase
 
     // Store data
@@ -1163,15 +1195,15 @@ module datapath
     store_wstrb = '0;
     if (mem_write_mem) begin
       case (funct3_mem)
-        3'b000: begin  // sb
+        Funct3Sb: begin  // sb
           store_data  = {StrbW{write_data_mem[7:0]}};
           store_wstrb = StrbW'(1) << alu_result_mem[ByteOffW-1:0];
         end
-        3'b001: begin  // sh
+        Funct3Sh: begin  // sh
           store_data  = {(StrbW / 2) {write_data_mem[15:0]}};
           store_wstrb = StrbW'(3) << alu_result_mem[ByteOffW-1:0];
         end
-        3'b010: begin  // sw
+        Funct3Sw: begin  // sw
           store_data  = write_data_mem;
           store_wstrb = '1;
         end
@@ -1180,7 +1212,7 @@ module datapath
     end
   end
 
-  assign pc_plus4 = pc + 4;
+  assign pc_plus4 = pc + XLEN'(InstrBytes);
 
   // MEM/WB
   always_ff @(posedge clk) begin
@@ -1204,9 +1236,9 @@ module datapath
   // Writeback
   always_comb begin
     case (result_src_wb)
-      2'd0:    result = alu_result_wb;
-      2'd1:    result = load_data_wb;
-      2'd2:    result = pc_plus4_wb;
+      ResAlu:  result = alu_result_wb;
+      ResMem:  result = load_data_wb;
+      ResPc4:  result = pc_plus4_wb;
       default: result = '0;
     endcase
   end
@@ -1222,7 +1254,7 @@ module datapath
 
 `ifdef RISCV_FORMAL
   // RVFI shadow pipeline
-  logic [XLEN-1:0] rvfi_insn_ex, rvfi_insn_mem, rvfi_insn_wb;
+  logic [31:0] rvfi_insn_ex, rvfi_insn_mem, rvfi_insn_wb;
   logic [XLEN-1:0] rvfi_pc_mem, rvfi_pc_wb;
   logic [XLEN-1:0] rvfi_pcw_mem, rvfi_pcw_wb;
   logic [XLEN-1:0] rvfi_rs1d_mem, rvfi_rs1d_wb;
@@ -1249,7 +1281,7 @@ module datapath
       if (trap_taken) rvfi_pcw_mem <= trap_vector;
       else if (mret_taken) rvfi_pcw_mem <= mepc_out;
       else if (pc_src_ex) rvfi_pcw_mem <= pc_target_ex;
-      else rvfi_pcw_mem <= pc_ex + 4;
+      else rvfi_pcw_mem <= pc_ex + XLEN'(InstrBytes);
     end
 
     if (memwb_en) begin
@@ -1294,7 +1326,7 @@ module datapath
 `ifndef SYNTHESIS
   // Pipeline view taps
   (* keep *) logic [XLEN-1:0] dbg_pc_f, dbg_pc_d, dbg_pc_e, dbg_pc_m, dbg_pc_w;
-  (* keep *) logic [XLEN-1:0] dbg_insn_f, dbg_insn_d, dbg_insn_e, dbg_insn_m, dbg_insn_w;
+  (* keep *) logic [31:0] dbg_insn_f, dbg_insn_d, dbg_insn_e, dbg_insn_m, dbg_insn_w;
   (* keep *) logic dbg_valid_f, dbg_valid_d, dbg_valid_e, dbg_valid_m, dbg_valid_w;
   (* keep *) logic dbg_hold_f, dbg_hold_d, dbg_hold_e, dbg_hold_m;
   (* keep *) logic dbg_en_d, dbg_en_e, dbg_en_m, dbg_en_w;
@@ -1302,9 +1334,9 @@ module datapath
   (* keep *) logic dbg_flush;
   (* keep *) logic [2:0] dbg_redirect_src;
   (* keep *) logic dbg_stall;
-  (* keep *) logic [1:0] dbg_forward_a, dbg_forward_b;
+  (* keep *) logic [FwdW-1:0] dbg_forward_a, dbg_forward_b;
   (* keep *) logic dbg_rf_we;
-  (* keep *) logic [4:0] dbg_rf_waddr;
+  (* keep *) logic [RegAddrW-1:0] dbg_rf_waddr;
   (* keep *) logic [XLEN-1:0] dbg_rf_wdata;
   (* keep *) logic dbg_bus_req;
   (* keep *) logic [XLEN-1:0] dbg_bus_addr;
