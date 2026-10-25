@@ -23,6 +23,10 @@ module top
   logic [LineBytes-1:0] store_wstrb;
   logic [LineBits-1:0] store_data;
   logic [XLEN-1:0] mem_addr;
+  logic dmem_req;
+  logic unused_dmem_req;
+
+  assign unused_dmem_req = dmem_req;
 
   riscv_pipelined #(
       .XLEN     (XLEN),
@@ -80,7 +84,7 @@ module top
       .ext_irq       (1'b0),
       .imem_ready    (1'b1),
       .dmem_ready    (1'b1),
-      .dmem_req      (),
+      .dmem_req      (dmem_req),
       .pc            (pc),
       .mem_write     (mem_write),
       .alu_result    (alu_result),
