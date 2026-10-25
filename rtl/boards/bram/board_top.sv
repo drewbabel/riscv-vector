@@ -103,9 +103,17 @@ module board_top
       .tick   (core_en)
   );
 
+  logic            rx_error;
+  logic            core_mem_write;
+  logic [XLEN-1:0] core_alu_result;
+  logic [XLEN-1:0] core_write_data;
+  logic            unused_core;
+  assign unused_core = ^{rx_error, core_mem_write, core_alu_result, core_write_data};
+
   // Power on reset
-  logic [PorW-1:0] por = '0;
-  always_ff @(posedge clk) if (core_en && !por[PorW-1]) por <= por + 1'b1;
+  logic [PorW-1:0] por;
+  initial por = '0;
+  always @(posedge clk) if (core_en && !por[PorW-1]) por <= por + 1'b1;
   assign rst_n      = por[PorW-1] & ~rst;
 
   // Load holds reset
@@ -171,7 +179,7 @@ module board_top
       .rx_serial(uart_rx),
       .rx_data  (rx_byte),
       .rx_valid (rx_valid_w),
-      .rx_error ()
+      .rx_error (rx_error)
   );
 
   uart_tx #(
@@ -283,9 +291,9 @@ module board_top
       .dmem_ready    (dmem_ready),
       .dmem_req      (dmem_req),
       .pc            (pc),
-      .mem_write     (),
-      .alu_result    (),
-      .write_data    (),
+      .mem_write     (core_mem_write),
+      .alu_result    (core_alu_result),
+      .write_data    (core_write_data),
       .store_wstrb   (dc_wstrb),
       .store_data    (dc_wdata),
       .mem_addr      (mem_addr)
