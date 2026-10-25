@@ -27,8 +27,8 @@ module dcache
     input  wire                 mem_ready,
 
     // Counters
-    output logic [31:0] hit_count,
-    output logic [31:0] miss_count
+    output logic [XLEN-1:0] hit_count,
+    output logic [XLEN-1:0] miss_count
 );
 
   // Controller states
@@ -42,8 +42,13 @@ module dcache
 
   state_t state, next_state;
 
+  if ((DcWays < 2) || (DcWays != (1 << DcWaySel))) begin : g_ways
+    $error("DcWays must be a power of two of at least 2");
+  end
+
   // Tag carries flags
-  localparam int TagWordW = DcTagLen + 2;
+  localparam int FlagBits = 2;
+  localparam int TagWordW = DcTagLen + FlagBits;
   localparam int ValidBit = DcTagLen + 1;
   localparam int DirtyBit = DcTagLen;
 
@@ -81,6 +86,8 @@ module dcache
   logic [   DcWays-1:0]             way_hit;
   logic [   DcWays-1:0]             way_valid;
   logic                             hit;
+  logic                             compare_hit;
+  logic                             compare_miss;
   logic [ DcWaySel-1:0]             hit_way;
   logic [   DcWays-2:0]             plru_tree;
   logic [   DcWays-2:0]             plru_next;
@@ -132,15 +139,24 @@ module dcache
     for (int w = 0; w < DcWays; w++) if (way_hit[w]) hit_way = DcWaySel'(w);
   end
 
-  assign write_hit = (state == COMPARE) && hit && req_rw;
+  assign compare_hit = (state == COMPARE) && hit;
+  assign compare_miss = (state == COMPARE) && !hit;
+
+  assign write_hit = compare_hit && req_rw;
   assign full_store = &req_wstrb && req_rw;
   assign install = full_store &&
-      (((state == COMPARE) && !hit && !victim_dirty) || ((state == WRITE_BACK) && mem_ready));
+      ((compare_miss && !victim_dirty) || ((state == WRITE_BACK) && mem_ready));
 
-  // Bit 0 old half, 1 old of 01, 2 old of 23
+  // Heap ordered tree
   assign plru_tree = plru_mem[addr_idx];
-  assign plru_way[1] = plru_tree[0];
-  assign plru_way[0] = plru_tree[0] ? plru_tree[2] : plru_tree[1];
+  always_comb begin
+    int node;
+    node = 0;
+    for (int lvl = DcWaySel - 1; lvl >= 0; lvl--) begin
+      plru_way[lvl] = plru_tree[node];
+      node = 2 * node + 1 + int'(plru_tree[node]);
+    end
+  end
 
   // Invalid way first
   always_comb begin
@@ -185,7 +201,7 @@ module dcache
     endcase
   end
 
-  assign cpu_ready = ((state == COMPARE) && hit) || install;
+  assign cpu_ready = compare_hit || install;
 
   // Line memory request
   assign mem_valid = (state == WRITE_BACK) || (state == ALLOCATE);
@@ -302,17 +318,20 @@ module dcache
 
   // Touch points away
   always_comb begin
+    int node;
     plru_next = plru_tree;
-    plru_next[0] = ~touch_way[1];
-    if (touch_way[1]) plru_next[2] = ~touch_way[0];
-    else plru_next[1] = ~touch_way[0];
+    node = 0;
+    for (int lvl = DcWaySel - 1; lvl >= 0; lvl--) begin
+      plru_next[node] = ~touch_way[lvl];
+      node = 2 * node + 1 + int'(touch_way[lvl]);
+    end
   end
 
   // Update on hit
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       plru_mem <= '0;
-    end else if (core_en && (((state == COMPARE) && hit) || install)) begin
+    end else if (core_en && (compare_hit || install)) begin
       plru_mem[addr_idx] <= plru_next;
     end
   end
@@ -321,7 +340,7 @@ module dcache
   always_ff @(posedge clk) begin
     if (!rst_n) refill <= 1'b0;
     else if (core_en) begin
-      if ((state == COMPARE) && !hit) refill <= 1'b1;
+      if (compare_miss) refill <= 1'b1;
       else if (state == IDLE) refill <= 1'b0;
     end
   end
@@ -331,9 +350,9 @@ module dcache
     if (!rst_n) begin
       hit_count  <= '0;
       miss_count <= '0;
-    end else if (core_en && (state == COMPARE)) begin
-      if (!hit) miss_count <= miss_count + 1;
-      else if (!refill) hit_count <= hit_count + 1;
+    end else if (core_en) begin
+      if (compare_miss) miss_count <= miss_count + 1;
+      else if (compare_hit && !refill) hit_count <= hit_count + 1;
     end
   end
 
