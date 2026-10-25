@@ -38,7 +38,6 @@ package csr_pkg;
   localparam int MstatusMppLo = 11;  // Previous Privilege Low
   localparam int MstatusFsLo = 13;  // Float Status Low
   localparam int MstatusSd = 31;  // State Dirty
-  localparam logic [1:0] PrivMachine = 2'b11;
 
   // Vector Status encodings
   localparam logic [1:0] VsOff = 2'b00;  // disabled
@@ -70,9 +69,6 @@ package csr_pkg;
   localparam int Meie = 11;
   localparam int Meip = 11;
 
-  // mtvec[1:0]
-  localparam logic [1:0] MtvecDirect = 2'b00;  // Every trap jumps to same address
-  localparam logic [1:0] MtvecVectored = 2'b01;  // Exceptions & interrupts treated differently
 
   // Exception codes
   localparam logic [3:0] CauseInstrMisaligned = 4'd0;
