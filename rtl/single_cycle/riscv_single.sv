@@ -8,13 +8,14 @@ module riscv_single
     parameter  int XLEN     = arch_pkg::XLEN,
     localparam int StrbW    = XLEN / 8,
     localparam int ByteOffW = $clog2(StrbW),
-    localparam int InstrLsb = arch_pkg::InstrLsb
+    localparam int InstrLsb = arch_pkg::InstrLsb,
+    localparam int ILEN     = arch_pkg::ILEN
 ) (
     input  wire              clk,
     input  wire              core_en,
     input  wire              cycle_en,
     input  wire              rst_n,
-    input  wire  [     31:0] instr,
+    input  wire  [ ILEN-1:0] instr,
     input  wire  [ XLEN-1:0] read_data,
     input  wire              timer_irq,
     output logic [ XLEN-1:0] pc,

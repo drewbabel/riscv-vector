@@ -11,7 +11,8 @@ module board_top
     parameter  int ClkDiv     = arch_pkg::ClkDiv,
     parameter  int BoardClkHz = arch_pkg::BoardClkHz,
     parameter  int MemLatency = arch_pkg::MemLatency,
-    localparam int GpioW      = 16
+    localparam int GpioW      = 16,
+    localparam int ILEN       = arch_pkg::ILEN
 ) (
     input  wire              clk,
     input  wire              rst,
@@ -27,7 +28,7 @@ module board_top
   localparam logic [GpioW-1:0] LoadPattern = {(GpioW / 2) {2'b01}};
 
   logic                 rst_n;
-  logic [         31:0] instr;
+  logic [     ILEN-1:0] instr;
   logic [     XLEN-1:0] pc;
   logic [     XLEN-1:0] mem_addr;
   logic [   XLEN/8-1:0] store_wstrb;

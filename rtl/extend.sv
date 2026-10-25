@@ -3,9 +3,10 @@
 module extend
   import opcode_pkg::*;
 #(
-    parameter int XLEN = arch_pkg::XLEN
+    parameter  int XLEN = arch_pkg::XLEN,
+    localparam int ILEN = arch_pkg::ILEN
 ) (
-    input  wire  [       31:0] instr,
+    input  wire  [ILEN-1:0] instr,
     input  wire  [ImmSrcW-1:0] imm_src,
     output logic [   XLEN-1:0] imm_ext
 );

@@ -5,7 +5,8 @@ module sc_datapath
   import opcode_pkg::*;
 #(
     parameter  int XLEN       = arch_pkg::XLEN,
-    localparam int InstrBytes = arch_pkg::InstrBytes
+    localparam int InstrBytes = arch_pkg::InstrBytes,
+    localparam int ILEN       = arch_pkg::ILEN
 ) (
     input  wire                                 clk,
     input  wire                                 core_en,
@@ -24,7 +25,7 @@ module sc_datapath
     input  wire                   [   XLEN-1:0] trap_vector,
     input  wire                                 mret_taken,
     input  wire                   [   XLEN-1:0] mepc_out,
-    input  wire                   [       31:0] instr,
+    input  wire                   [   ILEN-1:0] instr,
     input  wire                   [   XLEN-1:0] read_data,
     output logic                  [   XLEN-1:0] pc,
     output logic                  [   XLEN-1:0] alu_result,
