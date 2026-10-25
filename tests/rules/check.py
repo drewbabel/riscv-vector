@@ -1108,6 +1108,25 @@ def body_source(inst, ix):
     return ix["addr"].get(sym_addr(b), "")
 
 
+BACKDOOR = re.compile(r"`ifdef\s+SIM_BACKDOOR\b(.*?)`(?:endif|else)", re.DOTALL)
+LOGIC_DECL = re.compile(r"^\s*logic\b[^;]*;", re.MULTILINE)
+DECL_NAME = re.compile(r"\b(\w+)\s*(?:=[^;,]*)?[;,]")
+BACKDOORS = {}
+
+
+def backdoor_names(path):
+    if path not in BACKDOORS:
+        names = set()
+        full = os.path.join(ROOT, path)
+        if path.startswith("rtl/") and os.path.isfile(full):
+            with open(full) as f:
+                for block in BACKDOOR.findall(f.read()):
+                    for decl in LOGIC_DECL.findall(block):
+                        names.update(DECL_NAME.findall(decl))
+        BACKDOORS[path] = names
+    return BACKDOORS[path]
+
+
 def rule_bench_semantic(path, rep, tmp):
     srcs, defs = bench_build(path)
     top = os.path.basename(path)[:-3]
@@ -1145,13 +1164,16 @@ def rule_bench_semantic(path, rep, tmp):
         if h.get("source_file_start") != path:
             continue
         tf = ix["addr"].get(sym_addr(h.get("symbol")), "?")
+        name = h["symbol"].split(" ", 1)[-1]
+        if "$[" in h.get("type", "") or name in backdoor_names(tf):
+            continue
         if tf != path:
             rep.add(
                 path,
                 h["source_line_start"],
                 h["source_column_start"],
                 "bench-hier",
-                f"hierarchical reference to {h['symbol'].split(' ', 1)[-1]} in {tf}",
+                f"hierarchical reference to {name} in {tf}",
             )
     own = {
         s["name"]: s for s in ix["Subroutine"] if s.get("source_file") == path
