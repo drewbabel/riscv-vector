@@ -1,17 +1,72 @@
 `default_nettype none
 
-module pmu_tb;
+module pmu_tb ();
+
+  localparam int MinChecks = 11;
+
+  int checks;
+  int errors;
+  int max_errors;
+  int live_errors;
+
+  pmu_bench core_bench ();
+
+  pmu_bench #(.CLK_FREQ_HZ(3_125_000)) slow_bench ();
+
+  pmu_bench #(.CLK_FREQ_HZ(25_000_000)) quarter_bench ();
+
+  pmu_bench #(.CLK_FREQ_HZ(100_000_000)) board_bench ();
+
+  task automatic check_floor(input string name, input int got, input int floor);
+    if (got < floor)
+      $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    checks = core_bench.checks + slow_bench.checks + quarter_bench.checks + board_bench.checks;
+    errors = core_bench.errors + slow_bench.errors + quarter_bench.errors + board_bench.errors;
+    check_floor("core_bench", core_bench.checks, MinChecks);
+    check_floor("slow_bench", slow_bench.checks, MinChecks);
+    check_floor("quarter_bench", quarter_bench.checks, MinChecks);
+    check_floor("board_bench", board_bench.checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("pmu_tb.vcd");
+    $dumpvars(0, pmu_tb);
+    wait (core_bench.done && slow_bench.done && quarter_bench.done && board_bench.done);
+    do_verdict();
+  end
+
+  always_comb
+    live_errors = core_bench.errors + slow_bench.errors + quarter_bench.errors + board_bench.errors;
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (live_errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", live_errors);
+    end
+  end
+
+endmodule
+
+module pmu_bench #(
+    parameter int CLK_FREQ_HZ = arch_pkg::BoardClkHz / arch_pkg::ClkDiv
+) ();
 
   localparam int Xlen = arch_pkg::XLEN;
-  localparam int ClkFreqHz = 3_125_000;
+  localparam int ClkFreqHz = CLK_FREQ_HZ;
   localparam int TagW = $bits(arch_pkg::PmuTag);
   localparam int WordBytes = Xlen / 8;
   localparam logic [Xlen-1:0] PmuBase = {arch_pkg::PmuTag, (Xlen - TagW)'(0)};
-  localparam int MinChecks = 11;
 
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  logic done = 1'b0;
 
   logic [Xlen-1:0] addr;
   logic [Xlen-1:0] rdata;
@@ -36,7 +91,7 @@ module pmu_tb;
     checks++;
     if (got !== exp) begin
       errors++;
-      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      $display("FAIL %m %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
@@ -86,24 +141,14 @@ module pmu_tb;
     read_check("dc_misses_updated", reg_addr(3, 0), Xlen'('hBBBB_BBBB));
   endtask  // Automatic
 
-  task automatic do_verdict();
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
-  endtask  // Automatic
-
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
-    $dumpfile("pmu_tb.vcd");
-    $dumpvars(0, pmu_tb);
     do_reset();
     check_map();
     check_decode();
     check_update();
-    do_verdict();
+    done = 1'b1;
   end
 
 endmodule
