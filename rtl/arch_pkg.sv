@@ -41,6 +41,21 @@ package arch_pkg;
   parameter logic [7:0] UartTag = 8'h04;
   parameter logic [7:0] PmuTag = 8'h05;
 
+  // Instruction fetch
+  parameter int InstrBytes = 4;
+  parameter int InstrLsb = $clog2(InstrBytes);
+  parameter logic [XLEN-1:0] ResetAddr = '0;
+
+  // Board parameters
+  parameter int MemWords = 16384;
+  parameter int PeriphTagW = $bits(ClintTag);
+  parameter int CoreClkHz = BoardClkHz / ClkDiv;
+  parameter int UartDataBits = 8;
+
+  // Memory controller
+  parameter int MigAddrW = 29;
+  parameter int MigCmdW = 3;
+
 endpackage
 
 `default_nettype wire
