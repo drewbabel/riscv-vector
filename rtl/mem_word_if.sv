@@ -31,8 +31,8 @@ module mem_word_if
     input  wire                  mem_ready,
 
     // Counters
-    output logic [31:0] hit_count,
-    output logic [31:0] miss_count
+    output logic [XLEN-1:0] hit_count,
+    output logic [XLEN-1:0] miss_count
 );
 
   typedef enum logic {
