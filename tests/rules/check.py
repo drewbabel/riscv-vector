@@ -974,7 +974,7 @@ def bench_build(path, root=ROOT):
     return srcs + extra, defs
 
 
-def slang_json(top, srcs, defs, out, root=ROOT, extra=()):
+def slang_json(top, srcs, defs, out, root=ROOT, extra=(), keep=False):
     cmd = [
         "slang",
         "-q",
@@ -995,8 +995,15 @@ def slang_json(top, srcs, defs, out, root=ROOT, extra=()):
     )
     if not os.path.exists(out) or os.path.getsize(out) == 0:
         return None, r.stdout + r.stderr
-    with open(out) as f:
-        return json.load(f), r.stdout + r.stderr
+    try:
+        with open(out) as f:
+            data = json.load(f)
+    except ValueError as e:
+        data = None
+        r.stderr += f"\nunreadable AST JSON: {e}"
+    if not keep:
+        os.unlink(out)
+    return data, r.stdout + r.stderr
 
 
 def jwalk(n, fn):
