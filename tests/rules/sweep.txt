@@ -191,22 +191,22 @@ top              pl_fwd              arch_pkg::XLEN=128                       ex
 top              pl_fwd              DEPTH=16
 top              pl_fwd              DEPTH=256
 riscv_single     sc_core_top         -
-riscv_single     sc_core_top         arch_pkg::XLEN=64
-riscv_single     sc_core_top         arch_pkg::XLEN=128
+riscv_single     sc_core_top         arch_pkg::XLEN=64                        expect="riscv_single implements RV32 only"
+riscv_single     sc_core_top         arch_pkg::XLEN=128                       expect="riscv_single implements RV32 only"
 sc_core_top      sc_core_top         -
-sc_core_top      sc_core_top         arch_pkg::XLEN=64
-sc_core_top      sc_core_top         arch_pkg::XLEN=128
+sc_core_top      sc_core_top         arch_pkg::XLEN=64                        expect="riscv_single implements RV32 only"
+sc_core_top      sc_core_top         arch_pkg::XLEN=128                       expect="riscv_single implements RV32 only"
 sc_csr           sc_core_top         -
-sc_csr           sc_core_top         arch_pkg::XLEN=64
-sc_csr           sc_core_top         arch_pkg::XLEN=128
+sc_csr           sc_core_top         arch_pkg::XLEN=64                        expect="sc_csr implements RV32 only"
+sc_csr           sc_core_top         arch_pkg::XLEN=128                       expect="sc_csr implements RV32 only"
 sc_datapath      sc_core_top         -
-sc_datapath      sc_core_top         arch_pkg::XLEN=64
-sc_datapath      sc_core_top         arch_pkg::XLEN=128
-sc_regfile       sc_core_top         -
-sc_regfile       sc_core_top         arch_pkg::XLEN=64
-sc_regfile       sc_core_top         arch_pkg::XLEN=128
-sc_regfile       sc_core_top         arch_pkg::RegAddrW=4
-sc_regfile       sc_core_top         arch_pkg::RegAddrW=6
+sc_datapath      sc_core_top         arch_pkg::XLEN=64                        expect="sc_datapath implements RV32 only"
+sc_datapath      sc_core_top         arch_pkg::XLEN=128                       expect="sc_datapath implements RV32 only"
+sc_regfile       sc_regfile          -
+sc_regfile       sc_regfile          arch_pkg::XLEN=64
+sc_regfile       sc_regfile          arch_pkg::XLEN=128
+sc_regfile       sc_regfile          arch_pkg::RegAddrW=4
+sc_regfile       sc_regfile          arch_pkg::RegAddrW=6
 rr_arbiter       rr_arbiter          -
 rr_arbiter       rr_arbiter          N=2
 rr_arbiter       rr_arbiter          N=3
