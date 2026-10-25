@@ -74,10 +74,21 @@ module sc_core_top_tb;
   logic                 d_pend;
   logic [ LineBits-1:0] d_hold;
 
-  logic [     Xlen-1:0] instr_h_q;
-  logic [     Xlen-1:0] rdata_h_q;
+  logic [     Xlen-1:0] instr_hold;
+  logic [     Xlen-1:0] rdata_hold;
+  logic                 irq_hold;
+
+  logic [     Xlen-1:0] instr_hold_q;
+  logic [     Xlen-1:0] rdata_hold_q;
+  logic                 irq_hold_q;
   logic                 core_en_q;
-  logic                 irq_h_q;
+  logic [     Xlen-1:0] pc_q;
+  logic                 imem_req_q;
+  logic                 imem_ready_q;
+  logic                 dmem_req_q;
+  logic                 dmem_ready_q;
+  logic [   2*Xlen-1:0] bus_out;
+  logic [   2*Xlen-1:0] bus_out_q;
 
   always #5 clk = ~clk;
 
@@ -92,6 +103,9 @@ module sc_core_top_tb;
       .timer_irq  (irq_stim),
       .imem_ready (imem_ready),
       .dmem_ready (dmem_ready),
+      .instr_hold (instr_hold),
+      .rdata_hold (rdata_hold),
+      .irq_hold   (irq_hold),
       .imem_req   (imem_req),
       .dmem_req   (dmem_req),
       .pc         (pc),
@@ -342,24 +356,34 @@ module sc_core_top_tb;
   always @(posedge clk) irq_stim <= ~irq_stim;
 
   // Freeze checks
+  assign bus_out = {mem_addr, store_data};
+
   always @(posedge clk) begin
-    instr_h_q <= dut.instr_h;
-    rdata_h_q <= dut.rdata_h;
-    core_en_q <= core_en;
-    irq_h_q   <= dut.irq_h;
+    instr_hold_q <= instr_hold;
+    rdata_hold_q <= rdata_hold;
+    irq_hold_q   <= irq_hold;
+    core_en_q    <= core_en;
+    pc_q         <= pc;
+    imem_req_q   <= imem_req;
+    imem_ready_q <= imem_ready;
+    dmem_req_q   <= dmem_req;
+    dmem_ready_q <= dmem_ready;
+    bus_out_q    <= bus_out;
     if (rst_n) begin
-      check("core stepped on a hold capture cycle",
-            Xlen'(dut.core_step && (dut.instr_cap || dut.data_cap)), '0);
-      check("core stepped while core_en was low", Xlen'(dut.core_step && !core_en), '0);
-      check("instruction hold captured while core_en was low", Xlen'(dut.instr_cap && !core_en),
-            '0);
-      check("data hold captured while core_en was low", Xlen'(dut.data_cap && !core_en), '0);
+      check("pc moved outside a core_en step cycle",
+            Xlen'((pc !== pc_q) && !(core_en_q && !imem_req_q && !dmem_req_q)), '0);
+      check("fetch left without a core_en capture",
+            Xlen'(imem_req_q && !imem_req && !(core_en_q && imem_ready_q)), '0);
+      check("data access left without a core_en capture",
+            Xlen'(dmem_req_q && !dmem_req && !(core_en_q && dmem_ready_q)), '0);
+      check("memory bus moved outside a core_en cycle",
+            Xlen'((bus_out !== bus_out_q) && !core_en_q), '0);
       check("instruction hold moved outside a core_en cycle",
-            Xlen'((dut.instr_h !== instr_h_q) && !core_en_q), '0);
+            Xlen'((instr_hold !== instr_hold_q) && !core_en_q), '0);
       check("data hold moved outside a core_en cycle",
-            Xlen'((dut.rdata_h !== rdata_h_q) && !core_en_q), '0);
+            Xlen'((rdata_hold !== rdata_hold_q) && !core_en_q), '0);
       check("interrupt hold moved outside a core_en cycle",
-            Xlen'((dut.irq_h !== irq_h_q) && !core_en_q), '0);
+            Xlen'((irq_hold !== irq_hold_q) && !core_en_q), '0);
       check("byte strobe live outside the request cycle", Xlen'(|store_wstrb && !dmem_req), '0);
       check("fetch and data request overlapped", Xlen'(imem_req && dmem_req), '0);
     end
