@@ -46,40 +46,32 @@ module hazard_unit_formal ();
   logic              load_use;
   logic              fp_dep;
 
-  hazard_unit #(
-      .XLEN(XLEN)
-  ) dut (
-      .clk           (clk),
-      .core_en       (core_en),
-      .rst_n         (rst_n),
-      .rs1_id        (rs1_id),
-      .rs2_id        (rs2_id),
-      .rs1_ex        (rs1_ex),
-      .rs2_ex        (rs2_ex),
-      .rd_id         (rd_id),
-      .rd_ex         (rd_ex),
-      .rd_mem        (rd_mem),
-      .rd_wb         (rd_wb),
-      .reg_write_ex  (reg_write_ex),
-      .reg_write_mem (reg_write_mem),
-      .reg_write_wb  (reg_write_wb),
-      .mem_write_ex  (mem_write_ex),
-      .result_src_ex (result_src_ex),
-      .result_src_mem(result_src_mem),
-      .result_src_wb (result_src_wb),
-      .fp_op_id      (fp_op_id),
-      .frs1_read_id  (frs1_read_id),
-      .frs2_read_id  (frs2_read_id),
-      .frs3_read_id  (frs3_read_id),
-      .frd_write_id  (frd_write_id),
-      .rs3_id        (rs3_id),
-      .fp_busy       (fp_busy),
-      .frd_write_ex  (frd_write_ex),
-      .frd_write_mem (frd_write_mem),
-      .frm_write_ex  (frm_write_ex),
-      .stall         (stall),
-      .forward_a     (forward_a),
-      .forward_b     (forward_b)
+  hazard_unit dut (
+      .rs1_id       (rs1_id),
+      .rs2_id       (rs2_id),
+      .rs1_ex       (rs1_ex),
+      .rs2_ex       (rs2_ex),
+      .rd_id        (rd_id),
+      .rd_ex        (rd_ex),
+      .rd_mem       (rd_mem),
+      .rd_wb        (rd_wb),
+      .reg_write_ex (reg_write_ex),
+      .reg_write_mem(reg_write_mem),
+      .reg_write_wb (reg_write_wb),
+      .result_src_ex(result_src_ex),
+      .fp_op_id     (fp_op_id),
+      .frs1_read_id (frs1_read_id),
+      .frs2_read_id (frs2_read_id),
+      .frs3_read_id (frs3_read_id),
+      .frd_write_id (frd_write_id),
+      .rs3_id       (rs3_id),
+      .fp_busy      (fp_busy),
+      .frd_write_ex (frd_write_ex),
+      .frd_write_mem(frd_write_mem),
+      .frm_write_ex (frm_write_ex),
+      .stall        (stall),
+      .forward_a    (forward_a),
+      .forward_b    (forward_b)
   );
 
   always @(posedge clk) begin
