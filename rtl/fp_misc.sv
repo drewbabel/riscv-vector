@@ -6,17 +6,19 @@ module fp_misc
   import fp_pkg::Funct3Fmin, fp_pkg::Funct3Fmax;
   import fp_pkg::Funct3Fle, fp_pkg::Funct3Flt, fp_pkg::Funct3Feq, fp_pkg::Funct3Fclass;
   import fp_pkg::FlagNv;
+  import fp_pkg::FlagW;
+  import fp_pkg::fp_canon_nan;
 #(
     parameter  int ExpW  = fp_pkg::ExpW,
     parameter  int FracW = fp_pkg::FracW,
     localparam int FLEN  = 1 + ExpW + FracW
 ) (
-    input  wire  [     4:0] funct5,
-    input  wire  [     2:0] funct3,
-    input  wire  [FLEN-1:0] a,
-    input  wire  [FLEN-1:0] b,
-    output logic [FLEN-1:0] result,
-    output logic [     4:0] fflags
+    input  wire  [      4:0] funct5,
+    input  wire  [      2:0] funct3,
+    input  wire  [ FLEN-1:0] a,
+    input  wire  [ FLEN-1:0] b,
+    output logic [ FLEN-1:0] result,
+    output logic [FlagW-1:0] fflags
 );
 
   localparam int OpW = $bits(Funct5Fsgnj) + $bits(Funct3Fsgnj);
@@ -32,7 +34,7 @@ module fp_misc
   localparam logic [OpW-1:0] OpFle = {Funct5Fcmp, Funct3Fle};
   localparam logic [OpW-1:0] OpFclass = {Funct5FmvXW, Funct3Fclass};
 
-  localparam logic [FLEN-1:0] CanonNan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
+  localparam logic [FLEN-1:0] CanonNan = FLEN'(fp_canon_nan(ExpW, FracW));
 
   if (!((FracW >= 2) && (FLEN >= 10))) begin : g_width_error
     $error("ExpW and FracW outside the supported range");
