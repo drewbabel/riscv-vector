@@ -46,7 +46,7 @@ endmodule
 
 module fp_cvt_bench
   import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup, fp_pkg::RmRmm;
-  import fp_pkg::FlagNv;
+  import fp_pkg::FlagNv, fp_pkg::FlagNx;
 #(
     parameter  int    EXP_W  = 8,
     parameter  int    FRAC_W = 23,
@@ -60,13 +60,14 @@ module fp_cvt_bench
   localparam int Bias = (1 << (EXP_W - 1)) - 1;
   localparam int FlagW = fp_pkg::FlagW;
   localparam int RmW = fp_pkg::RmW;
+  localparam int TfIntW = 32;
+  localparam int SweepW = 16;
+  localparam int RefW = FRAC_W + XLEN + 3;
+  localparam int RandOps = 32768;
 
   localparam string TfDir = "build/testfloat/";
 
   localparam logic [FlagW-1:0] FlagNone = '0;
-  localparam logic [XLEN-1:0] UMaxHalf = XLEN'({HalfW{1'b1}});
-  localparam logic [XLEN-1:0] SMaxHalf = XLEN'({(HalfW - 1) {1'b1}});
-  localparam logic [XLEN-1:0] SMinHalf = XLEN'(1) << (HalfW - 1);
 
   int checks = 0;
   int errors = 0;
@@ -122,6 +123,25 @@ module fp_cvt_bench
     check({name, " flags"}, OpW'(cvt_fflags), OpW'(exp_flags));
   endtask  // Automatic
 
+  task automatic check_model(input string src, input logic [OpW-1:0] got_res,
+                             input logic [FlagW-1:0] got_flags, input logic [OpW-1:0] tf_res,
+                             input logic [FlagW-1:0] tf_flags);
+    check({src, " model result"}, got_res, tf_res);
+    check({src, " model flags"}, OpW'(got_flags), OpW'(tf_flags));
+  endtask  // Automatic
+
+  function automatic logic [OpW-1:0] rand_bits();
+    logic [OpW-1:0] w;
+    w = '0;
+    for (int i = 0; i < OpW; i += 32) w = (w << 32) | OpW'($urandom);
+    return w;
+  endfunction
+
+  function automatic logic [XLEN-1:0] widen(input logic [TfIntW-1:0] v, input logic uns);
+    if (uns) return XLEN'(v);
+    return XLEN'($signed(v));
+  endfunction
+
   task automatic run_file(input string path, input logic to_int, input logic is_unsigned,
                           input logic [RmW-1:0] rm);
     int fd;
@@ -129,8 +149,10 @@ module fp_cvt_bench
     logic [OpW-1:0] x;
     logic [OpW-1:0] r;
     logic [FlagW-1:0] f;
-    logic [XLEN-1:0] res_half;
-    logic [FlagW-1:0] flags_half;
+    logic [OpW-1:0] mr;
+    logic [FlagW-1:0] mf;
+    logic [OpW-1:0] er;
+    logic [FlagW-1:0] ef;
     logic [OpW-1:0] x_half;
     string src;
     fd = $fopen(path, "r");
@@ -141,14 +163,21 @@ module fp_cvt_bench
     ) == 3) begin
       line++;
       src = $sformatf("%s:%0d", path, line);
-      test_cvt(src, to_int, is_unsigned, 1'b0, rm, x, r, f);
       if (to_int) begin
-        ref_f2i_half(FLEN'(x), is_unsigned, XLEN'(r), f, res_half, flags_half);
-        test_cvt(src, to_int, is_unsigned, 1'b1, rm, x, OpW'(res_half), flags_half);
+        ref_f2i(FLEN'(x), is_unsigned, rm, TfIntW, mr, mf);
+        check_model(src, mr, mf, r, f);
+        ref_f2i(FLEN'(x), is_unsigned, rm, XLEN, er, ef);
+        test_cvt(src, 1'b1, is_unsigned, 1'b0, rm, x, er, ef);
+        ref_f2i(FLEN'(x), is_unsigned, rm, HalfW, er, ef);
+        test_cvt(src, 1'b1, is_unsigned, 1'b1, rm, x, er, ef);
       end else begin
-        x_half = {(OpW - HalfW)'({32'($urandom), 32'($urandom)}), x[HalfW-1:0]};
-        test_cvt(src, to_int, is_unsigned, 1'b1, rm, x_half, OpW'(i2f_half(x[HalfW-1:0], is_unsigned
-                 )), FlagNone);
+        ref_i2f(XLEN'(x), is_unsigned, rm, TfIntW, mr, mf);
+        check_model(src, mr, mf, r, f);
+        test_cvt(src, 1'b0, is_unsigned, 1'b0, rm, OpW'(widen(TfIntW'(x), is_unsigned)), r, f);
+        x_half = rand_bits();
+        x_half[HalfW-1:0] = x[HalfW-1:0];
+        ref_i2f(XLEN'(x), is_unsigned, rm, HalfW, er, ef);
+        test_cvt(src, 1'b0, is_unsigned, 1'b1, rm, x_half, er, ef);
       end
     end
     if (!$feof(fd)) $fatal(1, "TB BAD LINE: %s:%0d", path, line + 1);
@@ -164,11 +193,68 @@ module fp_cvt_bench
   endtask  // Automatic
 
   task automatic sweep_i2f_half(input logic uns);
-    logic [OpW-1:0] x;
+    logic [  OpW-1:0] x;
+    logic [  OpW-1:0] er;
+    logic [FlagW-1:0] ef;
     for (int i = 0; i < 2 ** HalfW; i++) begin
-      x = {(OpW - HalfW)'({32'($urandom), 32'($urandom)}), HalfW'(i)};
-      test_cvt($sformatf("%s sweep16 %s %h", FMT, uns ? "unsigned" : "signed", HalfW'(i)), 1'b0,
-               uns, 1'b1, modes[i%$size(modes)], x, OpW'(i2f_half(HalfW'(i), uns)), FlagNone);
+      x = rand_bits();
+      x[HalfW-1:0] = HalfW'(i);
+      ref_i2f(XLEN'(i), uns, modes[i%$size(modes)], HalfW, er, ef);
+      test_cvt($sformatf("%s sweep%0d %s %h", FMT, HalfW, uns ? "unsigned" : "signed", HalfW'(i)),
+               1'b0, uns, 1'b1, modes[i%$size(modes)], x, er, ef);
+    end
+  endtask  // Automatic
+
+  function automatic logic [FLEN-1:0] rand_float();
+    logic [ FLEN-1:0] x;
+    logic [EXP_W-1:0] e;
+    x = FLEN'(rand_bits());
+    if ($urandom_range(15) == 0) return x;
+    e = EXP_W'(Bias - 3 + $urandom_range(XLEN + 6));
+    x[FLEN-2:FRAC_W] = e;
+    case ($urandom_range(
+        3
+    ))
+      0: x[FRAC_W-1:0] = '1;
+      1: x[FRAC_W-1:0] = FRAC_W'(x[FRAC_W-1:0] & {FRAC_W{1'b1}} << $urandom_range(FRAC_W));
+      default: ;
+    endcase
+    return x;
+  endfunction
+
+  task automatic random_f2i(input int n);
+    logic [FLEN-1:0] x;
+    logic [RmW-1:0] rm;
+    logic uns;
+    logic [OpW-1:0] er;
+    logic [FlagW-1:0] ef;
+    repeat (n) begin
+      x   = rand_float();
+      rm  = modes[$urandom_range($size(modes)-1)];
+      uns = 1'($urandom);
+      ref_f2i(x, uns, rm, XLEN, er, ef);
+      test_cvt({FMT, " random"}, 1'b1, uns, 1'b0, rm, OpW'(x), er, ef);
+      ref_f2i(x, uns, rm, HalfW, er, ef);
+      test_cvt({FMT, " random"}, 1'b1, uns, 1'b1, rm, OpW'(x), er, ef);
+    end
+  endtask  // Automatic
+
+  task automatic random_i2f(input int n);
+    logic [OpW-1:0] v;
+    logic [RmW-1:0] rm;
+    logic uns;
+    logic [OpW-1:0] er;
+    logic [FlagW-1:0] ef;
+    repeat (n) begin
+      v   = rand_bits();
+      v   = OpW'(XLEN'(v) >> $urandom_range(XLEN - 1));
+      rm  = modes[$urandom_range($size(modes)-1)];
+      uns = 1'($urandom);
+      if (1'($urandom)) v = OpW'(-XLEN'(v));
+      ref_i2f(XLEN'(v), uns, rm, XLEN, er, ef);
+      test_cvt({FMT, " random"}, 1'b0, uns, 1'b0, rm, v, er, ef);
+      ref_i2f(XLEN'(v), uns, rm, HalfW, er, ef);
+      test_cvt({FMT, " random"}, 1'b0, uns, 1'b1, rm, v, er, ef);
     end
   endtask  // Automatic
 
@@ -193,55 +279,111 @@ module fp_cvt_bench
     run_op({"i32_to_", FMT}, 1'b0, 1'b0);
     run_op({"ui32_to_", FMT}, 1'b0, 1'b1);
 
-    sweep_i2f_half(1'b0);
-    sweep_i2f_half(1'b1);
+    if (HalfW <= SweepW) begin
+      sweep_i2f_half(1'b0);
+      sweep_i2f_half(1'b1);
+    end
+
+    random_f2i(RandOps);
+    random_i2f(RandOps);
 
     mark_done();
   end
 
-  function automatic logic [XLEN-1:0] clip_half(input logic [FLEN-1:0] x, input logic uns);
-    logic is_nan;
-    logic neg;
-    is_nan = (x[FLEN-2:FRAC_W] == '1) && (x[FRAC_W-1:0] != '0);
-    neg = x[FLEN-1] && !is_nan;
-    if (uns) clip_half = neg ? '0 : UMaxHalf;
-    else clip_half = neg ? SMinHalf : SMaxHalf;
+  function automatic logic round_inc(input logic [RmW-1:0] rm, input logic neg, input logic lsb,
+                                     input logic above, input logic tie, input logic inexact);
+    case (rm)
+      RmRne:   return above || (tie && lsb);
+      RmRdn:   return neg && inexact;
+      RmRup:   return !neg && inexact;
+      RmRmm:   return above || tie;
+      default: return 1'b0;
+    endcase
   endfunction
 
-  task automatic ref_f2i_half(input logic [FLEN-1:0] x, input logic uns,
-                              input logic [XLEN-1:0] res_full, input logic [FlagW-1:0] flags_full,
-                              output logic [XLEN-1:0] res_half,
-                              output logic [FlagW-1:0] flags_half);
-    logic fits;
-    if (uns) fits = (res_full <= UMaxHalf);
-    else fits = (res_full == {{(XLEN - HalfW) {res_full[HalfW-1]}}, res_full[HalfW-1:0]});
-    if ((flags_full & FlagNv) == '0 && fits) begin
-      res_half   = XLEN'(res_full[HalfW-1:0]);
-      flags_half = flags_full;
+  task automatic ref_f2i(input logic [FLEN-1:0] x, input logic uns, input logic [RmW-1:0] rm,
+                         input int w, output logic [OpW-1:0] res, output logic [FlagW-1:0] fl);
+    logic neg;
+    logic [EXP_W-1:0] e;
+    logic [RefW-1:0] sig;
+    logic [RefW-1:0] mag;
+    logic [RefW-1:0] rem;
+    logic [RefW-1:0] half;
+    logic [RefW-1:0] lim;
+    logic inexact;
+    int sh;
+    neg = x[FLEN-1];
+    e   = x[FLEN-2:FRAC_W];
+    sig = RefW'(x[FRAC_W-1:0]) | (RefW'(e != '0) << FRAC_W);
+    sh  = ((e == '0) ? 1 : int'(e)) - Bias - FRAC_W;
+    if (e == '1) begin
+      mag = '1;
+      inexact = 1'b0;
+      if (x[FRAC_W-1:0] != '0) neg = 1'b0;
+    end else if (sh > w) begin
+      mag = '1;
+      inexact = 1'b0;
+    end else if (sh >= 0) begin
+      mag = sig << sh;
+      inexact = 1'b0;
+    end else if (-sh > FRAC_W + 2) begin
+      inexact = (sig != '0);
+      mag = RefW'(round_inc(rm, neg, 1'b0, 1'b0, 1'b0, inexact));
     end else begin
-      res_half   = clip_half(x, uns);
-      flags_half = FlagNv;
+      mag = sig >> -sh;
+      rem = sig & ((RefW'(1) << -sh) - 1);
+      half = RefW'(1) << (-sh - 1);
+      inexact = (rem != '0);
+      mag = mag + RefW'(round_inc(rm, neg, mag[0], rem > half, rem == half, inexact));
     end
+    if (uns) lim = neg ? '0 : (RefW'(1) << w) - 1;
+    else lim = neg ? RefW'(1) << (w - 1) : (RefW'(1) << (w - 1)) - 1;
+    if (mag > lim) begin
+      mag = lim;
+      fl  = FlagNv;
+    end else begin
+      fl = inexact ? FlagNx : FlagNone;
+    end
+    if (neg) mag = -mag;
+    res = OpW'(mag & ((RefW'(1) << w) - 1));
   endtask  // Automatic
 
-  function automatic logic [FLEN-1:0] i2f_half(input logic [HalfW-1:0] v, input logic uns);
-    logic sign;
-    logic [HalfW:0] mag;
+  task automatic ref_i2f(input logic [XLEN-1:0] v, input logic uns, input logic [RmW-1:0] rm,
+                         input int w, output logic [OpW-1:0] res, output logic [FlagW-1:0] fl);
+    logic neg;
+    logic [RefW-1:0] mag;
+    logic [RefW-1:0] rem;
+    logic [RefW-1:0] half;
+    logic inexact;
     int lead;
-    logic [EXP_W-1:0] exp_field;
-    logic [FRAC_W-1:0] frac;
-    sign = !uns && v[HalfW-1];
-    mag  = sign ? (HalfW + 1)'(-{1'b1, v}) : {1'b0, v};
+    int sh;
+    mag = RefW'(v) & ((RefW'(1) << w) - 1);
+    neg = !uns && mag[w-1];
+    if (neg) mag = (RefW'(1) << w) - mag;
+    fl = FlagNone;
     if (mag == '0) begin
-      i2f_half = '0;
-    end else begin
-      lead = 0;
-      for (int i = 0; i < $bits(mag); i++) if (mag[i]) lead = i;
-      exp_field = EXP_W'(Bias + lead);
-      frac = FRAC_W'((FRAC_W + HalfW + 1)'(mag) << (FRAC_W - lead));
-      i2f_half = {sign, exp_field, frac};
+      res = '0;
+      return;
     end
-  endfunction
+    lead = 0;
+    for (int i = 0; i < RefW; i++) if (mag[i]) lead = i;
+    if (lead <= FRAC_W) begin
+      mag = mag << (FRAC_W - lead);
+    end else begin
+      sh = lead - FRAC_W;
+      rem = mag & ((RefW'(1) << sh) - 1);
+      half = RefW'(1) << (sh - 1);
+      mag = mag >> sh;
+      inexact = (rem != '0);
+      mag = mag + RefW'(round_inc(rm, neg, mag[0], rem > half, rem == half, inexact));
+      if (mag[FRAC_W+1]) begin
+        mag  = mag >> 1;
+        lead = lead + 1;
+      end
+      fl = inexact ? FlagNx : FlagNone;
+    end
+    res = OpW'({neg, EXP_W'(Bias + lead), mag[FRAC_W-1:0]});
+  endtask  // Automatic
 
 endmodule
 
