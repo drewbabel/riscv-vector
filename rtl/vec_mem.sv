@@ -69,7 +69,7 @@ module vec_mem #(
   logic [Bytes-1:0] in_beat;
   logic [Bytes-1:0] byte_live;
   logic [Bytes-1:0] reg_mask;
-  logic [  VlW-1:0] next_elem;
+  logic [  VlW-1:0] beat_end;
 
   // Beat geometry
   assign unit = (stride == (XLEN'(1) << width));
@@ -79,30 +79,32 @@ module vec_mem #(
   assign shift = line_off - reg_off;
 
   // Next beat position
-  logic [ VlW-1:0] elem_d;
-  logic [XLEN-1:0] addr_d;
-  logic [ VlW-1:0] n_d;
+  logic [ VlW-1:0] elem_next;
+  logic [XLEN-1:0] addr_step;
+  logic [XLEN-1:0] addr_next;
+  logic [ VlW-1:0] n_next;
 
   assign beat_bytes = n << width;
-  assign next_elem = elem + n;
-  assign elem_d = busy ? next_elem : '0;
-  assign addr_d = busy ? (addr + (unit ? XLEN'(beat_bytes) : stride)) : base;
+  assign beat_end = elem + n;
+  assign elem_next = busy ? beat_end : '0;
+  assign addr_step = unit ? XLEN'(beat_bytes) : stride;
+  assign addr_next = busy ? (addr + addr_step) : base;
 
   // Elements next beat
-  assign left = count - elem_d;
-  assign fit_line = (BytesV - VlW'(addr_d[OffW-1:0])) >> width;
-  assign fit_reg = (BytesV - VlW'(OffW'(elem_d << width))) >> width;
+  assign left = count - elem_next;
+  assign fit_line = (BytesV - VlW'(addr_next[OffW-1:0])) >> width;
+  assign fit_reg = (BytesV - VlW'(OffW'(elem_next << width))) >> width;
   always_comb begin
-    n_d = VlW'(1);
+    n_next = VlW'(1);
     if (unit) begin
-      n_d = left;
-      if (fit_line < n_d) n_d = fit_line;
-      if (fit_reg < n_d) n_d = fit_reg;
+      n_next = left;
+      if (fit_line < n_next) n_next = fit_line;
+      if (fit_reg < n_next) n_next = fit_reg;
     end
   end
 
   always_ff @(posedge clk) begin
-    if (core_en && (busy ? mem_ready : start)) n <= n_d;
+    if (core_en && (busy ? mem_ready : start)) n <= n_next;
   end
 
   // Register bytes moved
@@ -130,7 +132,7 @@ module vec_mem #(
 
   // Register finished
   assign reg_done = busy && load && mem_ready &&
-      ((next_elem == count) || ((next_elem >> (OffWS - ShW'(width))) != reg_idx));
+      ((beat_end == count) || ((beat_end >> (OffWS - ShW'(width))) != reg_idx));
 
   // Walk the beats
   always_ff @(posedge clk) begin
@@ -149,9 +151,9 @@ module vec_mem #(
           else busy <= 1'b1;
         end
       end else if (mem_ready) begin
-        elem <= next_elem;
-        addr <= addr_d;
-        if (next_elem == count) begin
+        elem <= beat_end;
+        addr <= addr_next;
+        if (beat_end == count) begin
           busy <= 1'b0;
           done <= 1'b1;
         end
