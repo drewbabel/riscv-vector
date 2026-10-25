@@ -9,7 +9,7 @@ module sc_core_top
     input  wire              clk,
     input  wire              core_en,
     input  wire              rst_n,
-    input  wire  [ XLEN-1:0] instr,
+    input  wire  [     31:0] instr,
     input  wire  [ XLEN-1:0] read_data,
     input  wire              timer_irq,
     input  wire              imem_ready,
@@ -31,17 +31,17 @@ module sc_core_top
     STEP
   } state_t;
 
-  state_t             state;
+  state_t               state;
 
-  logic   [ XLEN-1:0] instr_h;
-  logic   [ XLEN-1:0] rdata_h;
-  logic               irq_h;
-  logic   [      6:0] opcode;
-  logic               is_mem;
-  logic               instr_cap;
-  logic               data_cap;
-  logic               core_step;
-  logic   [StrbW-1:0] core_wstrb;
+  logic   [       31:0] instr_h;
+  logic   [   XLEN-1:0] rdata_h;
+  logic                 irq_h;
+  logic   [OpcodeW-1:0] opcode;
+  logic                 is_mem;
+  logic                 instr_cap;
+  logic                 data_cap;
+  logic                 core_step;
+  logic   [  StrbW-1:0] core_wstrb;
 
   // Live at capture
   assign opcode      = instr[6:0];
