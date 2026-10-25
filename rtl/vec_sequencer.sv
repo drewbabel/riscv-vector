@@ -197,9 +197,9 @@ module vec_sequencer
   logic [SelW-1:0] dsel;
 
   for (genvar g = 0; g < Widths; g++) begin : g_w
-    localparam int W = 8 << g;
-    for (genvar e = 0; e < VLEN / W; e++) begin : g_e
-      assign spread_w[g][e*W+:W] = {W{elem_active[e]}};
+    localparam int ElemW = 8 << g;
+    for (genvar e = 0; e < VLEN / ElemW; e++) begin : g_e
+      assign spread_w[g][e*ElemW+:ElemW] = {ElemW{elem_active[e]}};
     end
   end
 
