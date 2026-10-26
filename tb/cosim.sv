@@ -17,7 +17,7 @@ endmodule
 
 module cosim_gen ();
 
-  cosim_bench #(.Depth(131072)) bench ();
+  cosim_bench #(.Depth(262144)) bench ();
 
 endmodule
 

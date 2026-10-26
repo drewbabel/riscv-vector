@@ -55,7 +55,6 @@ GEN_MARCH = "rv32im_zicsr_zve32x_zvl{vlen}b"
 ENV_DIR = os.path.join(ROOT, "tests", "rvv_env")
 GEN_OUT = os.path.join(BUILD, "rvv")
 GEN_CAP = 2_000_000
-GEN_DEPTH = 131072
 SPAN = None
 
 STALL = False
@@ -78,7 +77,17 @@ def package_value(name):
     return int(m.group(1))
 
 
+def sv_depth(top):
+    pat = rf"module {top} \(\);\s+cosim_bench #\(\.Depth\((\d+)\)\)"
+    with open(os.path.join(ROOT, "tb", "cosim.sv")) as f:
+        found = re.findall(pat, f.read())
+    if len(found) != 1:
+        sys.exit(f"cannot find one {top} Depth in tb/cosim.sv")
+    return int(found[0])
+
+
 VLEN = package_value("VLEN")
+GEN_DEPTH = sv_depth("cosim_gen")
 TOP = None
 
 
