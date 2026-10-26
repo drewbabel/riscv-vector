@@ -11,6 +11,7 @@ cover: depth 12
 
 [engines]
 prove: smtbmc z3
+prove: abc pdr
 cover: smtbmc z3
 
 [script]
