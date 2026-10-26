@@ -11,7 +11,8 @@ module vec_mask
     localparam int CntW     = $clog2(DLEN + 1),
     localparam int SelW     = $clog2(Widths),
     localparam int VlW      = $clog2(DLEN + 1),
-    localparam int BitsW    = $clog2(ELEN) + 1
+    localparam int BitsW    = $clog2(ELEN) + 1,
+    localparam int IdxW     = $clog2(ELEN)
 ) (
     input wire vec_op_e                 op,
     input wire vec_src_e                src,
@@ -75,11 +76,11 @@ module vec_mask
   // Trim a value
   function automatic logic [ELEN-1:0] sized(input logic [ELEN-1:0] val,
                                             input logic [BitsW-1:0] bits, input logic sgn);
-    case (bits)
-      BitsW'(8):  sized = sgn ? ELEN'($signed(val[7:0])) : ELEN'(val[7:0]);
-      BitsW'(16): sized = sgn ? ELEN'($signed(val[15:0])) : ELEN'(val[15:0]);
-      default:    sized = val;
-    endcase
+    logic [ELEN-1:0] keep;
+    keep = {ELEN{1'b1}} >> (ELEN - int'(bits));
+    if ((bits == '0) || (int'(bits) >= ELEN)) sized = val;
+    else if (sgn && val[IdxW'(bits-BitsW'(1))]) sized = val | ~keep;
+    else sized = val & keep;
   endfunction
 
   // Count set bits
