@@ -81,7 +81,7 @@ module vec_sequencer
   logic [    2:0] lmax;
   logic [LnW-1:0] ln;
 
-  assign lsew = vsew + 3'd3;
+  assign lsew = vsew + ByteLog2;
 
   assign ld   = vec_rel_log2(d_rel, lsew);
   assign ls1  = vec_rel_log2(s1_rel, lsew);
@@ -119,8 +119,10 @@ module vec_sequencer
   logic [VlW-1:0] total_elems;
 
   assign reg_elems = VlW'(VlW'(1) << (LnW'(OffW) - LnW'(lsew)));
-  assign total_elems = mask_whole ? VlW'(1) :
-      (vlmul[2] ? (reg_elems >> (3'd0 - vlmul)) : (reg_elems << vlmul[1:0]));
+  always_comb begin
+    if (mask_whole) total_elems = VlW'(1);
+    else total_elems = VlW'(vec_group_elems(int'(reg_elems), vlmul));
+  end
 
   // Element counter
   logic [VlW-1:0] elem_q;
@@ -134,25 +136,35 @@ module vec_sequencer
   logic [ProdW-1:0] prod1;
   logic [ProdW-1:0] prod2;
   logic [ProdW-1:0] prodd;
+  logic [ProdW-1:0] prodd_next;
 
-  assign prod1  = (single_write || mask_src) ? '0 : (ProdW'(elem_base) << ls1);
-  assign prod2  = mask_src ? '0 : (ProdW'(elem_base) << ls2);
-  assign prodd  = single_write ? '0 : (mask_dest ? ProdW'(elem_base) : (ProdW'(elem_base) << ld));
+  assign prod1 = (single_write || mask_src) ? '0 : (ProdW'(elem_base) << ls1);
+  assign prod2 = mask_src ? '0 : (ProdW'(elem_base) << ls2);
+
+  always_comb begin
+    if (single_write) begin
+      prodd      = '0;
+      prodd_next = '0;
+    end else if (mask_dest) begin
+      prodd      = ProdW'(elem_base);
+      prodd_next = ProdW'(elem_next);
+    end else begin
+      prodd      = ProdW'(elem_base) << ld;
+      prodd_next = ProdW'(elem_next) << ld;
+    end
+  end
 
   assign s1_off = prod1[OffW-1:0];
   assign s2_off = prod2[OffW-1:0];
-  assign d_off  = prodd[OffW-1:0];
+  assign d_off = prodd[OffW-1:0];
 
   assign raddr1 = vs1 + AWIDTH'(prod1[ProdW-1:OffW]);
   assign raddr2 = vs2 + AWIDTH'(prod2[ProdW-1:OffW]);
   assign raddr3 = reads_vd ? (vd + AWIDTH'(prodd[ProdW-1:OffW])) : '0;
-  assign waddr  = vd + AWIDTH'(prodd[ProdW-1:OffW]);
+  assign waddr = vd + AWIDTH'(prodd[ProdW-1:OffW]);
 
   // Register finished
-  logic [ProdW-1:0] prodd_next;
-  assign
-      prodd_next = single_write ? '0 : (mask_dest ? ProdW'(elem_next) : (ProdW'(elem_next) << ld));
-  assign reg_done = busy && (last || (prodd_next[ProdW-1:OffW] != prodd[ProdW-1:OffW]));
+  assign reg_done = busy && (last || ((prodd_next >> OffW) != (prodd >> OffW)));
   assign wen = busy && (wstrb != '0);
 
   // Destination bits
@@ -187,7 +199,7 @@ module vec_sequencer
     end
   end
 
-  assign dsel = (ld >= 3'd3 && 32'(ld - 3'd3) < Widths) ? SelW'(ld - 3'd3) : SelW'(Widths - 1);
+  assign dsel = SelW'(vec_sew_index(ld - ByteLog2, Widths));
   always_comb begin
     spread = mask_dest ? VLEN'(elem_active) : '0;
     for (int g = 0; g < Widths; g++) begin
