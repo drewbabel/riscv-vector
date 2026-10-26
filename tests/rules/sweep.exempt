@@ -1,0 +1,2 @@
+vec_compress                  ports-only stub with no logic to size until the compress unit is built
+boards/nexys_video/board_top  fails: sweep.py resolves board_top to rtl/boards/bram and lints without a MIG model, pending fix
