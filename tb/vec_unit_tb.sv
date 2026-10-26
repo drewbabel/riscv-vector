@@ -5111,7 +5111,7 @@ module vec_unit_tb
     check_reductions();
     check_scalar_moves();
 
-    // Multiply and fixed point
+    // Multiply fixed point
     check_lane_rules();
     check_multiplies();
     check_widening_muls();
