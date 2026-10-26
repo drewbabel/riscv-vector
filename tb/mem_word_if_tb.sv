@@ -374,7 +374,7 @@ module mem_word_if_bench
     logic [CpuBytes-1:0] strb;
     repeat (n) begin
       a    = Xlen'($urandom_range(MemLines * Chunks - 1) * CpuBytes);
-      d    = CpuW'({$urandom, $urandom, $urandom, $urandom});
+      d    = CpuW'({32'($urandom), 32'($urandom), 32'($urandom), 32'($urandom)});
       strb = CpuBytes'($urandom);
       if (1'($urandom)) begin
         if (strb != '0) store(a, strb, d);
