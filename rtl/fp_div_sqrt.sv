@@ -1,26 +1,27 @@
 `default_nettype none
 
 module fp_div_sqrt
-  import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup, fp_pkg::RmRmm;
   import fp_pkg::FlagNv, fp_pkg::FlagDz, fp_pkg::FlagOf, fp_pkg::FlagUf, fp_pkg::FlagNx;
-  import fp_pkg::fp_round_up, fp_pkg::fp_lzc, fp_pkg::FpLzcW;
+  import fp_pkg::fp_round_up, fp_pkg::fp_lzc, fp_pkg::FpLzcW, fp_pkg::fp_ovf_inf;
+  import fp_pkg::FlagW, fp_pkg::RmW;
+  import fp_pkg::fp_canon_nan, fp_pkg::fp_inf_mag, fp_pkg::fp_max_mag;
 #(
     parameter  int ExpW  = fp_pkg::ExpW,
     parameter  int FracW = fp_pkg::FracW,
     localparam int FLEN  = 1 + ExpW + FracW
 ) (
-    input  wire             clk,
-    input  wire             rst_n,
-    input  wire             core_en,
-    input  wire             start,
-    input  wire             sqrt,
-    input  wire  [     2:0] rm,
-    input  wire  [FLEN-1:0] a,
-    input  wire  [FLEN-1:0] b,
-    output logic [FLEN-1:0] result,
-    output logic [     4:0] fflags,
-    output logic            busy,
-    output logic            done
+    input  wire              clk,
+    input  wire              rst_n,
+    input  wire              core_en,
+    input  wire              start,
+    input  wire              sqrt,
+    input  wire  [  RmW-1:0] rm,
+    input  wire  [ FLEN-1:0] a,
+    input  wire  [ FLEN-1:0] b,
+    output logic [ FLEN-1:0] result,
+    output logic [FlagW-1:0] fflags,
+    output logic             busy,
+    output logic             done
 );
 
   localparam int SigW = FracW + 1;
@@ -37,9 +38,9 @@ module fp_div_sqrt
 
   localparam logic [CntW-1:0] LastIter = CntW'(QuoW - 1);
   localparam logic [IExpW-1:0] ExpInf = IExpW'((1 << ExpW) - 1);
-  localparam logic [FLEN-1:0] CanonNan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
-  localparam logic [FLEN-2:0] InfMag = {{ExpW{1'b1}}, {FracW{1'b0}}};
-  localparam logic [FLEN-2:0] MaxMag = {{(ExpW - 1) {1'b1}}, 1'b0, {FracW{1'b1}}};
+  localparam logic [FLEN-1:0] CanonNan = FLEN'(fp_canon_nan(ExpW, FracW));
+  localparam logic [FLEN-2:0] InfMag = (FLEN - 1)'(fp_inf_mag(ExpW, FracW));
+  localparam logic [FLEN-2:0] MaxMag = (FLEN - 1)'(fp_max_mag(ExpW, FracW));
 
   typedef enum logic [2:0] {
     IDLE,
@@ -57,7 +58,7 @@ module fp_div_sqrt
   logic [FLEN-1:0] a_q;
   logic [FLEN-1:0] b_q;
   logic sqrt_q;
-  logic [2:0] rm_q;
+  logic [RmW-1:0] rm_q;
 
   logic sign_q;
   logic [IExpW-1:0] exp_q;
@@ -95,25 +96,25 @@ module fp_div_sqrt
   logic sign_div;
   logic special;
   logic [FLEN-1:0] spec_result;
-  logic [4:0] spec_flags;
+  logic [FlagW-1:0] spec_flags;
   assign a_neg = a_q[FLEN-1];
   assign sign_div = a_neg ^ b_q[FLEN-1];
 
   always_comb begin
     special = 1'b1;
     spec_result = CanonNan;
-    spec_flags = 5'd0;
+    spec_flags = '0;
     if (sqrt_q) begin
-      if (a_nan) spec_flags = a_snan ? FlagNv : 5'd0;
+      if (a_nan) spec_flags = a_snan ? FlagNv : '0;
       else if (a_zero || (a_inf && !a_neg)) spec_result = a_q;
       else if (a_neg) spec_flags = FlagNv;
       else special = 1'b0;
     end else begin
-      if (a_nan || b_nan) spec_flags = (a_snan || b_snan) ? FlagNv : 5'd0;
+      if (a_nan || b_nan) spec_flags = (a_snan || b_snan) ? FlagNv : '0;
       else if ((a_inf && b_inf) || (a_zero && b_zero)) spec_flags = FlagNv;
       else if (a_inf || b_zero) begin
         spec_result = {sign_div, InfMag};
-        spec_flags  = a_inf ? 5'd0 : FlagDz;
+        spec_flags  = a_inf ? '0 : FlagDz;
       end else if (a_zero || b_inf) spec_result = {sign_div, {(FLEN - 1) {1'b0}}};
       else special = 1'b0;
     end
@@ -138,7 +139,7 @@ module fp_div_sqrt
   logic [RemW-1:0] rem_sh;
   logic [RemW-1:0] trial;
   logic q_bit;
-  logic [RemW-1:0] rem_nxt;
+  logic [RemW-1:0] rem_next;
   assign sqrt_sh = {rem_q[RemW-3:0], src_q[RadW-1:RadW-2]};
   always_comb begin
     if (sqrt_q) begin
@@ -148,8 +149,8 @@ module fp_div_sqrt
       rem_sh = rem_q;
       trial  = {2'b00, src_q};
     end
-    q_bit   = rem_sh >= trial;
-    rem_nxt = q_bit ? rem_sh - trial : rem_sh;
+    q_bit = rem_sh >= trial;
+    rem_next = q_bit ? rem_sh - trial : rem_sh;
   end
 
   // Subnormal shift
@@ -186,8 +187,7 @@ module fp_div_sqrt
   assign e_pre = sub ? '0 : exp_q - IExpW'(1);
   assign e_out = e_pre + IExpW'(mant_r[SigW:SigW-1]);
   assign ovf = !sub && (e_out >= ExpInf);
-  assign ovf_inf = (rm_q == RmRne) || (rm_q == RmRmm) || ((rm_q == RmRdn) && sign_q) ||
-      ((rm_q == RmRup) && !sign_q);
+  assign ovf_inf = fp_ovf_inf(rm_q, sign_q);
 
   // Tininess after rounding
   logic carry_sig;
@@ -197,13 +197,13 @@ module fp_div_sqrt
   );
   assign tiny = exp_q[IExpW-1] || ((exp_q == '0) && !carry_sig);
 
-  logic [FLEN-1:0] rnd_packed;
-  logic [FLEN-1:0] rnd_result;
-  logic [     4:0] rnd_flags;
+  logic [ FLEN-1:0] rnd_packed;
+  logic [ FLEN-1:0] rnd_result;
+  logic [FlagW-1:0] rnd_flags;
   assign rnd_packed = {sign_q, e_out[ExpW-1:0], mant_r[FracW-1:0]};
   always_comb begin
     if (ovf) begin
-      rnd_result = ovf_inf ? {sign_q, InfMag} : {sign_q, MaxMag};
+      rnd_result = {sign_q, ovf_inf ? InfMag : MaxMag};
       rnd_flags  = FlagOf | FlagNx;
     end else begin
       rnd_result = rnd_packed;
@@ -263,7 +263,7 @@ module fp_div_sqrt
           end
         end
         ITER: begin
-          rem_q <= sqrt_q ? rem_nxt : rem_nxt << 1;
+          rem_q <= sqrt_q ? rem_next : rem_next << 1;
           src_q <= sqrt_q ? src_q << 2 : src_q;
           quo_q <= {quo_q[QuoW-2:0], q_bit};
           cnt_q <= cnt_q + CntW'(1);
