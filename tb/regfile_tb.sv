@@ -3,8 +3,9 @@
 module regfile_tb ();
 
   localparam int AWIDTH = arch_pkg::RegAddrW;
-  localparam int XLEN   = arch_pkg::XLEN;
-  localparam int Depth  = 2 ** AWIDTH;
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int Depth = 2 ** AWIDTH;
+  localparam int MinChecks = 2000;
 
   int checks = 0;
   int errors = 0;
@@ -40,58 +41,68 @@ module regfile_tb ();
       .rdata2(rdata2)
   );
 
+  task automatic check(input string name, input logic [XLEN-1:0] got, input logic [XLEN-1:0] exp);
+    checks++;
+    if (got !== exp) begin
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
+  endtask  // Automatic
+
   // Stimulus
   task automatic do_reset();
-    rst_n = 0;
+    @(negedge clk);
+    rst_n  = 0;
+    we     = 1'b0;
+    waddr  = '0;
+    wdata  = '0;
+    raddr1 = '0;
+    raddr2 = '0;
     repeat (2) @(posedge clk);
+    @(negedge clk);
     rst_n = 1;
-  endtask
+  endtask  // Automatic
 
   task automatic write_reg(input logic [AWIDTH-1:0] addr, input logic [XLEN-1:0] data);
-    #1;
+    @(negedge clk);
     waddr = addr;
     wdata = data;
     we = 1'b1;
     @(posedge clk);
     @(negedge clk);
     we = 1'b0;
-  endtask
+  endtask  // Automatic
 
-  task automatic check_read(input logic [AWIDTH-1:0] addr, input logic [XLEN-1:0] got);
-    logic [XLEN-1:0] exp;
-    exp = (addr == 0) ? '0 : shadow[addr];
-    checks++;
-    if (got !== exp) begin
-      errors++;
-      $display("Read mismatch addr=%0d exp=%h got=%h", addr, exp, got);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-  endtask
+  task automatic check_read(input string port, input logic [AWIDTH-1:0] addr,
+                            input logic [XLEN-1:0] got);
+    check($sformatf("%s addr %0d", port, addr), got, (addr == 0) ? '0 : shadow[addr]);
+  endtask  // Automatic
 
   task automatic check_reads(input logic [AWIDTH-1:0] addr1, input logic [AWIDTH-1:0] addr2);
-    #1;
+    @(negedge clk);
     raddr1 = addr1;
     raddr2 = addr2;
-    #1;  // Let combinational read ports settle before sampling
-    check_read(raddr1, rdata1);
-    check_read(raddr2, rdata2);
-  endtask
-
-  task automatic verdict();
     @(posedge clk);
+    check_read("rdata1", raddr1, rdata1);
+    check_read("rdata2", raddr2, rdata2);
+  endtask  // Automatic
+
+  task automatic random_sweep(input int n);
+    repeat (n) begin
+      write_reg(AWIDTH'($urandom), XLEN'($urandom));
+      check_reads(AWIDTH'($urandom), AWIDTH'($urandom));
+    end
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    @(posedge clk);
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
-  endtask
-
-  // Reference model
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      for (int i = 0; i < Depth; i++) shadow[i] <= '0;
-    end else if (we && waddr != 0) begin
-      shadow[waddr] <= wdata;
-    end
-  end
+  endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
@@ -100,30 +111,32 @@ module regfile_tb ();
     $dumpvars(0, regfile_tb);
     do_reset();
 
-    // Write then read same register on both ports
-    write_reg(5, 32'hDEAD_BEEF);
-    check_reads(5, 5);
+    // Same register both ports
+    write_reg(AWIDTH'(5), XLEN'('hDEAD_BEEF));
+    check_reads(AWIDTH'(5), AWIDTH'(5));
 
-    // x0 stays zero
-    write_reg(0, 32'hFFFF_FFFF);
-    check_reads(0, 0);
+    write_reg(AWIDTH'(0), XLEN'('hFFFF_FFFF));
+    check_reads(AWIDTH'(0), AWIDTH'(0));
 
-    // Two different registers, read simultaneously
-    write_reg(7, 32'h0000_00AA);
-    write_reg(9, 32'h0000_00BB);
-    check_reads(7, 9);
+    // Two registers at once
+    write_reg(AWIDTH'(7), XLEN'('h0000_00AA));
+    write_reg(AWIDTH'(9), XLEN'('h0000_00BB));
+    check_reads(AWIDTH'(7), AWIDTH'(9));
 
-    // Reset mid-stream
     do_reset();
-    check_reads(5, 9);
+    check_reads(AWIDTH'(5), AWIDTH'(9));
 
-    // Randomized sweep
-    for (int i = 0; i < 1000; i++) begin
-      write_reg(AWIDTH'($urandom), XLEN'($urandom));
-      check_reads(AWIDTH'($urandom), AWIDTH'($urandom));
+    random_sweep(1000);
+    do_verdict();
+  end
+
+  // Reference model
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      for (int i = 0; i < Depth; i++) shadow[i] <= '0;
+    end else if (we && waddr != 0) begin
+      shadow[waddr] <= wdata;
     end
-
-    verdict();
   end
 
 endmodule
