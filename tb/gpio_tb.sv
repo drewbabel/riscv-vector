@@ -59,7 +59,7 @@ module gpio_bench #(
   localparam int TagW = $bits(arch_pkg::GpioTag);
   localparam logic [Xlen-1:0] Base = {arch_pkg::GpioTag, {(Xlen - TagW) {1'b0}}};
   localparam logic [Xlen-1:0] LedAddr = Base;
-  localparam logic [Xlen-1:0] SwAddr = Base | Xlen'('h4);
+  localparam logic [Xlen-1:0] SwAddr = Base | Xlen'(Xlen / 8);
 
   int checks = 0;
   int errors = 0;
