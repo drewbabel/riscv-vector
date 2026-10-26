@@ -96,6 +96,18 @@ module hazard_unit_formal ();
     end
   end
 
+  // Covers
+  always @(posedge clk) begin
+    cover (forward_a == FwdMem && reg_write_wb && rd_wb == rs1_ex);
+    cover (forward_a == FwdWb);
+    cover (forward_b == FwdMem);
+    cover (forward_b == FwdWb);
+    cover (stall && load_use && !fp_dep);
+    cover (stall && fp_dep && !load_use && !frm_write_ex);
+    cover (stall && frm_write_ex && fp_op_id && !load_use);
+    cover (!stall && fp_op_id && frs1_read_id && frs2_read_id && frs3_read_id && frd_write_id);
+  end
+
   assign load_use = (result_src_ex == ResMem) && reg_write_ex && (rd_ex != 0) &&
       ((rd_ex == rs1_id) || (rd_ex == rs2_id));
 
