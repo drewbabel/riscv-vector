@@ -5,6 +5,20 @@ module muldiv
 #(
     parameter int XLEN = arch_pkg::XLEN
 ) (
+`ifdef RISCV_FORMAL
+    output logic                   [           1:0] dbg_state,
+    output logic                   [      XLEN-1:0] dbg_stored_a,
+    output logic                   [      XLEN-1:0] dbg_stored_b,
+    output muldiv_pkg::muldiv_op_e                  dbg_stored_op,
+    output logic                   [      XLEN-1:0] dbg_quotient,
+    output logic                   [      XLEN-1:0] dbg_remainder,
+    output logic                   [      XLEN-1:0] dbg_div_n,
+    output logic                   [      XLEN-1:0] dbg_div_d,
+    output logic                   [$clog2(XLEN):0] dbg_cycle_count,
+    output logic                                    dbg_quot_neg,
+    output logic                                    dbg_rem_neg,
+`endif
+
     input  wire                                    clk,
     input  wire                                    core_en,
     input  wire                                    rst_n,
@@ -147,6 +161,20 @@ module muldiv
       default: ;
     endcase
   end
+
+`ifdef RISCV_FORMAL
+  assign dbg_state = state;
+  assign dbg_stored_a = stored_a;
+  assign dbg_stored_b = stored_b;
+  assign dbg_stored_op = stored_op;
+  assign dbg_quotient = quotient;
+  assign dbg_remainder = remainder;
+  assign dbg_div_n = div_n;
+  assign dbg_div_d = div_d;
+  assign dbg_cycle_count = cycle_count;
+  assign dbg_quot_neg = quot_neg;
+  assign dbg_rem_neg = rem_neg;
+`endif
 
 endmodule
 
