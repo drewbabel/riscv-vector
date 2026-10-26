@@ -38,7 +38,7 @@ endmodule
 
 // Behavioral memory controller
 module mig_7series_0 #(
-    parameter int ReadLat = 20
+    parameter int ReadLat = 24
 ) (
     output logic [ 14:0] ddr3_addr,
     output logic [  2:0] ddr3_ba,
