@@ -1,13 +1,31 @@
+[tasks]
+prove
+divide
+cover
+
 [options]
-mode bmc
-depth 12
+prove: mode prove
+prove: depth 3
+divide: mode prove
+divide: depth 3
+cover: mode cover
+cover: depth 136
 
 [engines]
-btor btormc
+prove: smtbmc yices
+prove: abc pdr
+divide: smtbmc yices
+divide: smtbmc bitwuzla
+cover: smtbmc boolector
 
 [script]
 read -formal muldiv_formal.v
+divide: chparam -set DIVIDE 1 muldiv_formal
 prep -top muldiv_formal
+divide: techmap -dont_map $ge -dont_map $sub -dont_map $mux -dont_map $neg -dont_map $pos -dont_map $ne -dont_map $logic_and t:$div t:$mod
+divide: opt -fine -keepdc
+divide: wreduce -keepdc
+divide: opt -fine -keepdc
 
 [files]
 build/muldiv_formal.v
