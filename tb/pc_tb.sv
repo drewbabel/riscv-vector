@@ -108,7 +108,8 @@ module pc_bench #(
     @(negedge clk);
     if (reg_check) pc_next = Xlen'($urandom);
     @(posedge clk);
-    check(rst_in ? "pc_q" : "pc_q reset", pc_q, rst_in ? exp_pc : ResetAddr);
+    if (rst_in) check("pc_q", pc_q, exp_pc);
+    else check("pc_q reset", pc_q, ResetAddr);
   endtask  // Automatic
 
   task automatic soak(input int n);
