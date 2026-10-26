@@ -72,7 +72,11 @@ module dmem_bench #(
 
   logic [XLEN-1:0] shadow[DEPTH];
 
-  assign rword = rdata[addr[WordLsb+:BlkOffLen]*XLEN+:XLEN];
+  function automatic int word_of(input logic [XLEN-1:0] a);
+    return int'(a >> WordLsb) % LineWords;
+  endfunction
+
+  assign rword = rdata[word_of(addr)*XLEN+:XLEN];
 
   always #5 clk = ~clk;
 
@@ -109,7 +113,7 @@ module dmem_bench #(
                              input logic [WordBytes-1:0] strb);
     addr  = a;
     wdata = {LineWords{data}};
-    wstrb = LineBytes'(strb) << (WordBytes * a[WordLsb+:BlkOffLen]);
+    wstrb = LineBytes'(strb) << (WordBytes * word_of(a));
     @(negedge clk);
     wstrb = '0;
   endtask  // Automatic
@@ -191,9 +195,8 @@ module dmem_bench #(
   always @(posedge clk) begin
     for (int b = 0; b < LineBytes; b++) begin
       if (wstrb[b]) begin
-        shadow[{
-          addr[AddrWidth+WordLsb-1:IdxLsb], BlkOffLen'(b/WordBytes)
-        }][8*(b%WordBytes)+:8] <= wdata[8*b+:8];
+        shadow[int'(addr[AddrWidth+WordLsb-1:IdxLsb])*LineWords+b/WordBytes][8*(b%WordBytes)+:8]
+            <= wdata[8*b+:8];
       end
     end
   end
