@@ -24,6 +24,10 @@ module vec_sat_lane
   localparam int IdxW = $clog2(ExtW);
   localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
 
+  if ((ELEN < 16) || (ELEN != (8 << SewTop))) begin : g_elen_error
+    $error("ELEN must be a power of two from 16");
+  end
+
   logic    [   PosW:0] w;
   logic    [ PosW+1:0] w2;
   logic    [ ELEN-1:0] wmask;
