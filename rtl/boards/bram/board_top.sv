@@ -15,17 +15,19 @@ module board_top
     localparam int ILEN       = arch_pkg::ILEN
 ) (
 `ifdef SIM_BACKDOOR
-    output logic             sim_branch,
-    output logic             sim_branch_taken,
-    output logic             sim_mispredict,
-    output logic             sim_muldiv_hold,
+    output logic                              sim_branch,
+    output logic                              sim_branch_taken,
+    output logic                              sim_mispredict,
+    output logic                              sim_muldiv_hold,
+    output logic                              sim_tx_valid,
+    output logic [arch_pkg::UartDataBits-1:0] sim_tx_data,
 `endif
-    input  wire              clk,
-    input  wire              rst,
-    input  wire  [GpioW-1:0] sw,
-    output logic [GpioW-1:0] led,
-    input  wire              uart_rx,
-    output logic             uart_tx
+    input  wire                               clk,
+    input  wire                               rst,
+    input  wire  [                 GpioW-1:0] sw,
+    output logic [                 GpioW-1:0] led,
+    input  wire                               uart_rx,
+    output logic                              uart_tx
 );
 
   localparam int DataBits = arch_pkg::UartDataBits;
@@ -120,10 +122,17 @@ module board_top
   logic [PorW-1:0] por;
   initial por = '0;
   always @(posedge clk) if (core_en && !por[PorW-1]) por <= por + 1'b1;
-  assign rst_n      = por[PorW-1] & ~rst;
+  assign rst_n = por[PorW-1] & ~rst;
 
   // Load holds reset
-  assign core_rst_n = rst_n & ~loading;
+  logic boot_hold;
+`ifdef SIM_BACKDOOR
+  logic bd_skip_boot = 1'b0;
+  assign boot_hold = loading && !bd_skip_boot;
+`else
+  assign boot_hold = loading;
+`endif
+  assign core_rst_n = rst_n & ~boot_hold;
 
   // Decode on mem_addr
   assign periph_tag = mem_addr[XLEN-1-:TagW];
@@ -144,7 +153,7 @@ module board_top
 
   assign dmem_ready = periph_sel ? 1'b1 : dc_ready;
 
-  assign led = loading ? LoadPattern : led_raw;
+  assign led = boot_hold ? LoadPattern : led_raw;
 
   pmu #(
       .XLEN(XLEN),
@@ -409,6 +418,12 @@ module board_top
       .rdata    (clint_rdata),
       .timer_irq(timer_irq)
   );
+
+
+`ifdef SIM_BACKDOOR
+  assign sim_tx_valid = tx_valid;
+  assign sim_tx_data  = tx_byte;
+`endif
 
 endmodule
 
