@@ -2,8 +2,9 @@
 
 module mem_word_if_tb ();
 
-  localparam int MinChecks = 40000;
-  localparam int MinLineChecks = 39000;
+  localparam int DwordW = 64;
+  localparam int NarrowW = (arch_pkg::XLEN < DwordW) ? arch_pkg::XLEN : DwordW;
+  localparam int MinChecks = 17300 + 5400 * (cache_pkg::LineBits / NarrowW);
 
   int checks;
   int errors;
@@ -14,7 +15,7 @@ module mem_word_if_tb ();
 
   mem_word_if_bench #(.CPU_W(cache_pkg::LineBits)) line_bench ();
 
-  mem_word_if_bench #(.CPU_W(64)) dword_bench ();
+  mem_word_if_bench #(.CPU_W(DwordW)) dword_bench ();
 
   task automatic check_floor(input string name, input int got, input int floor);
     if (got < floor)
@@ -25,8 +26,8 @@ module mem_word_if_tb ();
     checks = xlen_bench.checks + line_bench.checks + dword_bench.checks;
     errors = xlen_bench.errors + line_bench.errors + dword_bench.errors;
     check_floor("xlen_bench", xlen_bench.checks, MinChecks);
-    check_floor("line_bench", line_bench.checks, MinLineChecks);
-    check_floor("dword_bench", dword_bench.checks, MinLineChecks);
+    check_floor("line_bench", line_bench.checks, MinChecks);
+    check_floor("dword_bench", dword_bench.checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
