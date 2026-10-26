@@ -124,7 +124,7 @@ mem_delay        mem_delay           arch_pkg::XLEN=64
 mem_delay        mem_delay           arch_pkg::XLEN=128
 mem_delay        mem_delay           DEPTH=4096
 mem_delay        mem_delay           DEPTH=65536
-mem_delay        mem_delay           Latency=1
+mem_delay        mem_delay           Latency=1                                expect="Latency must be at least 2"
 mem_delay        mem_delay           Latency=5
 mem_word_if      mem_word_if         -
 mem_word_if      mem_word_if         arch_pkg::XLEN=64
