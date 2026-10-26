@@ -102,11 +102,7 @@ def make_tree(pkg):
         path = os.path.join(tree, "rtl", f"{name_pkg}.sv")
         with open(path) as f:
             text = f.read()
-        new, n = re.subn(
-            rf"(parameter\s+[^;=]*\b{re.escape(name)}\s*=\s*)[^;]+;",
-            rf"\g<1>{v};",
-            text,
-        )
+        new, n = check.set_package(text, name, v)
         if n != 1:
             raise SystemExit(f"cannot override {k}: {n} declarations")
         with open(path, "w") as f:
