@@ -1,9 +1,5 @@
 name: Review
 
-env:
-  OSS_CAD_SUITE: '2026-07-24'
-  VERIBLE: 'v0.0-4283-ga1b0580b'
-
 on:
   pull_request:
 
@@ -26,13 +22,10 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
+      - uses: ./.github/actions/verible
       - uses: reviewdog/action-setup@v1
-      - name: Install Verible, ruff and clang-format
+      - name: Install ruff and clang-format
         run: |
-          curl -fsSL "https://github.com/chipsalliance/verible/releases/download/$VERIBLE/verible-$VERIBLE-linux-static-x86_64.tar.gz" | tar -xz -C "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/verible-$VERIBLE/bin" >> "$GITHUB_PATH"
           pip install --quiet ruff
           sudo apt-get install -y -qq clang-format
       - name: Review

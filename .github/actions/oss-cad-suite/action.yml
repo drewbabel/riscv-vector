@@ -4,7 +4,7 @@ description: Install the pinned OSS CAD Suite and put its binaries on the path
 inputs:
   version:
     description: Release tag of the OSS CAD Suite build
-    required: true
+    default: '2026-07-24'
 
 runs:
   using: composite

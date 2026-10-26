@@ -1,0 +1,19 @@
+name: riscv-formal
+description: Clone the pinned riscv-formal and point RISCV_FORMAL_DIR at it
+
+inputs:
+  sha:
+    description: riscv-formal commit to check out
+    default: '2bd7410'
+
+runs:
+  using: composite
+  steps:
+    - name: Clone riscv-formal
+      shell: bash
+      env:
+        SHA: ${{ inputs.sha }}
+      run: |
+        git clone https://github.com/YosysHQ/riscv-formal.git
+        git -C riscv-formal checkout "$SHA"
+        echo "RISCV_FORMAL_DIR=$GITHUB_WORKSPACE/riscv-formal" >> "$GITHUB_ENV"

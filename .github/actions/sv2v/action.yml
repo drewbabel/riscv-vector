@@ -1,0 +1,20 @@
+name: sv2v
+description: Install the pinned sv2v release and put it on the path
+
+inputs:
+  version:
+    description: Release tag of sv2v
+    default: 'v0.0.13'
+
+runs:
+  using: composite
+  steps:
+    - name: Install sv2v
+      shell: bash
+      env:
+        TAG: ${{ inputs.version }}
+      run: |
+        mkdir -p "$HOME/.local/bin"
+        curl -fsSL "https://github.com/zachjs/sv2v/releases/download/$TAG/sv2v-Linux.zip" -o "$RUNNER_TEMP/sv2v.zip"
+        unzip -j "$RUNNER_TEMP/sv2v.zip" -d "$HOME/.local/bin"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
