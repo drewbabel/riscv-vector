@@ -200,7 +200,7 @@ module dmem_arb_bench #(
   endfunction
 
   function automatic logic [DATA_W-1:0] rand_data();
-    return DATA_W'({$urandom, $urandom, $urandom, $urandom});
+    return DATA_W'({32'($urandom), 32'($urandom), 32'($urandom), 32'($urandom)});
   endfunction
 
   function automatic logic [StrbW-1:0] rand_strobe();
