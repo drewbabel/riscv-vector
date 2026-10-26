@@ -28,6 +28,10 @@ module mem_delay
     input wire [XLEN-1:0] boot_wdata
 );
 
+  if (Latency < 2) begin : g_latency
+    $error("Latency must be at least 2");
+  end
+
   logic [LineIdxLen-1:0] line_idx;
   logic [LineIdxLen-1:0] boot_idx;
   logic [LineIdxLen-1:0] wr_idx;
