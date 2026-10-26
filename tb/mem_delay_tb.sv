@@ -71,6 +71,7 @@ module mem_delay_bench #(
   import cache_pkg::*;
 
   localparam int Xlen = arch_pkg::XLEN;
+  localparam int Second = (LineWords > 1) ? 1 : 0;
   localparam int Depth = DEPTH;
   localparam int Latency = LATENCY;
   localparam int MaxWait = 100;
@@ -191,8 +192,9 @@ module mem_delay_bench #(
   endtask  // Automatic
 
   task automatic test_word_select();
-    request(1'b0, Xlen'(LineBytes + WordBytes), '0);
-    check("word select", LineBits'(resp_rdata[2*Xlen-1:Xlen]), LineBits'(Xlen'('hBBBB_0001)));
+    request(1'b0, Xlen'(LineBytes + Second * WordBytes), '0);
+    check("word select", LineBits'(resp_rdata[Second*Xlen+:Xlen]),
+          LineBits'(Xlen'('hBBBB_0000) + Xlen'(Second)));
   endtask  // Automatic
 
   task automatic finish();
