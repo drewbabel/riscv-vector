@@ -56,39 +56,62 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
-      groups: ${{ steps.list.outputs.groups }}
+      proofs: ${{ steps.list.outputs.proofs }}
     steps:
       - uses: actions/checkout@v7
-      - name: Split formal tasks into groups
+      - name: List one job per formal task
         id: list
         run: |
-          groups=$(python3 - <<'PY'
+          proofs=$(python3 - <<'PY'
           import glob, json, os, re
+          minutes = {
+              'clint:prove': 15, 'clint:cover': 15,
+              'dmem_arb:prove': 15, 'dmem_arb:cover': 15,
+              'fp_regfile:prove': 15, 'fp_regfile:cover': 15,
+              'hazard_unit:prove': 15, 'hazard_unit:cover': 15,
+              'irq:prove': 15, 'irq:cover': 15,
+              'mem_arb:prove': 15, 'mem_arb:bmc': 39, 'mem_arb:cover': 15,
+              'mem_delay:prove': 19, 'mem_delay:cover': 15,
+              'mem_order:bmc': 217, 'mem_order:cover': 300,
+              'mem_word_if:prove': 15, 'mem_word_if:cover': 15,
+              'muldiv:prove': 15, 'muldiv:divide': 15, 'muldiv:cover': 15,
+              'regfile:prove': 15, 'regfile:cover': 15,
+              'rr_arbiter:prove': 15, 'rr_arbiter:cover': 15,
+              'synchronizer:prove': 15, 'synchronizer:cover': 15,
+              'tick_gen:prove': 15, 'tick_gen:prove_baud': 15, 'tick_gen:cover': 15,
+              'uart:prove': 233, 'uart:cover': 61,
+              'vec_busy_bits:prove': 15, 'vec_busy_bits:cover': 15,
+              'vec_config:prove': 15, 'vec_config:bmc': 15, 'vec_config:cover': 15,
+              'vec_mem:prove': 15, 'vec_mem:cover': 15,
+              'vec_regfile:prove': 17, 'vec_regfile:cover': 15,
+              'vec_sat:prove': 23, 'vec_sat:cover': 15,
+              'vec_seq:prove': 15, 'vec_seq:cover': 15,
+              'vec_write_slots:prove': 15, 'vec_write_slots:cover': 15,
+          }
           items = []
           for f in sorted(glob.glob('formal/*.sby')):
               mod = os.path.basename(f)[:-4]
               block = re.search(r'^\[tasks\]\s*\n(.*?)(?=^\[|\Z)', open(f).read(), re.S | re.M)
               tasks = [l.split()[0] for l in block.group(1).splitlines()
                        if l.strip() and not l.lstrip().startswith('#')] if block else ['']
-              items += ['%s:%s' % (mod, t) for t in tasks]
-          n = min(len(items), 16)
-          g = [[] for _ in range(n)]
-          for i, x in enumerate(items):
-              g[i % n].append(x)
-          print(json.dumps([' '.join(x) for x in g if x]))
+              for t in tasks:
+                  key = '%s:%s' % (mod, t)
+                  items.append({'mod': mod, 'task': t, 'minutes': minutes.get(key, 30)})
+          print(json.dumps(items))
           PY
           )
-          echo "$groups"
-          echo "groups=$groups" >> "$GITHUB_OUTPUT"
+          echo "$proofs"
+          echo "proofs=$proofs" >> "$GITHUB_OUTPUT"
 
   formal:
     needs: formal-list
+    name: formal ${{ matrix.proof.mod }} ${{ matrix.proof.task }}
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ contains(matrix.group, 'mem_order') && 300 || 30 }}
+    timeout-minutes: ${{ matrix.proof.minutes }}
     strategy:
       fail-fast: false
       matrix:
-        group: ${{ fromJSON(needs.formal-list.outputs.groups) }}
+        proof: ${{ fromJSON(needs.formal-list.outputs.proofs) }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -100,14 +123,8 @@ jobs:
           curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://github.com/zachjs/sv2v/releases/download/$SV2V/sv2v-Linux.zip -o sv2v.zip
           unzip -j sv2v.zip -d "$HOME/.local/bin"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Prove the group
-        run: |
-          for item in ${{ matrix.group }}; do
-            mod=${item%%:*}
-            task=${item#*:}
-            echo "== $mod $task =="
-            make formal MOD="$mod" TASK="$task"
-          done
+      - name: Prove the task
+        run: make formal MOD="${{ matrix.proof.mod }}" TASK="${{ matrix.proof.task }}"
 
   core-formal-list:
     runs-on: ubuntu-24.04
