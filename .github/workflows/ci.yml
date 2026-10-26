@@ -6,6 +6,8 @@ env:
   RISCV_FORMAL_SHA: '2bd7410'
   SPIKE_SHA: '55b4658dbf574ba0b714083ec436ce2cb5be1998'
   VERIBLE: 'v0.0-4283-ga1b0580b'
+  GO: '1.22.12'
+  RVV_TESTS_SHA: 'f76bff121dce91b6b23e1d37be77a5e44af914c3'
 
 on:
   push:
@@ -344,9 +346,165 @@ jobs:
       - name: Sweep the group
         run: python3 tests/rules/sweep.py ${{ matrix.group }}
 
+  full-suite-list:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      shards: ${{ steps.list.outputs.shards }}
+      sizes: ${{ steps.list.outputs.sizes }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: List the whole-core sizes
+        id: list
+        run: |
+          python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          sys.path.insert(0, "tests/rules")
+          import check
+          keys = {"arch_pkg::VLEN", "arch_pkg::MulLanes"}
+          sizes = []
+          for r in check.sweep_rows():
+              s = r["sets"]
+              if r["module"] == "riscv_pipelined" and s and not r["guard"] and set(s) <= keys:
+                  sizes.append(",".join(f"{k}={v}" for k, v in sorted(s.items())))
+          per_vlen = {"64": SHARDS_64, "128": SHARDS_128, "256": SHARDS_256}
+          shards = []
+          for size in ["defaults"] + sizes:
+              vlen = dict(x.split("=") for x in size.split(",") if "=" in x).get("arch_pkg::VLEN", "128")
+              n = per_vlen[vlen]
+              shards += [{"size": size, "shard": k, "of": n} for k in range(n)]
+          print("shards=" + json.dumps(shards))
+          print("sizes=" + json.dumps(sizes))
+          PY
+          cat "$GITHUB_OUTPUT"
+
+  full-suite:
+    needs: full-suite-list
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ contains(matrix.size, 'VLEN=256') && T256 || contains(matrix.size, 'VLEN=64') && T64 || T128 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.full-suite-list.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - uses: ./.github/actions/riscv-toolchain
+        with:
+          extra-packages: device-tree-compiler libfdt-dev
+      - uses: ./.github/actions/spike
+        with:
+          sha: ${{ env.SPIKE_SHA }}
+      - name: Install Go
+        run: |
+          curl -fsSL "https://go.dev/dl/go$GO.linux-amd64.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/core-size
+        with:
+          size: ${{ matrix.size }}
+      - name: Generate the shard at this VLEN
+        run: |
+          g=build/rvv-gen
+          git clone -q https://github.com/chipsalliance/riscv-vector-tests.git $g
+          git -C $g checkout -q "$RVV_TESTS_SHA"
+          git -C $g submodule -q update --init env/riscv-test-env
+          vlen=$(sed -nE 's/.*parameter int VLEN = ([0-9]+);.*/\1/p' rtl/arch_pkg.sv)
+          march=rv32gcv
+          if [ "$vlen" -lt 128 ]; then march=rv32gc_zve32f; fi
+          opts="VLEN=$vlen XLEN=32 MODE=machine INTEGER=1 MARCH=$march SPIKE_INSTALL=/opt/spike"
+          make -C $g build-patcher-spike $opts
+          make -C $g generate-stage1 $opts
+          out=$g/out/v${vlen}x32machine
+          mkdir -p $out/bin/stage1 $out/patches/stage2 $g/shard/s1
+          tests=$(ls $out/tests/stage1 | sed 's/\.S$//' | awk -v k=${{ matrix.shard }} -v n=${{ matrix.of }} 'NR % n == k')
+          make -C $g -j"$(nproc)" $opts $tests
+          make -C $g -j"$(nproc)" $opts $(printf '%s.patch ' $tests)
+          for t in $tests; do cp $out/tests/stage1/$t.S $g/shard/s1/; done
+          $g/build/merger -stage1output $g/shard/s1 -stage2output $g/shard/s2 -stage2patch $out/patches/stage2
+          ls $g/shard/s2 | wc -l
+      - name: Run the shard against Spike
+        run: |
+          python3 tests/rvv_sweep.py prep build/rvv-gen/shard/s2
+          python3 tests/rvv_sweep.py run
+          echo "${{ matrix.size }}" > build/rvv/size
+      - uses: actions/upload-artifact@v7
+        with:
+          name: full-suite-${{ strategy.job-index }}
+          path: |
+            build/rvv/results.csv
+            build/rvv/size
+
+  full-suite-check:
+    needs: full-suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: full-suite-*
+          path: results
+      - name: Compare every size with the default
+        run: |
+          python3 - <<'PY'
+          import collections, csv, glob, os, sys
+          got = collections.defaultdict(dict)
+          for f in glob.glob("results/*/results.csv"):
+              with open(os.path.join(os.path.dirname(f), "size")) as h:
+                  size = h.read().strip()
+              with open(f) as h:
+                  for r in csv.DictReader(h):
+                      got[size][r["test"]] = r["result"]
+          base = got["defaults"]
+          passes = {t for t, v in base.items() if v == "PASS"}
+          bad = 0
+          for size in sorted(got, key=lambda s: (s != "defaults", s)):
+              res = got[size]
+              lost = sorted(t for t in passes if res.get(t) != "PASS")
+              missing = sorted(set(base) - set(res))
+              counts = dict(sorted(collections.Counter(res.values()).items()))
+              print(f"{size}: {len(res)} tests {counts}, {len(lost)} default passes lost, {len(missing)} missing")
+              for t in lost:
+                  print(f"  lost {t} {res.get(t, 'MISSING')}")
+              bad += len(lost) + len(missing)
+          sys.exit(1 if bad or not base else 0)
+          PY
+
+  full-bench:
+    needs: full-suite-list
+    runs-on: ubuntu-24.04
+    timeout-minutes: TBENCH
+    strategy:
+      fail-fast: false
+      matrix:
+        size: ${{ fromJSON(needs.full-suite-list.outputs.sizes) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - uses: ./.github/actions/riscv-toolchain
+      - uses: ./.github/actions/core-size
+        with:
+          size: ${{ matrix.size }}
+      - name: Build the benchmark images
+        run: |
+          git clone https://github.com/FreeRTOS/FreeRTOS-Kernel.git sw/FreeRTOS-Kernel
+          git -C sw/FreeRTOS-Kernel checkout 9db704cd3bbe4963f9bd3de1f1161ea2cf90768b
+          make -C sw/coremark all
+          make -C sw/embench all
+          make -C sw/freertos all
+      - name: Boot CoreMark through the caches
+        run: make vsim MOD=coremark_boot
+      - name: Boot the crc32 benchmark
+        run: make vsim MOD=embench_boot PLUSARGS=+HEX=sw/embench/crc32.hex
+      - name: Run FreeRTOS queue demo testbench
+        run: make vsim MOD=freertos_boot
+
   ci-gate:
     if: always()
-    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths, rules, sweep-list, sweep]
+    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths, rules, sweep-list, sweep, full-suite-list, full-suite, full-suite-check, full-bench]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
