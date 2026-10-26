@@ -2,6 +2,7 @@
 
 module fp_cvt
   import fp_pkg::FlagNv, fp_pkg::FlagNx, fp_pkg::fp_round_up, fp_pkg::fp_lzc, fp_pkg::FpLzcW;
+  import fp_pkg::FlagW, fp_pkg::RmW;
 #(
     parameter  int XLEN  = arch_pkg::XLEN,
     parameter  int ExpW  = fp_pkg::ExpW,
@@ -9,13 +10,13 @@ module fp_cvt
     localparam int FLEN  = 1 + ExpW + FracW,
     localparam int OpW   = (FLEN > XLEN) ? FLEN : XLEN
 ) (
-    input  wire            to_int,
-    input  wire            is_unsigned,
-    input  wire            half,
-    input  wire  [    2:0] rm,
-    input  wire  [OpW-1:0] a,
-    output logic [OpW-1:0] result,
-    output logic [    4:0] fflags
+    input  wire              to_int,
+    input  wire              is_unsigned,
+    input  wire              half,
+    input  wire  [  RmW-1:0] rm,
+    input  wire  [  OpW-1:0] a,
+    output logic [  OpW-1:0] result,
+    output logic [FlagW-1:0] fflags
 );
 
   localparam int SigW = FracW + 1;
@@ -60,7 +61,7 @@ module fp_cvt
   logic             f_nv;
   logic [ XLEN-1:0] f_full;
   logic [ XLEN-1:0] f_res;
-  logic [      4:0] f_flags;
+  logic [FlagW-1:0] f_flags;
 
   assign f_sign = a[FLEN-1];
   assign f_exp = a[FLEN-2:FracW];
@@ -116,7 +117,7 @@ module fp_cvt
   logic             i_inc;
   logic [ FLEN-2:0] i_body;
   logic [ FLEN-1:0] i_res;
-  logic [      4:0] i_flags;
+  logic [FlagW-1:0] i_flags;
 
   assign i_val = half ? {{(XLEN - HalfW) {a[HalfW-1] && !is_unsigned}}, a[HalfW-1:0]} : a[XLEN-1:0];
   assign i_sign = !is_unsigned && i_val[XLEN-1];
