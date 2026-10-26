@@ -6,8 +6,10 @@ import csv
 import glob
 import os
 import re
+import signal
 import subprocess
 import sys
+import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,32 +22,66 @@ def insn_name(test):
     return test.rsplit("-", 1)[0].replace("_", ".")
 
 
+LOCK = threading.Lock()
+LIVE = set()
+STOPPED = False
+
+
+def stop_all():
+    global STOPPED
+    with LOCK:
+        STOPPED = True
+        procs = list(LIVE)
+    for proc in procs:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
 def call(cmd, timeout):
-    try:
-        r = subprocess.run(
+    with LOCK:
+        if STOPPED:
+            return "ERROR interrupted"
+        proc = subprocess.Popen(
             cmd,
             cwd=ROOT,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
-            check=False,
+            start_new_session=True,
         )
+        LIVE.add(proc)
+    try:
+        out, err = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
         return "HUNG wall clock timeout"
-    lines = [l for l in r.stdout.splitlines() if l.strip()]
+    finally:
+        with LOCK:
+            LIVE.discard(proc)
+    lines = [l for l in out.splitlines() if l.strip()]
     if lines:
         return lines[-1]
-    err = [l for l in r.stderr.splitlines() if l.strip()]
-    return "ERROR " + (err[-1] if err else f"exit {r.returncode}")
+    err = [l for l in err.splitlines() if l.strip()]
+    return "ERROR " + (err[-1] if err else f"exit {proc.returncode}")
 
 
 def pool(jobs, work, items):
     done = 0
     with concurrent.futures.ThreadPoolExecutor(jobs) as ex:
         futs = {ex.submit(work, item): item for item in items}
-        for fut in concurrent.futures.as_completed(futs):
-            done += 1
-            yield done, len(futs), futs[fut], fut.result()
+        try:
+            for fut in concurrent.futures.as_completed(futs):
+                done += 1
+                yield done, len(futs), futs[fut], fut.result()
+        except BaseException:
+            stop_all()
+            raise
 
 
 # Spike traces
@@ -249,6 +285,7 @@ def main():
     p.add_argument("--timeout", type=int, default=7200, help="seconds per test")
     p.set_defaults(func=probe)
     args = ap.parse_args()
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit("SIGTERM"))
     args.func(args)
 
 
