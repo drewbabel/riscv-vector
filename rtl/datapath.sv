@@ -899,6 +899,8 @@ module datapath
     );
   end else begin : g_no_bp
     // Always not taken
+    logic unused_bp;
+    assign unused_bp   = ^bp_index_ex;
     assign bp_taken    = 1'b0;
     assign bp_index    = '0;
     assign btb_hit     = 1'b0;
