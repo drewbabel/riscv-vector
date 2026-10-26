@@ -17,6 +17,7 @@ concurrency:
 jobs:
   testbench-list:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       groups: ${{ steps.list.outputs.groups }}
     steps:
@@ -30,6 +31,7 @@ jobs:
   testbenches:
     needs: testbench-list
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -50,6 +52,7 @@ jobs:
 
   formal-list:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       groups: ${{ steps.list.outputs.groups }}
     steps:
@@ -79,6 +82,7 @@ jobs:
   formal:
     needs: formal-list
     runs-on: ubuntu-24.04
+    timeout-minutes: ${{ contains(matrix.group, 'mem_order') && 300 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -105,6 +109,7 @@ jobs:
 
   core-formal-list:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       groups: ${{ steps.list.outputs.groups }}
     steps:
@@ -124,12 +129,13 @@ jobs:
         env:
           RISCV_FORMAL_DIR: ${{ github.workspace }}/riscv-formal
         run: |
-          groups=$(bash formal/rvfi/run.sh --list | python3 -c "import sys, json; n=[l.strip() for l in sys.stdin if l.strip()]; g=[[] for _ in range(8)]; [g[i % 8].append(x) for i, x in enumerate(n)]; print(json.dumps([' '.join(x) for x in g if x]))")
+          groups=$(bash formal/rvfi/run.sh --list | python3 -c "import sys, json; n=[l.strip() for l in sys.stdin if l.strip()]; solo=[x for x in n if x == 'reg_ch0']; n=[x for x in n if x not in solo]; g=[[] for _ in range(8)]; [g[i % 8].append(x) for i, x in enumerate(n)]; print(json.dumps(solo + [' '.join(x) for x in g if x]))")
           echo "groups=$groups" >> "$GITHUB_OUTPUT"
 
   core-formal:
     needs: core-formal-list
     runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.group == 'reg_ch0' && 255 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -156,6 +162,7 @@ jobs:
 
   coremark:
     runs-on: ubuntu-24.04
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -169,6 +176,7 @@ jobs:
 
   embench:
     runs-on: ubuntu-24.04
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -182,6 +190,7 @@ jobs:
 
   freertos:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -244,6 +253,7 @@ jobs:
 
   gate-check:
     runs-on: ubuntu-24.04
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -261,6 +271,7 @@ jobs:
 
   float-widths:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
