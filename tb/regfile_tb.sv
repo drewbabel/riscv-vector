@@ -111,14 +111,12 @@ module regfile_tb ();
     $dumpvars(0, regfile_tb);
     do_reset();
 
-    // Same register both ports
     write_reg(AWIDTH'(5), XLEN'('hDEAD_BEEF));
     check_reads(AWIDTH'(5), AWIDTH'(5));
 
     write_reg(AWIDTH'(0), XLEN'('hFFFF_FFFF));
     check_reads(AWIDTH'(0), AWIDTH'(0));
 
-    // Two registers at once
     write_reg(AWIDTH'(7), XLEN'('h0000_00AA));
     write_reg(AWIDTH'(9), XLEN'('h0000_00BB));
     check_reads(AWIDTH'(7), AWIDTH'(9));
