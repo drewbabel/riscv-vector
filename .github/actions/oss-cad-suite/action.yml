@@ -22,7 +22,7 @@ runs:
         TAG: ${{ inputs.version }}
       run: |
         mkdir -p "$RUNNER_TEMP/oss-cad-suite"
-        curl -fsSL "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$TAG/oss-cad-suite-linux-x64-${TAG//-/}.tgz" -o "$RUNNER_TEMP/cad.tgz"
+        ./fetch.sh url "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$TAG/oss-cad-suite-linux-x64-${TAG//-/}.tgz" "$RUNNER_TEMP/cad.tgz"
         tar -xzf "$RUNNER_TEMP/cad.tgz" -C "$RUNNER_TEMP/oss-cad-suite" --strip-components=1
         rm "$RUNNER_TEMP/cad.tgz"
     - name: Put the CAD suite on the path

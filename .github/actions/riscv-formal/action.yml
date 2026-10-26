@@ -14,6 +14,5 @@ runs:
       env:
         SHA: ${{ inputs.sha }}
       run: |
-        git clone https://github.com/YosysHQ/riscv-formal.git
-        git -C riscv-formal checkout "$SHA"
+        ./fetch.sh git https://github.com/YosysHQ/riscv-formal.git riscv-formal "$SHA"
         echo "RISCV_FORMAL_DIR=$GITHUB_WORKSPACE/riscv-formal" >> "$GITHUB_ENV"

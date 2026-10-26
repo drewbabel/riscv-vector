@@ -14,6 +14,6 @@ runs:
       env:
         TAG: ${{ inputs.version }}
       run: |
-        curl -fsSL "https://github.com/chipsalliance/verible/releases/download/$TAG/verible-$TAG-linux-static-x86_64.tar.gz" -o "$RUNNER_TEMP/verible.tar.gz"
+        ./fetch.sh url "https://github.com/chipsalliance/verible/releases/download/$TAG/verible-$TAG-linux-static-x86_64.tar.gz" "$RUNNER_TEMP/verible.tar.gz"
         tar -xzf "$RUNNER_TEMP/verible.tar.gz" -C "$RUNNER_TEMP"
         echo "$RUNNER_TEMP/verible-$TAG/bin" >> "$GITHUB_PATH"

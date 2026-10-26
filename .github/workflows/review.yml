@@ -26,8 +26,8 @@ jobs:
       - uses: reviewdog/action-setup@v1
       - name: Install ruff and clang-format
         run: |
-          pip install --quiet ruff
-          sudo apt-get install -y -qq clang-format
+          ./fetch.sh run pip install --quiet ruff
+          ./fetch.sh run sudo apt-get install -y -qq clang-format
       - name: Review
         run: .github/review.sh "origin/${{ github.base_ref }}" github-pr-review
       - uses: reviewdog/action-suggester@v1

@@ -177,8 +177,7 @@ jobs:
       - uses: ./.github/actions/riscv-toolchain
       - name: Clone FreeRTOS-Kernel
         run: |
-          git clone https://github.com/FreeRTOS/FreeRTOS-Kernel.git sw/FreeRTOS-Kernel
-          git -C sw/FreeRTOS-Kernel checkout 9db704cd3bbe4963f9bd3de1f1161ea2cf90768b
+          ./fetch.sh git https://github.com/FreeRTOS/FreeRTOS-Kernel.git sw/FreeRTOS-Kernel 9db704cd3bbe4963f9bd3de1f1161ea2cf90768b
       - name: Build FreeRTOS demo image
         run: make -C sw/freertos all
       - name: Run FreeRTOS queue demo testbench
@@ -215,9 +214,8 @@ jobs:
         run: python3 tests/cosim.py --stall --irq --rand 500 "$RAND_SEED"
       - name: Generated RVV test sweep
         run: |
-          git clone -q https://github.com/chipsalliance/riscv-vector-tests.git build/rvv-gen
-          git -C build/rvv-gen checkout -q f76bff121dce91b6b23e1d37be77a5e44af914c3
-          git -C build/rvv-gen submodule -q update --init env/riscv-test-env
+          ./fetch.sh git https://github.com/chipsalliance/riscv-vector-tests.git build/rvv-gen f76bff121dce91b6b23e1d37be77a5e44af914c3
+          ./fetch.sh run git -C build/rvv-gen submodule -q update --init env/riscv-test-env
           mkdir -p build/rvv-gen/fixture
           cp tests/rvv_env/fixture/*.S build/rvv-gen/fixture/
           python3 tests/rvv_sweep.py prep build/rvv-gen/fixture
@@ -379,7 +377,8 @@ jobs:
           sha: ${{ env.SPIKE_SHA }}
       - name: Install Go
         run: |
-          curl -fsSL "https://go.dev/dl/go$GO.linux-amd64.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          ./fetch.sh url "https://go.dev/dl/go$GO.linux-amd64.tar.gz" "$RUNNER_TEMP/go.tar.gz"
+          tar -xzf "$RUNNER_TEMP/go.tar.gz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
       - uses: ./.github/actions/core-size
         with:
@@ -387,9 +386,8 @@ jobs:
       - name: Generate the shard at this VLEN
         run: |
           g=build/rvv-gen
-          git clone -q https://github.com/chipsalliance/riscv-vector-tests.git $g
-          git -C $g checkout -q "$RVV_TESTS_SHA"
-          git -C $g submodule -q update --init env/riscv-test-env
+          ./fetch.sh git https://github.com/chipsalliance/riscv-vector-tests.git $g "$RVV_TESTS_SHA"
+          ./fetch.sh run git -C $g submodule -q update --init env/riscv-test-env
           vlen=$(sed -nE 's/.*parameter int VLEN = ([0-9]+);.*/\1/p' rtl/arch_pkg.sv)
           march=rv32gcv
           if [ "$vlen" -lt 128 ]; then march=rv32gc_zve32f; fi
@@ -468,8 +466,7 @@ jobs:
           size: ${{ matrix.size }}
       - name: Build the benchmark images
         run: |
-          git clone https://github.com/FreeRTOS/FreeRTOS-Kernel.git sw/FreeRTOS-Kernel
-          git -C sw/FreeRTOS-Kernel checkout 9db704cd3bbe4963f9bd3de1f1161ea2cf90768b
+          ./fetch.sh git https://github.com/FreeRTOS/FreeRTOS-Kernel.git sw/FreeRTOS-Kernel 9db704cd3bbe4963f9bd3de1f1161ea2cf90768b
           make -C sw/coremark all
           make -C sw/embench all
           make -C sw/freertos all

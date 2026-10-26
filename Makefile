@@ -207,12 +207,10 @@ sw-run:
 	build/board_sim +HEX=build/$(PROG).hex +LIMIT=$(SWLIMIT)
 
 $(SOFTFLOAT_SRC):
-	git clone -q https://github.com/ucb-bar/berkeley-softfloat-3.git $@
-	git -C $@ checkout -q $(SOFTFLOAT_SHA)
+	./fetch.sh git https://github.com/ucb-bar/berkeley-softfloat-3.git $@ $(SOFTFLOAT_SHA)
 
 $(TESTFLOAT_SRC):
-	git clone -q https://github.com/ucb-bar/berkeley-testfloat-3.git $@
-	git -C $@ checkout -q $(TESTFLOAT_SHA)
+	./fetch.sh git https://github.com/ucb-bar/berkeley-testfloat-3.git $@ $(TESTFLOAT_SHA)
 
 $(TF_GEN): | $(SOFTFLOAT_SRC) $(TESTFLOAT_SRC)
 	$(MAKE) -s -C $(SOFTFLOAT_SRC)/build/$(TF_PLATFORM) SPECIALIZE_TYPE=RISCV

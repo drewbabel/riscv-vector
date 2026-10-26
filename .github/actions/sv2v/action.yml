@@ -15,6 +15,6 @@ runs:
         TAG: ${{ inputs.version }}
       run: |
         mkdir -p "$HOME/.local/bin"
-        curl -fsSL "https://github.com/zachjs/sv2v/releases/download/$TAG/sv2v-Linux.zip" -o "$RUNNER_TEMP/sv2v.zip"
+        ./fetch.sh url "https://github.com/zachjs/sv2v/releases/download/$TAG/sv2v-Linux.zip" "$RUNNER_TEMP/sv2v.zip"
         unzip -j "$RUNNER_TEMP/sv2v.zip" -d "$HOME/.local/bin"
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
