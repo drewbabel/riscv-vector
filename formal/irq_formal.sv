@@ -204,6 +204,16 @@ module irq_formal
     end
   end
 
+  // Covers
+  always @(posedge clk)
+    if (f_past_valid && core_en) begin
+      cover (trap_taken && timer_ready && !ext_ready && !exc_any);
+      cover (trap_taken && ext_ready && timer_ready && !exc_any);
+      cover (trap_taken && exc_any && irq_ready);
+      cover (mret_taken && !trap_taken && dbg_mstatus[MstatusMpie]);
+      cover (!trap_taken && (timer_irq || ext_irq) && !exc_any);
+    end
+
 endmodule
 
 `default_nettype wire
