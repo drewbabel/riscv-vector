@@ -2,6 +2,7 @@
 
 module vec_issue
   import vec_pkg::*;
+  import csr_pkg::VxrmW, fp_pkg::RmW;
 #(
     parameter  int XLEN   = arch_pkg::XLEN,
     parameter  int AWIDTH = arch_pkg::RegAddrW,
@@ -44,8 +45,8 @@ module vec_issue
     input wire [VlW-1:0] vl,
     input wire [2:0] vsew,
     input wire [2:0] vlmul,
-    input wire [1:0] vxrm,
-    input wire [2:0] frm,
+    input wire [VxrmW-1:0] vxrm,
+    input wire [RmW-1:0] frm,
 
     // Sequencer status
     input wire seq_busy,
@@ -69,9 +70,9 @@ module vec_issue
     output logic     [   VlW-1:0] seq_vl,
     output logic     [       2:0] seq_vsew,
     output logic     [       2:0] seq_vlmul,
-    output logic     [       1:0] seq_vxrm,
+    output logic     [ VxrmW-1:0] seq_vxrm,
     output vec_fop_e              seq_fop,
-    output logic     [       2:0] seq_frm,
+    output logic     [   RmW-1:0] seq_frm,
 
     // Pipeline handshake
     output logic vec_hold,
@@ -97,9 +98,9 @@ module vec_issue
   logic     [   VlW-1:0] q_vl;
   logic     [       2:0] q_vsew;
   logic     [       2:0] q_vlmul;
-  logic     [       1:0] q_vxrm;
+  logic     [ VxrmW-1:0] q_vxrm;
   vec_fop_e              q_fop;
-  logic     [       2:0] q_frm;
+  logic     [   RmW-1:0] q_frm;
   logic     [  AWIDTH:0] q_wr_regs;
   logic     [AWIDTH-1:0] q_rd1;
   logic     [  AWIDTH:0] q_rd1_regs;
