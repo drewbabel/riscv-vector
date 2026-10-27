@@ -2,38 +2,93 @@
 
 module boot_loader_tb ();
 
+  localparam int MinChecks = 32000;
+  localparam int MinClampChecks = 66;
+  localparam int Depth = 20000;
+  localparam int SmallDepth = 32;
+  localparam int Words = 16400;
+
+  int checks;
+  int errors;
+  int max_errors;
+
+  boot_loader_bench #(
+      .DEPTH(Depth),
+      .WORDS(Words)
+  ) deep_bench ();
+
+  // Depth clamps load
+  boot_loader_bench #(
+      .DEPTH(SmallDepth),
+      .WORDS(Words)
+  ) small_bench ();
+
+  task automatic do_verdict();
+    checks = deep_bench.checks + small_bench.checks;
+    errors = deep_bench.errors + small_bench.errors;
+    if (deep_bench.checks < MinChecks || small_bench.checks < MinClampChecks)
+      $fatal(
+          1,
+          "TB UNDER-RAN: %0d and %0d checks, expected at least %0d and %0d",
+          deep_bench.checks,
+          small_bench.checks,
+          MinChecks,
+          MinClampChecks
+      );
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("boot_loader_tb.vcd");
+    $dumpvars(0, boot_loader_tb);
+    wait (deep_bench.done && small_bench.done);
+    do_verdict();
+  end
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (deep_bench.errors + small_bench.errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", deep_bench.errors + small_bench.errors);
+    end
+  end
+
+endmodule
+
+module boot_loader_bench #(
+    parameter int DEPTH = 16384,
+    parameter int WORDS = 16400
+) ();
+
+  localparam int XLEN = arch_pkg::XLEN;
+  localparam int WordBytes = XLEN / 8;
+  localparam int DataBits = arch_pkg::UartDataBits;
+  localparam int OldCap = 16384;
+  localparam int Loads = (WORDS < DEPTH) ? WORDS : DEPTH;
+
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  logic done = 1'b0;
 
-  localparam int XLEN = arch_pkg::XLEN;
-  localparam int Depth = 20000;
-  localparam int SmallDepth = 32;
-
-  logic            clk = 1'b0;
-  logic            rst_n;
-  logic            rx_valid;
-  logic [     7:0] rx_data;
-  logic            we;
+  logic clk = 1'b0;
+  logic rst_n = 1'b1;
+  logic rx_valid;
+  logic [DataBits-1:0] rx_data;
+  logic we;
   logic [XLEN-1:0] waddr;
   logic [XLEN-1:0] wdata;
-  logic            loading;
+  logic loading;
 
-  logic            small_we;
-  logic [XLEN-1:0] small_waddr;
-  logic [XLEN-1:0] small_wdata;
-  logic            small_loading;
-  logic [XLEN-1:0] small_idx = '0;
-
-  logic [XLEN-1:0] prog           [];
+  logic [XLEN-1:0] prog[];
   logic [XLEN-1:0] write_idx = '0;
-  logic [XLEN-1:0] data_cnt;
 
   always #5 clk = ~clk;
 
   boot_loader #(
       .XLEN (XLEN),
-      .DEPTH(Depth)
+      .DEPTH(DEPTH)
   ) dut (
       .clk     (clk),
       .core_en (1'b1),
@@ -46,102 +101,80 @@ module boot_loader_tb ();
       .loading (loading)
   );
 
-  task automatic do_reset();
-    rst_n    = 0;
-    rx_valid = 0;
-    rx_data  = '0;
-    repeat (2) @(posedge clk);
-    rst_n = 1;
-  endtask  // Automatic
-
   task automatic check(input string name, input logic [XLEN-1:0] got, input logic [XLEN-1:0] exp);
     checks++;
     if (got !== exp) begin
-      $error("%s got %08x exp %08x", name, got, exp);
       errors++;
+      $display("FAIL DEPTH %0d %s: got %h, expected %h", DEPTH, name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
-  task automatic verdict();
-    @(posedge clk);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
+  task automatic do_reset();
+    @(negedge clk);
+    rst_n    = 1'b0;
+    rx_valid = 1'b0;
+    rx_data  = '0;
+    repeat (2) @(posedge clk);
+    @(negedge clk);
+    rst_n = 1'b1;
   endtask  // Automatic
 
-  task automatic send_byte(input logic [7:0] data);
-    rx_data = data;
-    #1 rx_valid = 1'b1;
-    @(posedge clk);
-    #1 rx_valid = 1'b0;
+  task automatic send_byte(input logic [DataBits-1:0] data);
+    rx_data  = data;
+    rx_valid = 1'b1;
+    @(negedge clk);
+    rx_valid = 1'b0;
   endtask  // Automatic
 
   task automatic send_word(input logic [XLEN-1:0] w);
-    for (int j = 0; j < XLEN; j += 8) send_byte(w[j+:8]);
+    for (int j = 0; j < XLEN; j += DataBits) send_byte(w[j+:DataBits]);
+  endtask  // Automatic
+
+  // Past old cap
+  task automatic build_prog(input int n);
+    prog = new[n];
+    prog[0] = XLEN'('hAABB_CCDD);
+    for (int i = 1; i < n; i++) prog[i] = XLEN'($urandom);
+    if (n > OldCap) begin
+      prog[OldCap-1] = XLEN'('h1234_5678);
+      prog[OldCap]   = XLEN'('h9ABC_DEF0);
+    end
   endtask  // Automatic
 
   task automatic load_data();
-    send_word(data_cnt);
+    send_word(XLEN'(prog.size()));
     for (int i = 0; i < prog.size(); i++) send_word(prog[i]);
+  endtask  // Automatic
+
+  task automatic check_finished();
+    repeat (2) @(posedge clk);
+    check("loading", XLEN'(loading), '0);
+    check("write_idx", write_idx, XLEN'(Loads));
+  endtask  // Automatic
+
+  task automatic mark_done();
+    done = 1'b1;
   endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
-    $dumpfile("boot_loader_tb.vcd");
-    $dumpvars(0, boot_loader_tb);
     do_reset();
 
-    // Past old cap
-    data_cnt = 32'd16400;
-    prog = new[data_cnt];
-
-    prog[0] = 32'hAABBCCDD;
-    for (int i = 1; i < int'(data_cnt); i++) begin
-      prog[i] = $urandom();
-    end
-    prog[16383] = 32'h1234_5678;
-    prog[16384] = 32'h9ABC_DEF0;
-
+    build_prog(WORDS);
     load_data();
-
-    repeat (2) @(posedge clk);
-    check("loading", XLEN'(loading), 32'd0);
-    check("write_idx", write_idx, data_cnt);
-    check("small_loading", XLEN'(small_loading), 32'd0);
-    check("small_idx", small_idx, XLEN'(SmallDepth));
-    verdict();
+    check_finished();
+    mark_done();
   end
 
   always @(posedge clk) begin
     if (we) begin
-      check("waddr", waddr, write_idx * (XLEN / 8));
+      check("waddr", waddr, write_idx * WordBytes);
       check("wdata", wdata, prog[write_idx]);
       write_idx++;
     end
-    if (small_we) begin
-      check("small_waddr", small_waddr, small_idx * (XLEN / 8));
-      check("small_wdata", small_wdata, prog[small_idx]);
-      small_idx++;
-    end
   end
-
-  // Depth clamps load
-  boot_loader #(
-      .XLEN (XLEN),
-      .DEPTH(SmallDepth)
-  ) dut_small (
-      .clk     (clk),
-      .core_en (1'b1),
-      .rst_n   (rst_n),
-      .rx_valid(rx_valid),
-      .rx_data (rx_data),
-      .we      (small_we),
-      .waddr   (small_waddr),
-      .wdata   (small_wdata),
-      .loading (small_loading)
-  );
 
 endmodule
 
