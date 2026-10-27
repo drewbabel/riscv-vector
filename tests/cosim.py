@@ -55,7 +55,6 @@ GEN_MARCH = "rv32im_zicsr_zve32x_zvl128b"
 ENV_DIR = os.path.join(ROOT, "tests", "rvv_env")
 GEN_OUT = os.path.join(BUILD, "rvv")
 GEN_CAP = 2_000_000
-GEN_DEPTH = 131072
 SPAN = None
 
 STALL = False
@@ -70,6 +69,18 @@ IRQ_SRC = os.path.join(ROOT, "tests", "spike_irq.cc")
 IRQ_SIM = os.path.join(BUILD, "spike_irq")
 MIP_MEIP, MIP_MTIP = 1 << 11, 1 << 7
 MEPC_ADDR = 0x341
+
+
+def sv_depth(top):
+    pat = rf"module {top} \(\);\s+cosim_bench #\(\.Depth\((\d+)\)\)"
+    with open(os.path.join(ROOT, "tb", "cosim.sv")) as f:
+        found = re.findall(pat, f.read())
+    if len(found) != 1:
+        sys.exit(f"cannot find one {top} Depth in tb/cosim.sv")
+    return int(found[0])
+
+
+GEN_DEPTH = sv_depth("cosim_gen")
 
 
 def march():
@@ -104,9 +115,8 @@ def compile_monitor():
             "iverilog",
             "-g2012",
             "-DRISCV_FORMAL",
-            f"-DCOSIM_DEPTH={DEPTH}",
             "-s",
-            "cosim",
+            "cosim_gen" if DEPTH == GEN_DEPTH else "cosim",
             "-o",
             SIM,
             *RTL,
@@ -239,16 +249,15 @@ def run_dut(
     out = subprocess.run(
         args, cwd=ROOT, capture_output=True, text=True, check=False
     ).stdout
+    fails = [ln[5:] for ln in out.splitlines() if ln.startswith("FAIL ")]
     FAULTS.clear()
     FAULTS.extend(
-        l
-        for l in out.splitlines()
-        if l.startswith(("FENCE BUSY", "VEC REISSUE"))
+        ln for ln in fails if ln.startswith(("FENCE BUSY", "VEC REISSUE"))
     )
     HUNG.clear()
-    HUNG.extend(l for l in out.splitlines() if l.startswith("HUNG"))
+    HUNG.extend(ln for ln in fails if ln.startswith("HUNG"))
     IRQ_LOST.clear()
-    IRQ_LOST.extend(l for l in out.splitlines() if l.startswith("IRQ LOST"))
+    IRQ_LOST.extend(ln for ln in fails if ln.startswith("IRQ LOST"))
     DUT_IRQ.clear()
     trace = []
     TRACE.clear()
