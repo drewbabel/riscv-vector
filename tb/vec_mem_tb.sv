@@ -11,23 +11,31 @@ module vec_mem_tb ();
   localparam int Regs = arch_pkg::NumRegs;
   localparam int Bytes = 256;
   localparam int Timeout = 2000000;
+  localparam logic [1:0] Eew8 = 2'd0;
+  localparam logic [1:0] Eew16 = 2'd1;
+  localparam logic [1:0] Eew32 = 2'd2;
+  localparam int MinChecks = 320000;
 
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  int ready_pct = 100;
+  int enable_pct = 100;
+  int beats = 0;
+  int dones = 0;
 
   logic clk = 1'b0;
-  logic rst_n = 1'b0;
-  logic core_en = 1'b1;
+  logic rst_n;
+  logic core_en;
 
-  logic start = 1'b0;
-  logic load = 1'b0;
-  logic vm = 1'b1;
-  logic [AWIDTH-1:0] vd = '0;
-  logic [VlW-1:0] count = '0;
-  logic [1:0] width = '0;
-  logic [XLEN-1:0] base = '0;
-  logic [XLEN-1:0] stride = '0;
+  logic start;
+  logic load;
+  logic vm;
+  logic [AWIDTH-1:0] vd;
+  logic [VlW-1:0] count;
+  logic [1:0] width;
+  logic [XLEN-1:0] base;
+  logic [XLEN-1:0] stride;
 
   logic [VLEN-1:0] rdata;
   logic [AWIDTH-1:0] raddr;
@@ -49,20 +57,13 @@ module vec_mem_tb ();
   logic [7:0] mem[Bytes];
   logic [7:0] golden_mem[Bytes];
 
-  int ready_pct = 100;
-  int enable_pct = 100;
-  int beats = 0;
-  int dones = 0;
-
   logic past_req = 1'b0;
   logic past_ready = 1'b0;
   logic past_en = 1'b0;
   logic [XLEN-1:0] past_addr;
   logic [VLEN-1:0] past_wdata;
-  logic [XLEN-1:0] line_base;
-
-  assign line_base = mem_addr & ~XLEN'(LineB - 1);
   logic [LineB-1:0] past_wstrb;
+  logic [XLEN-1:0] line_base;
 
   always #5 clk = ~clk;
 
@@ -104,8 +105,52 @@ module vec_mem_tb ();
     checks++;
     if (got !== exp) begin
       errors++;
-      $error("%s: got %h, expected %h", name, got, exp);
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
+  endtask  // Automatic
+
+  // Drive
+  task automatic do_reset();
+    @(negedge clk);
+    rst_n  = 1'b0;
+    start  = 1'b0;
+    load   = 1'b0;
+    vm     = 1'b1;
+    vd     = '0;
+    count  = '0;
+    width  = Eew8;
+    base   = '0;
+    stride = '0;
+    set_pace(100, 100);
+    repeat (2) @(posedge clk);
+    @(negedge clk);
+    rst_n = 1'b1;
+  endtask  // Automatic
+
+  task automatic set_pace(input int ready, input int enable);
+    ready_pct  = ready;
+    enable_pct = enable;
+  endtask  // Automatic
+
+  task automatic drive_pace();
+    mem_ready <= ($urandom_range(99) < ready_pct);
+    core_en   <= ($urandom_range(99) < enable_pct);
+  endtask  // Automatic
+
+  task automatic watchdog();
+    repeat (Timeout) @(posedge clk);
+    $fatal(1, "FAIL: timeout, %0d mismatches, %0d checks", errors, checks);
+  endtask  // Automatic
+
+  task automatic fill_state();
+    for (int r = 0; r < Regs; r++) begin
+      for (int k = 0; k < VLEN; k += 32) regs[r][k+:32] = 32'($urandom);
+      golden_regs[r] = regs[r];
+    end
+    for (int b = 0; b < Bytes; b++) begin
+      mem[b] = 8'($urandom);
+      golden_mem[b] = mem[b];
     end
   endtask  // Automatic
 
@@ -114,34 +159,111 @@ module vec_mem_tb ();
     for (int b = 0; b < Bytes; b++) check("memory byte", VLEN'(mem[b]), VLEN'(golden_mem[b]));
   endtask  // Automatic
 
-  task automatic verdict();
+  task automatic run_one(input logic l, input logic [1:0] w, input int n, input int b, input int s,
+                         input logic m, input int d);
+    int want;
+    load = l;
+    width = w;
+    count = VlW'(n);
+    base = XLEN'(b);
+    stride = XLEN'(s);
+    vm = m;
+    vd = AWIDTH'(d);
+    want = want_beats();
+    apply_golden();
+    beats = 0;
+    dones = 0;
+    @(negedge clk);
+    start = 1'b1;
+    @(posedge clk);
+    while (!core_en) @(posedge clk);
+    @(negedge clk);
+    start = 1'b0;
+    while (!done) @(negedge clk);
+    while (done) @(negedge clk);
+    check("beat count", VLEN'(beats), VLEN'(want));
+    check("done pulses", VLEN'(dones), VLEN'(1));
+    check_state();
+  endtask  // Automatic
+
+  function automatic logic [XLEN-1:0] aligned(input logic [1:0] w);
+    return XLEN'($urandom_range(Bytes - 1)) & ~((XLEN'(1) << w) - XLEN'(1));
+  endfunction
+
+  task automatic run_random(input logic l, input logic whole, input logic strided);
+    logic [1:0] w;
+    logic [VlW-1:0] n;
+    logic [XLEN-1:0] s;
+    logic m;
+    logic [AWIDTH-1:0] d;
+    w = 2'($urandom_range(Eew32));
+    n = whole ? VlW'(VLEN >> (3 + w)) : VlW'($urandom_range(LineB >> w));
+    if ($urandom_range(7) == 0 && !whole) n = VlW'($urandom_range(VLEN >> (3 + w)));
+    s = strided ? XLEN'($signed($urandom_range(12)) - 6) << w : XLEN'(1) << w;
+    m = whole ? 1'b1 : 1'($urandom);
+    d = (!m && l) ? AWIDTH'($urandom_range(Regs > 23 ? 23 : Regs - 1, 1)) : AWIDTH'($urandom);
+    if (!m && !l && 1'($urandom)) d = '0;
+    run_one(l, w, int'(n), int'(aligned(w)), int'(s), m, int'(d));
+  endtask  // Automatic
+
+  task automatic run_many(input int n);
+    for (int i = 0; i < n; i++) run_random(1'($urandom), $urandom_range(3) == 0, 1'($urandom));
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask  // Automatic
 
-  // Drive
-  task automatic do_reset();
-    rst_n = 0;
-    repeat (2) @(posedge clk);
-    rst_n = 1;
-  endtask  // Automatic
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
-  task automatic set_pace(input int ready, input int enable);
-    ready_pct  = ready;
-    enable_pct = enable;
-  endtask  // Automatic
+  initial watchdog();
 
-  task automatic fill_state();
-    for (int r = 0; r < Regs; r++) begin
-      for (int k = VLEN / 32 - 1; k >= 0; k--) regs[r][k*32+:32] = $urandom;
-      golden_regs[r] = regs[r];
-    end
-    for (int b = 0; b < Bytes; b++) begin
-      mem[b] = 8'($urandom);
-      golden_mem[b] = mem[b];
-    end
-  endtask  // Automatic
+  initial begin
+    $dumpfile("vec_mem_tb.vcd");
+    $dumpvars(0, vec_mem_tb);
+    fill_state();
+    do_reset();
+
+    // Directed forms
+    run_one(1'b1, Eew8, 3, 8, 1, 1'b1, 1);
+    run_one(1'b1, Eew16, 3, 8, 2, 1'b1, 2);
+    run_one(1'b1, Eew32, 4, 12, 4, 1'b1, 3);
+    run_one(1'b0, Eew8, 16, 40, 1, 1'b1, 4);
+    run_one(1'b0, Eew16, 5, 80, -2, 1'b0, 5);
+    run_one(1'b1, Eew8, 3, 5, -2, 1'b0, 6);
+
+    // Whole line beats
+    run_one(1'b1, Eew32, 4, 32, 4, 1'b1, 9);
+    run_one(1'b0, Eew8, 16, 48, 1, 1'b1, 10);
+    run_one(1'b1, Eew32, 4, 40, 4, 1'b0, 11);
+    run_one(1'b0, Eew16, 24, 70, 2, 1'b0, 12);
+
+    // Zero count
+    run_one(1'b1, Eew32, 0, 0, 4, 1'b1, 7);
+    run_one(1'b0, Eew8, 0, 0, 1, 1'b0, 8);
+
+    // Group spill
+    run_one(1'b1, Eew8, 40, 100, 1, 1'b1, 30);
+    run_one(1'b0, Eew32, 9, 128, 4, 1'b1, 31);
+
+    // Instant memory
+    set_pace(100, 100);
+    run_many(300);
+
+    // Slow memory
+    set_pace(30, 100);
+    run_many(300);
+
+    // Clock enable gaps
+    set_pace(50, 60);
+    run_many(300);
+
+    do_verdict();
+  end
 
   // Reference semantics
   task automatic apply_golden();
@@ -183,66 +305,10 @@ module vec_mem_tb ();
     return n;
   endfunction
 
-  task automatic run_one(input logic l, input logic [1:0] w, input logic [VlW-1:0] n,
-                         input logic [XLEN-1:0] b, input logic [XLEN-1:0] s, input logic m,
-                         input logic [AWIDTH-1:0] d);
-    int want;
-    load = l;
-    width = w;
-    count = n;
-    base = b;
-    stride = s;
-    vm = m;
-    vd = d;
-    want = want_beats();
-    apply_golden();
-    beats = 0;
-    dones = 0;
-    @(negedge clk);
-    start = 1'b1;
-    @(posedge clk);
-    while (!core_en) @(posedge clk);
-    #1;
-    start = 1'b0;
-    while (!done) @(negedge clk);
-    while (done) @(negedge clk);
-    check("beat count", VLEN'(beats), VLEN'(want));
-    check("done pulses", VLEN'(dones), VLEN'(1));
-    check_state();
-  endtask  // Automatic
-
-  function automatic logic [XLEN-1:0] aligned(input logic [1:0] w);
-    return XLEN'($urandom_range(Bytes - 1)) & ~((XLEN'(1) << w) - XLEN'(1));
-  endfunction
-
-  task automatic run_random(input logic l, input logic whole, input logic strided);
-    logic [1:0] w;
-    logic [VlW-1:0] n;
-    logic [XLEN-1:0] s;
-    logic m;
-    logic [AWIDTH-1:0] d;
-    w = 2'($urandom_range(2));
-    n = whole ? VlW'(VLEN >> (3 + w)) : VlW'($urandom_range(LineB >> w));
-    if ($urandom_range(7) == 0 && !whole) n = VlW'($urandom_range(VLEN >> (3 + w)));
-    s = strided ? XLEN'($signed($urandom_range(12)) - 6) << w : XLEN'(1) << w;
-    m = whole ? 1'b1 : 1'($urandom_range(1));
-    d = (!m && l) ? AWIDTH'($urandom_range(23, 1)) : AWIDTH'($urandom_range(Regs - 1));
-    if (!m && !l && ($urandom_range(1) == 1)) d = '0;
-    run_one(l, w, n, aligned(w), s, m, d);
-  endtask  // Automatic
-
-  task automatic run_many(input int n);
-    for (int i = 0; i < n; i++)
-      run_random(1'($urandom_range(1)), $urandom_range(3) == 0, 1'($urandom_range(1)));
-  endtask  // Automatic
-
   // Pace and models
-  always @(posedge clk) begin
-    #2;
-    mem_ready = ($urandom_range(99) < ready_pct);
-    core_en   = ($urandom_range(99) < enable_pct);
-  end
+  always @(posedge clk) drive_pace();
 
+  assign line_base = mem_addr & ~XLEN'(LineB - 1);
   assign rdata = regs[raddr];
   always_comb begin
     for (int k = 0; k < LineB; k++) mem_rdata[k*8+:8] = mem[(line_base+XLEN'(k))%Bytes];
@@ -286,55 +352,6 @@ module vec_mem_tb ();
     past_wdata <= mem_wdata;
     past_wstrb <= mem_wstrb;
     if (!core_en) past_req <= 1'b0;
-  end
-
-  initial void'($value$plusargs("max_errors=%d", max_errors));
-
-  initial begin
-    repeat (Timeout) @(posedge clk);
-    $fatal(1, "FAIL: timeout, %0d mismatches, %0d checks", errors, checks);
-  end
-
-  initial begin
-    $dumpfile("vec_mem_tb.vcd");
-    $dumpvars(0, vec_mem_tb);
-    fill_state();
-    do_reset();
-
-    // Directed forms
-    run_one(1'b1, 2'd0, 8'd3, 32'd8, 32'd1, 1'b1, 5'd1);
-    run_one(1'b1, 2'd1, 8'd3, 32'd8, 32'd2, 1'b1, 5'd2);
-    run_one(1'b1, 2'd2, 8'd4, 32'd12, 32'd4, 1'b1, 5'd3);
-    run_one(1'b0, 2'd0, 8'd16, 32'd40, 32'd1, 1'b1, 5'd4);
-    run_one(1'b0, 2'd1, 8'd5, 32'd80, -32'sd2, 1'b0, 5'd5);
-    run_one(1'b1, 2'd0, 8'd3, 32'd5, -32'sd2, 1'b0, 5'd6);
-
-    // Whole line beats
-    run_one(1'b1, 2'd2, 8'd4, 32'd32, 32'd4, 1'b1, 5'd9);
-    run_one(1'b0, 2'd0, 8'd16, 32'd48, 32'd1, 1'b1, 5'd10);
-    run_one(1'b1, 2'd2, 8'd4, 32'd40, 32'd4, 1'b0, 5'd11);
-    run_one(1'b0, 2'd1, 8'd24, 32'd70, 32'd2, 1'b0, 5'd12);
-
-    // Zero count
-    run_one(1'b1, 2'd2, 8'd0, 32'd0, 32'd4, 1'b1, 5'd7);
-    run_one(1'b0, 2'd0, 8'd0, 32'd0, 32'd1, 1'b0, 5'd8);
-
-    // Group spill
-    run_one(1'b1, 2'd0, 8'd40, 32'd100, 32'd1, 1'b1, 5'd30);
-    run_one(1'b0, 2'd2, 8'd9, 32'd128, 32'd4, 1'b1, 5'd31);
-
-    // Instant memory
-    run_many(300);
-
-    // Slow memory
-    set_pace(30, 100);
-    run_many(300);
-
-    // Clock enable gaps
-    set_pace(50, 60);
-    run_many(300);
-
-    verdict();
   end
 
 endmodule
