@@ -3,6 +3,7 @@
 module coremark_predict_tb ();
 
   import cache_pkg::*;
+
   localparam int XLEN = arch_pkg::XLEN;
   localparam int DEPTH = 16384;
   localparam int IdxW = $clog2(DEPTH / LineWords);
@@ -10,12 +11,17 @@ module coremark_predict_tb ();
   localparam int FastClkHz = arch_pkg::BoardClkHz;
   localparam int BaudRate = arch_pkg::BaudRate;
   localparam int ClksPerBit = (FastClkHz + BaudRate / 2) / BaudRate;
+  localparam int BootCycles = 2000;
+  localparam int ProbeBranches = 30_000;
+  localparam int TimeoutCycles = 60_000_000;
 
-  logic clk = 0, rst;
-  logic [15:0] sw, led;
-  logic uart_rx = 1, uart_tx;
+  logic clk = 1'b0;
+  logic rst = 1'b1;
+  logic [15:0] sw;
+  logic [15:0] led;
+  logic uart_rx = 1'b1;
+  logic uart_tx;
   logic [XLEN-1:0] img[DEPTH];
-  logic [LineBits-1:0] pline;
 
   int branches = 0;
   int mispredicts = 0;
@@ -34,36 +40,17 @@ module coremark_predict_tb ();
       .uart_tx(uart_tx)
   );
 
-  task automatic send_byte(input logic [7:0] b);
-    uart_rx = 0;
-    repeat (ClksPerBit) @(posedge clk);
-    for (int i = 0; i < 8; i++) begin
-      uart_rx = b[i];
-      repeat (ClksPerBit) @(posedge clk);
-    end
-    uart_rx = 1;
-    repeat (ClksPerBit) @(posedge clk);
-  endtask  // Automatic
-
   logic v_ex, b_ex, mis, c_en;
   assign v_ex = dut.riscv_pipelined_inst.datapath_inst.valid_ex;
   assign b_ex = dut.riscv_pipelined_inst.datapath_inst.branch_ex;
   assign mis  = dut.riscv_pipelined_inst.datapath_inst.mispredict;
   assign c_en = dut.core_en;
 
-  always @(posedge clk) begin
-    if (!rst && c_en && v_ex && b_ex) begin
-      branches++;
-      if (mis) mispredicts++;
-    end
-  end
-
-  initial begin
-    rst = 1;
+  task automatic load_image(input string path);
+    logic [LineBits-1:0] pline;
     for (int k = 0; k < DEPTH; k++) img[k] = '0;
-    $readmemh("sw/coremark/coremark_sim.hex", img);
-    if (img[0] == '0) $fatal(1, "coremark_sim.hex missing or empty, run make -C sw/coremark all");
-    #1;  // After mem init
+    $readmemh(path, img);
+    if (img[0] == '0) $fatal(1, "%s missing or empty, run make -C sw/coremark all", path);
     for (int l = 0; l < DEPTH / LineWords; l++) begin
       for (int w = 0; w < LineWords; w++) pline[XLEN*w+:XLEN] = img[l*LineWords+w];
       @(negedge clk);
@@ -77,24 +64,64 @@ module coremark_predict_tb ();
     @(negedge clk);
     dut.imem_inst.u_line.bd_we = 1'b0;
     dut.dmem_inst.u_line.bd_we = 1'b0;
-    rst = 1;
-    sw  = 0;
-    repeat (2) @(posedge clk);
-    rst = 0;
-    repeat (2000) @(posedge clk);
-    repeat (XLEN / 8) send_byte(8'd0);
+  endtask  // Automatic
 
-    wait (branches >= 30_000);
+  task automatic do_reset();
+    rst = 1'b1;
+    sw = '0;
+    uart_rx = 1'b1;
+    repeat (2) @(posedge clk);
+    @(negedge clk);
+    rst = 1'b0;
+  endtask  // Automatic
+
+  task automatic send_byte(input logic [7:0] b);
+    @(negedge clk);
+    uart_rx = 1'b0;
+    repeat (ClksPerBit) @(negedge clk);
+    for (int i = 0; i < $bits(b); i++) begin
+      uart_rx = b[i];
+      repeat (ClksPerBit) @(negedge clk);
+    end
+    uart_rx = 1'b1;
+    repeat (ClksPerBit) @(negedge clk);
+  endtask  // Automatic
+
+  // Zero length boot
+  task automatic start_core();
+    repeat (BootCycles) @(posedge clk);
+    repeat (XLEN / 8) send_byte('0);
+  endtask  // Automatic
+
+  task automatic probe(input int n);
+    wait (branches >= n);
     $display("PROBE branches=%0d mispredicts=%0d rate=%0d.%02d%% pc=%08x", branches, mispredicts,
              (100 * mispredicts) / branches, ((10000 * mispredicts) / branches) % 100,
              dut.riscv_pipelined_inst.pc);
     $finish;
-  end
+  endtask  // Automatic
+
+  task automatic watchdog();
+    repeat (TimeoutCycles) @(posedge clk);
+    $fatal(1, "TIMEOUT");
+  endtask  // Automatic
 
   initial begin
-    repeat (60_000_000) @(posedge clk);
-    $fatal(1, "TIMEOUT");
+    load_image("sw/coremark/coremark_sim.hex");
+    do_reset();
+    start_core();
+    probe(ProbeBranches);
   end
+
+  initial watchdog();
+
+  always @(posedge clk) begin
+    if (!rst && c_en && v_ex && b_ex) begin
+      branches++;
+      if (mis) mispredicts++;
+    end
+  end
+
 endmodule
 
 `default_nettype wire
