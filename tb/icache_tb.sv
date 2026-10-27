@@ -4,35 +4,40 @@ module icache_tb;
 
   import cache_pkg::*;
 
+  localparam int MinChecks = 14;
   localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 8192;
   localparam int Latency = 4;
   localparam int Stride = 1 << (IdxLsb + IcIdxLen);
+  localparam int MaxWait = 200;
+  localparam logic [Xlen-1:0] SeedA = Xlen'('hA000_0000);
+  localparam logic [Xlen-1:0] SeedB = Xlen'('hB000_0000);
+  localparam logic [Xlen-1:0] SeedC = Xlen'('hC000_0000);
 
-  logic                clk;
-  logic                core_en;
-  logic                rst_n;
+  int checks = 0;
+  int errors = 0;
+  int max_errors = 0;
 
-  logic                cpu_valid;
-  logic [    Xlen-1:0] cpu_addr;
-  logic [    Xlen-1:0] cpu_rdata;
-  logic                cpu_ready;
+  logic clk = 1'b0;
+  logic core_en;
+  logic rst_n = 1'b1;
 
-  logic                mem_valid;
-  logic [    Xlen-1:0] mem_addr;
+  logic cpu_valid;
+  logic [Xlen-1:0] cpu_addr;
+  logic [Xlen-1:0] cpu_rdata;
+  logic cpu_ready;
+
+  logic mem_valid;
+  logic [Xlen-1:0] mem_addr;
   logic [LineBits-1:0] mem_rdata;
-  logic                mem_ready;
+  logic mem_ready;
 
-  logic [    Xlen-1:0] boot_addr;
-  logic [    Xlen-1:0] boot_wdata;
-  logic                boot_we;
+  logic [Xlen-1:0] boot_addr;
+  logic [Xlen-1:0] boot_wdata;
+  logic boot_we;
 
-  logic [        31:0] hit_count;
-  logic [        31:0] miss_count;
-
-  int                  checks = 0;
-  int                  errors = 0;
-  int                  max_errors = 0;
+  logic [31:0] hit_count;
+  logic [31:0] miss_count;
 
   always #5 clk = ~clk;
 
@@ -76,40 +81,36 @@ module icache_tb;
   task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
     checks++;
     if (got !== exp) begin
-      $error("%s: got %h exp %h", name, got, exp);
       errors++;
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-  endtask  // Automatic
-
-  task automatic check_int(input string name, input int got, input int exp);
-    checks++;
-    if (got !== exp) begin
-      $error("%s: got %0d exp %0d", name, got, exp);
-      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
   task automatic do_reset();
-    rst_n = 1'b0;
-    @(posedge clk);
-    @(posedge clk);
+    @(negedge clk);
+    rst_n      = 1'b0;
+    core_en    = 1'b1;
+    cpu_valid  = 1'b0;
+    cpu_addr   = '0;
+    boot_we    = 1'b0;
+    boot_addr  = '0;
+    boot_wdata = '0;
+    repeat (2) @(posedge clk);
+    @(negedge clk);
     rst_n = 1'b1;
-    @(posedge clk);
     // Wait reset walk
     repeat (IcSets + 2) @(posedge clk);
+    @(negedge clk);
   endtask  // Automatic
 
   task automatic boot_word(input logic [Xlen-1:0] addr, input logic [Xlen-1:0] data);
-    #1;
     boot_we    = 1'b1;
     boot_addr  = addr;
     boot_wdata = data;
-    @(posedge clk);
-    #1;
+    @(negedge clk);
     boot_we = 1'b0;
-    @(posedge clk);
+    @(negedge clk);
   endtask  // Automatic
 
   task automatic boot_line(input logic [Xlen-1:0] base, input logic [Xlen-1:0] seed);
@@ -118,22 +119,63 @@ module icache_tb;
 
   task automatic fetch(input logic [Xlen-1:0] addr);
     int guard;
-    #1;
     cpu_valid = 1'b1;
     cpu_addr  = addr;
     guard     = 0;
     @(posedge clk);
     while (!cpu_ready) begin
       guard++;
-      if (guard > 200) $fatal(1, "cpu_ready never arrived for %h", addr);
+      if (guard > MaxWait) $fatal(1, "cpu_ready never arrived for %h", addr);
       @(posedge clk);
     end
-    #1;
+    @(negedge clk);
     cpu_valid = 1'b0;
-    @(posedge clk);
+    @(negedge clk);
   endtask  // Automatic
 
-  task automatic verdict();
+  task automatic check_fetch(input string name, input logic [Xlen-1:0] addr,
+                             input logic [Xlen-1:0] exp);
+    fetch(addr);
+    check(name, cpu_rdata, exp);
+  endtask  // Automatic
+
+  task automatic check_counts(input string name, input int hits, input int misses);
+    check({name, " hits"}, Xlen'(hit_count), Xlen'(hits));
+    check({name, " misses"}, Xlen'(miss_count), Xlen'(misses));
+  endtask  // Automatic
+
+  task automatic load_lines();
+    boot_line('0, SeedA);
+    boot_line(Xlen'(Stride), SeedB);
+    boot_line(Xlen'(LineBytes), SeedC);
+  endtask  // Automatic
+
+  task automatic test_cold_miss();
+    check_fetch("cold miss data", '0, SeedA);
+    check_counts("cold", 0, 1);
+  endtask  // Automatic
+
+  task automatic test_neighbours();
+    for (int w = 1; w < LineWords; w++)
+      check_fetch($sformatf("neighbour %0d", w), Xlen'(w * WordBytes), SeedA + Xlen'(w));
+    check_counts("neighbours", LineWords - 1, 1);
+  endtask  // Automatic
+
+  task automatic test_other_index();
+    check_fetch("second index", Xlen'(LineBytes), SeedC);
+    check_fetch("first index kept", '0, SeedA);
+    check("two misses", Xlen'(miss_count), Xlen'(2));
+  endtask  // Automatic
+
+  task automatic test_conflict();
+    check_fetch("conflicting tag", Xlen'(Stride), SeedB);
+    check_fetch("conflict evicted", '0, SeedA);
+    check("conflict misses", Xlen'(miss_count), Xlen'(4));
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
@@ -144,53 +186,15 @@ module icache_tb;
   initial begin
     $dumpfile("icache_tb.vcd");
     $dumpvars(0, icache_tb);
-
-    clk        = 1'b0;
-    core_en    = 1'b1;
-    rst_n      = 1'b1;
-    cpu_valid  = 1'b0;
-    cpu_addr   = '0;
-    boot_we    = 1'b0;
-    boot_addr  = '0;
-    boot_wdata = '0;
-
     do_reset();
 
-    boot_line(32'h0000_0000, 32'hA000_0000);
-    boot_line(Xlen'(Stride), 32'hB000_0000);
-    boot_line(32'h0000_0010, 32'hC000_0000);
+    load_lines();
+    test_cold_miss();
+    test_neighbours();
+    test_other_index();
+    test_conflict();
 
-    // Cold miss
-    fetch(32'h0000_0000);
-    check("cold miss data", cpu_rdata, 32'hA000_0000);
-    check_int("one miss", miss_count, 1);
-    check_int("no hits yet", hit_count, 0);
-
-    // Neighbour hits
-    fetch(32'h0000_0004);
-    check("neighbour 1", cpu_rdata, 32'hA000_0001);
-    fetch(32'h0000_0008);
-    check("neighbour 2", cpu_rdata, 32'hA000_0002);
-    fetch(32'h0000_000C);
-    check("neighbour 3", cpu_rdata, 32'hA000_0003);
-    check_int("three hits", hit_count, 3);
-    check_int("still one miss", miss_count, 1);
-
-    // Other index
-    fetch(32'h0000_0010);
-    check("second index", cpu_rdata, 32'hC000_0000);
-    fetch(32'h0000_0000);
-    check("first index kept", cpu_rdata, 32'hA000_0000);
-    check_int("two misses", miss_count, 2);
-
-    // Conflict replaces
-    fetch(Xlen'(Stride));
-    check("conflicting tag", cpu_rdata, 32'hB000_0000);
-    fetch(32'h0000_0000);
-    check("conflict evicted", cpu_rdata, 32'hA000_0000);
-    check_int("conflict misses", miss_count, 4);
-
-    verdict();
+    do_verdict();
   end
 
 endmodule
