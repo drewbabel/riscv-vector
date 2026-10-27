@@ -3,11 +3,15 @@
 module vec_mixed_tb ();
   import vec_pkg::*;
 
-  localparam int DLEN  = arch_pkg::VLEN;
-  localparam int ELEN  = arch_pkg::ELEN;
-  localparam int XLEN  = arch_pkg::XLEN;
+  localparam int DLEN = arch_pkg::VLEN;
+  localparam int ELEN = arch_pkg::ELEN;
+  localparam int XLEN = arch_pkg::XLEN;
   localparam int WideW = 2 * ELEN;
-  localparam int Words = DLEN / 32;
+  localparam logic [2:0] Sew8 = 3'd0;
+  localparam logic [2:0] Sew16 = 3'd1;
+  localparam logic [2:0] Sew32 = 3'd2;
+  localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
+  localparam int MinChecks = 2000;
 
   int                  checks = 0;
   int                  errors = 0;
@@ -37,6 +41,153 @@ module vec_mixed_tb ();
       .simm    (simm),
       .result  (result)
   );
+
+  task automatic check(input string name, input logic [WideW-1:0] got, input logic [WideW-1:0] exp);
+    checks++;
+    if (got !== exp) begin
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
+  endtask  // Automatic
+
+  task automatic check_lanes(input string tag);
+    logic [WideW-1:0] want;
+    logic [WideW-1:0] got;
+    #1;
+    for (int e = 0; e < lanes(); e++) begin
+      want = ref_elem(e) & ((WideW'(1'b1) << dest_bits()) - WideW'(1'b1));
+      got  = slice(result, dest_bits(), e);
+      check($sformatf("%s lane %0d sew %0d", tag, e, sew_bits()), got, want);
+    end
+  endtask  // Automatic
+
+  // Random register data
+  function automatic logic [DLEN-1:0] rand_data();
+    rand_data = '0;
+    for (int i = 0; i < DLEN; i += ELEN) rand_data[i+:ELEN] = ELEN'({$urandom, $urandom});
+  endfunction
+
+  task automatic drive(input vec_op_e o, input vec_src_e s, input vec_eew_e w,
+                       input logic [2:0] sew);
+    op       = o;
+    src      = s;
+    eew      = w;
+    vsew     = sew;
+    vs2_data = rand_data();
+    vs1_data = rand_data();
+    xdata    = XLEN'({$urandom, $urandom});
+    simm     = 5'($urandom);
+  endtask  // Automatic
+
+  // Widening forms
+  task automatic test_widen();
+    for (int sew = int'(Sew8); sew < int'(SewTop); sew++) begin
+      for (int f = 0; f < 2; f++) begin
+        for (int t = 0; t < 8; t++) begin
+          drive(VEC_WADDU, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN, 3'(sew));
+          check_lanes("waddu");
+          drive(VEC_WADD, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN, 3'(sew));
+          check_lanes("wadd");
+          drive(VEC_WSUBU, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN, 3'(sew));
+          check_lanes("wsubu");
+          drive(VEC_WSUB, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN, 3'(sew));
+          check_lanes("wsub");
+          drive(VEC_WADDU, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN_W, 3'(sew));
+          check_lanes("waddu wv");
+          drive(VEC_WSUB, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN_W, 3'(sew));
+          check_lanes("wsub wv");
+        end
+      end
+    end
+  endtask  // Automatic
+
+  // Narrowing shifts
+  task automatic test_narrow();
+    for (int sew = int'(Sew8); sew < int'(SewTop); sew++) begin
+      for (int f = 0; f < 3; f++) begin
+        for (int t = 0; t < 8; t++) begin
+          drive(VEC_NSRL, vec_src_e'(f), VEC_EEW_NARROW, 3'(sew));
+          check_lanes("nsrl");
+          drive(VEC_NSRA, vec_src_e'(f), VEC_EEW_NARROW, 3'(sew));
+          check_lanes("nsra");
+        end
+      end
+    end
+  endtask  // Automatic
+
+  // Extension forms
+  task automatic test_ext();
+    for (int t = 0; t < 8; t++) begin
+      drive(VEC_ZEXT2, VEC_SRC_VV, VEC_EEW_SAME, Sew16);
+      check_lanes("zext2 half");
+      drive(VEC_SEXT2, VEC_SRC_VV, VEC_EEW_SAME, Sew16);
+      check_lanes("sext2 half");
+      drive(VEC_ZEXT2, VEC_SRC_VV, VEC_EEW_SAME, Sew32);
+      check_lanes("zext2 word");
+      drive(VEC_SEXT2, VEC_SRC_VV, VEC_EEW_SAME, Sew32);
+      check_lanes("sext2 word");
+      drive(VEC_ZEXT4, VEC_SRC_VV, VEC_EEW_SAME, Sew32);
+      check_lanes("zext4");
+      drive(VEC_SEXT4, VEC_SRC_VV, VEC_EEW_SAME, Sew32);
+      check_lanes("sext4");
+    end
+  endtask  // Automatic
+
+  // Known values
+  task automatic test_directed();
+    op       = VEC_WADD;
+    src      = VEC_SRC_VV;
+    eew      = VEC_EEW_WIDEN;
+    vsew     = Sew8;
+    vs2_data = DLEN'(16'h80ff);
+    vs1_data = DLEN'(16'h0102);
+    check_lanes("directed wadd");
+
+    op       = VEC_NSRA;
+    src      = VEC_SRC_VI;
+    eew      = VEC_EEW_NARROW;
+    vsew     = Sew8;
+    vs2_data = DLEN'(32'hff00_8000);
+    simm     = 5'd4;
+    check_lanes("directed nsra");
+  endtask  // Automatic
+
+  // Inputs at rest
+  task automatic do_reset();
+    op       = VEC_WADD;
+    src      = VEC_SRC_VV;
+    eew      = VEC_EEW_WIDEN;
+    vsew     = Sew8;
+    vs2_data = '0;
+    vs1_data = '0;
+    xdata    = '0;
+    simm     = '0;
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
+
+  initial begin
+    $dumpfile("vec_mixed_tb.vcd");
+    $dumpvars(0, vec_mixed_tb);
+
+    do_reset();
+
+    test_directed();
+    test_widen();
+    test_narrow();
+    test_ext();
+
+    do_verdict();
+  end
 
   // Reference model
   function automatic int sew_bits();
@@ -124,148 +275,6 @@ module vec_mixed_tb ();
       end
     endcase
   endfunction
-
-  task automatic check_lanes(input string tag);
-    logic [WideW-1:0] want;
-    logic [WideW-1:0] got;
-    #1;
-    for (int e = 0; e < lanes(); e++) begin
-      want = ref_elem(e) & ((WideW'(1'b1) << dest_bits()) - WideW'(1'b1));
-      got = slice(result, dest_bits(), e);
-      checks = checks + 1;
-      if (got !== want) begin
-        errors = errors + 1;
-        if (errors < 12)
-          $display("FAIL %0s lane %0d got=%h want=%h sew=%0d", tag, e, got, want, sew_bits());
-        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-      end
-    end
-  endtask
-
-  // Random register data
-  function automatic logic [DLEN-1:0] rand_data();
-    rand_data = '0;
-    for (int i = 0; i < Words; i++) rand_data = (rand_data << 32) | DLEN'($urandom);
-  endfunction
-
-  task automatic drive(input vec_op_e o, input vec_src_e s, input vec_eew_e w,
-                       input logic [2:0] sew);
-    op       = o;
-    src      = s;
-    eew      = w;
-    vsew     = sew;
-    vs2_data = rand_data();
-    vs1_data = rand_data();
-    xdata    = $urandom;
-    simm     = 5'($urandom);
-  endtask
-
-  // Widening forms
-  task automatic check_widen();
-    for (int sew = 0; sew < 2; sew++) begin
-      for (int f = 0; f < 2; f++) begin
-        for (int t = 0; t < 8; t++) begin
-          drive(VEC_WADDU, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN, 3'(sew));
-          check_lanes("waddu");
-          drive(VEC_WADD, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN, 3'(sew));
-          check_lanes("wadd");
-          drive(VEC_WSUBU, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN, 3'(sew));
-          check_lanes("wsubu");
-          drive(VEC_WSUB, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN, 3'(sew));
-          check_lanes("wsub");
-          drive(VEC_WADDU, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN_W, 3'(sew));
-          check_lanes("waddu wv");
-          drive(VEC_WSUB, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN_W, 3'(sew));
-          check_lanes("wsub wv");
-        end
-      end
-    end
-  endtask
-
-  // Narrowing shifts
-  task automatic check_narrow();
-    for (int sew = 0; sew < 2; sew++) begin
-      for (int f = 0; f < 3; f++) begin
-        for (int t = 0; t < 8; t++) begin
-          drive(VEC_NSRL, vec_src_e'(f), VEC_EEW_NARROW, 3'(sew));
-          check_lanes("nsrl");
-          drive(VEC_NSRA, vec_src_e'(f), VEC_EEW_NARROW, 3'(sew));
-          check_lanes("nsra");
-        end
-      end
-    end
-  endtask
-
-  // Extension forms
-  task automatic check_ext();
-    for (int t = 0; t < 8; t++) begin
-      drive(VEC_ZEXT2, VEC_SRC_VV, VEC_EEW_SAME, 3'd1);
-      check_lanes("zext2 half");
-      drive(VEC_SEXT2, VEC_SRC_VV, VEC_EEW_SAME, 3'd1);
-      check_lanes("sext2 half");
-      drive(VEC_ZEXT2, VEC_SRC_VV, VEC_EEW_SAME, 3'd2);
-      check_lanes("zext2 word");
-      drive(VEC_SEXT2, VEC_SRC_VV, VEC_EEW_SAME, 3'd2);
-      check_lanes("sext2 word");
-      drive(VEC_ZEXT4, VEC_SRC_VV, VEC_EEW_SAME, 3'd2);
-      check_lanes("zext4");
-      drive(VEC_SEXT4, VEC_SRC_VV, VEC_EEW_SAME, 3'd2);
-      check_lanes("sext4");
-    end
-  endtask
-
-  // Known values
-  task automatic check_directed();
-    op       = VEC_WADD;
-    src      = VEC_SRC_VV;
-    eew      = VEC_EEW_WIDEN;
-    vsew     = 3'd0;
-    vs2_data = DLEN'(16'h80ff);
-    vs1_data = DLEN'(16'h0102);
-    check_lanes("directed wadd");
-
-    op       = VEC_NSRA;
-    src      = VEC_SRC_VI;
-    eew      = VEC_EEW_NARROW;
-    vsew     = 3'd0;
-    vs2_data = DLEN'(32'hff00_8000);
-    simm     = 5'd4;
-    check_lanes("directed nsra");
-  endtask
-
-  // Inputs at rest
-  task automatic init_signals();
-    op       = VEC_WADD;
-    src      = VEC_SRC_VV;
-    eew      = VEC_EEW_WIDEN;
-    vsew     = 3'd0;
-    vs2_data = '0;
-    vs1_data = '0;
-    xdata    = '0;
-    simm     = '0;
-  endtask
-
-  task automatic verdict();
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
-  endtask
-
-  initial void'($value$plusargs("max_errors=%d", max_errors));
-
-  initial begin
-    $dumpfile("vec_mixed_tb.vcd");
-    $dumpvars(0, vec_mixed_tb);
-
-    init_signals();
-
-    check_directed();
-    check_widen();
-    check_narrow();
-    check_ext();
-
-    verdict();
-  end
 
 endmodule
 
