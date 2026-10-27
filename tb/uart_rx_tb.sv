@@ -37,6 +37,24 @@ module uart_rx_tb ();
       .BUDGET(Budget)
   ) nine_bench ();
 
+  uart_rx_bench #(
+      .CLK_FREQ_HZ(1_562_500),
+      .BAUD_RATE  (28_800),
+      .BUDGET     (Budget)
+  ) clk1m5_bench ();
+
+  uart_rx_bench #(
+      .CLK_FREQ_HZ(1_000_000),
+      .BAUD_RATE  (28_800),
+      .BUDGET     (Budget)
+  ) clk1m_bench ();
+
+  uart_rx_bench #(
+      .CLK_FREQ_HZ(12_000_000),
+      .BAUD_RATE  (115_200),
+      .BUDGET     (Budget)
+  ) clk12m_bench ();
+
   task automatic check_floor(input string name, input int got, input int floor);
     if (got < floor)
       $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
@@ -44,18 +62,24 @@ module uart_rx_tb ();
 
   task automatic do_verdict();
     if (!(fast_bench.counted && core_bench.counted && os8_bench.counted && os4_bench.counted &&
-          seven_bench.counted && nine_bench.counted))
+          seven_bench.counted && nine_bench.counted && clk1m5_bench.counted &&
+          clk1m_bench.counted && clk12m_bench.counted))
       $fatal(1, "TB UNDER-RAN: flag or byte count short of frames sent");
     checks = fast_bench.checks + core_bench.checks + os8_bench.checks + os4_bench.checks +
-        seven_bench.checks + nine_bench.checks;
+        seven_bench.checks + nine_bench.checks + clk1m5_bench.checks + clk1m_bench.checks +
+        clk12m_bench.checks;
     errors = fast_bench.errors + core_bench.errors + os8_bench.errors + os4_bench.errors +
-        seven_bench.errors + nine_bench.errors;
+        seven_bench.errors + nine_bench.errors + clk1m5_bench.errors + clk1m_bench.errors +
+        clk12m_bench.errors;
     check_floor("fast_bench", fast_bench.checks, fast_bench.MinChecks);
     check_floor("core_bench", core_bench.checks, core_bench.MinChecks);
     check_floor("os8_bench", os8_bench.checks, os8_bench.MinChecks);
     check_floor("os4_bench", os4_bench.checks, os4_bench.MinChecks);
     check_floor("seven_bench", seven_bench.checks, seven_bench.MinChecks);
     check_floor("nine_bench", nine_bench.checks, nine_bench.MinChecks);
+    check_floor("clk1m5_bench", clk1m5_bench.checks, clk1m5_bench.MinChecks);
+    check_floor("clk1m_bench", clk1m_bench.checks, clk1m_bench.MinChecks);
+    check_floor("clk12m_bench", clk12m_bench.checks, clk12m_bench.MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
@@ -65,13 +89,15 @@ module uart_rx_tb ();
     $dumpfile("uart_rx_tb.vcd");
     $dumpvars(0, uart_rx_tb);
     wait (fast_bench.done && core_bench.done && os8_bench.done && os4_bench.done &&
-          seven_bench.done && nine_bench.done);
+          seven_bench.done && nine_bench.done && clk1m5_bench.done && clk1m_bench.done &&
+          clk12m_bench.done);
     do_verdict();
   end
 
   always_comb
     live_errors = fast_bench.errors + core_bench.errors + os8_bench.errors + os4_bench.errors +
-        seven_bench.errors + nine_bench.errors;
+        seven_bench.errors + nine_bench.errors + clk1m5_bench.errors + clk1m_bench.errors +
+        clk12m_bench.errors;
 
   initial begin
     if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
@@ -110,7 +136,7 @@ module uart_rx_bench #(
   localparam int Scaled = BUDGET / ClksPerBit;
   localparam int Values = value_count(BUDGET, Scaled, Exhaustive);
   localparam int Step = Exhaustive / Values;
-  localparam int MinChecks = 40 * Values;
+  localparam int MinChecks = 52 * Values;
 
   int checks = 0;
   int errors = 0;
@@ -122,6 +148,8 @@ module uart_rx_bench #(
   int flag_events = 0;
   int data_events = 0;
   int tx_bit = ClksPerBit;
+  logic tx_exact = 1'b0;
+  int tx_phase = 0;
 
   logic clk = 0;
   logic rst_n;
@@ -170,26 +198,37 @@ module uart_rx_bench #(
     rst_n = 1'b1;
   endtask  // Automatic
 
+  // Exact average bit period
+  task automatic bit_wait();
+    int n = tx_bit;
+    if (tx_exact) begin
+      tx_phase += ClkFreqHz;
+      n = tx_phase / BaudRate;
+      tx_phase -= n * BaudRate;
+    end
+    repeat (n) @(negedge clk);
+  endtask  // Automatic
+
   task automatic send_data(input logic [DataBits-1:0] data, input logic corrupt);
     // Start bit (low)
     rx_serial = 1'b0;
-    repeat (tx_bit) @(negedge clk);
+    bit_wait();
 
     // Data bits
     for (int i = 0; i < $bits(data); i++) begin
       rx_serial = data[i];
-      repeat (tx_bit) @(negedge clk);
+      bit_wait();
     end
 
     // Stop bit (high)
     if (corrupt) begin
       rx_serial = 1'b0;
-      repeat (tx_bit) @(negedge clk);
+      bit_wait();
       rx_serial = 1'b1;
-      repeat (tx_bit) @(negedge clk);
+      bit_wait();
     end else begin
       rx_serial = 1'b1;
-      repeat (tx_bit) @(negedge clk);
+      bit_wait();
     end
 
     frames_sent++;
@@ -237,6 +276,8 @@ module uart_rx_bench #(
     run_suite(ClksPerBit);
     run_suite(ClksPerBitFast);
     run_suite(ClksPerBitSlow);
+    tx_exact = 1'b1;
+    run_suite(ClksPerBit);
     finish();
   end
 
