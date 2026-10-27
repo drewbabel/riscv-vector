@@ -2,7 +2,8 @@
 
 module tick_gen_tb ();
 
-  localparam int DIVISOR = 4;
+  localparam int Divisor   = 4;
+  localparam int MinChecks = 250;
 
   int   errors = 0;
   int   max_errors = 0;
@@ -18,7 +19,7 @@ module tick_gen_tb ();
   always #5 clk = ~clk;
 
   tick_gen #(
-      .DIVISOR(DIVISOR)
+      .DIVISOR(Divisor)
   ) dut (
       .clk(clk),
       .core_en(1'b1),
@@ -27,40 +28,52 @@ module tick_gen_tb ();
       .tick(tick)
   );
 
-  task automatic do_reset();
-    rst_n = 1'b0;
-    clr   = 1'b0;
-    @(posedge clk);
-    @(posedge clk);
-    #1 rst_n = 1'b1;
-  endtask  // Automatic
-
-
-  task automatic do_verdict();
-    if (errors == 0) begin
-      $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    end else begin
-      $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    end
-    $finish;
-  endtask  // Automatic
-
-  task automatic check(input logic got, input logic exp);
+  task automatic check(input string name, input logic got, input logic exp);
     checks++;
     if (got !== exp) begin
       errors++;
-      $error("t=%0t mismatch: got=%b, exp=%b", $time, got, exp);
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
 
-  // Pulse clr high for one clock to force a phase resync
-  task automatic pulse_clr();
-    #1 clr = 1'b1;
-    @(posedge clk);
-    #1 clr = 1'b0;
+  task automatic do_reset();
+    rst_n = 1'b0;
+    clr   = 1'b0;
+    repeat (2) @(posedge clk);
+    @(negedge clk);
+    rst_n = 1'b1;
   endtask  // Automatic
 
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  task automatic idle(input int n);
+    repeat (n) @(negedge clk);
+  endtask  // Automatic
+
+  task automatic pulse_clr();
+    clr = 1'b1;
+    @(negedge clk);
+    clr = 1'b0;
+  endtask  // Automatic
+
+  task automatic resync_mid_phase();
+    idle(2);
+    pulse_clr();
+    idle(100);
+  endtask  // Automatic
+
+  task automatic back_to_back_clr();
+    pulse_clr();
+    pulse_clr();
+    idle(50);
+  endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
@@ -68,20 +81,9 @@ module tick_gen_tb ();
     $dumpfile("tick_gen_tb.vcd");
     $dumpvars(0, tick_gen_tb);
     do_reset();
-
-    // Free-run
-    repeat (100) @(posedge clk);
-
-    // Resync mid-phase: clr at an arbitrary offset, tick must realign
-    repeat (2) @(posedge clk);
-    pulse_clr();
-    repeat (100) @(posedge clk);
-
-    // Back-to-back clr on consecutive clocks
-    pulse_clr();
-    pulse_clr();
-    repeat (50) @(posedge clk);
-
+    idle(100);
+    resync_mid_phase();
+    back_to_back_clr();
     do_verdict();
   end
 
@@ -89,11 +91,11 @@ module tick_gen_tb ();
   always @(posedge clk) begin
     if (!rst_n) phase <= 0;
     else if (clr) phase <= 0;
-    else phase <= (phase == DIVISOR - 1) ? 0 : phase + 1;
+    else phase <= (phase == Divisor - 1) ? 0 : phase + 1;
   end
 
   always @(negedge clk) begin
-    if (rst_n) check(tick, (phase == DIVISOR - 1));
+    if (rst_n) check("tick", tick, (phase == Divisor - 1));
   end
 endmodule
 
