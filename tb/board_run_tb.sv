@@ -4,28 +4,39 @@ module board_run_tb ();
 
   import cache_pkg::*;
 
-  localparam int DEPTH = 4194304;
+  localparam int Xlen = arch_pkg::XLEN;
+  localparam int ClkDiv = arch_pkg::ClkDiv;
   localparam int BaudRate = arch_pkg::BaudRate;
   localparam int ClksPerBit = (arch_pkg::BoardClkHz + BaudRate / 2) / BaudRate;
+  localparam int BootCycles = 2000;
+  localparam int DrainCycles = 200;
+  localparam longint DefaultLimit = 20_000_000;
+  localparam int MinChecks = 8;
 
-  logic clk = 0;
+  int checks = 0;
+  int errors = 0;
+  int max_errors = 0;
+
+  logic clk = 1'b0;
   logic rst;
   logic [7:0] sw;
   logic [7:0] led;
-  logic uart_rx = 1;
+  logic uart_rx;
   logic uart_tx;
   wire [15:0] ddr3_dq;
   wire [1:0] ddr3_dqs_p;
   wire [1:0] ddr3_dqs_n;
-  logic [31:0] img[DEPTH];
-  logic [LineBits-1:0] pline;
   string hexfile;
+  string pass_token = "";
+  string line = "";
+  logic saw_token = 1'b0;
+  logic done = 1'b0;
   longint limit;
 
   always #5 clk = ~clk;
 
   board_top #(
-      .DEPTH(DEPTH)
+      .ClkDiv(ClkDiv)
   ) dut (
       .clk         (clk),
       .rst         (rst),
@@ -49,63 +60,132 @@ module board_run_tb ();
       .ddr3_dqs_n  (ddr3_dqs_n)
   );
 
-  task automatic send_byte(input logic [7:0] b);
-    uart_rx = 0;
-    repeat (ClksPerBit) @(posedge clk);
-    for (int i = 0; i < 8; i++) begin
-      uart_rx = b[i];
-      repeat (ClksPerBit) @(posedge clk);
+  task automatic check(input string name, input logic got, input logic exp);
+    checks++;
+    if (got !== exp) begin
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
-    uart_rx = 1;
-    repeat (ClksPerBit) @(posedge clk);
-  endtask
+  endtask  // Automatic
+
+  task automatic read_args();
+    if (!$value$plusargs("HEX=%s", hexfile)) $fatal(1, "no +HEX");
+    void'($value$plusargs("PASS=%s", pass_token));
+    void'($value$plusargs("max_errors=%d", max_errors));
+  endtask  // Automatic
+
+  task automatic load_image();
+    int fd;
+    int n = 0;
+    logic [Xlen-1:0] word;
+    logic [Xlen-1:0] first = '0;
+    logic [LineBits-1:0] pline = '0;
+    fd = $fopen(hexfile, "r");
+    if (fd == 0) $fatal(1, "%s missing or empty", hexfile);
+    while ($fscanf(
+        fd, "%h", word
+    ) == 1) begin
+      if (n == 0) first = word;
+      pline[Xlen*(n%LineWords)+:Xlen] = word;
+      n++;
+      if (n % LineWords == 0) begin
+        dut.mig_inst.mem[n/LineWords-1] = pline;
+        pline = '0;
+      end
+    end
+    if (n % LineWords != 0) dut.mig_inst.mem[n/LineWords] = pline;
+    $fclose(fd);
+    if (first == '0) $fatal(1, "%s missing or empty", hexfile);
+  endtask  // Automatic
+
+  task automatic do_reset();
+    rst = 1'b1;
+    sw = '0;
+    uart_rx = 1'b1;
+    repeat (2) @(posedge clk);
+    @(negedge clk);
+    rst = 1'b0;
+  endtask  // Automatic
+
+  task automatic send_byte(input logic [7:0] b);
+    @(negedge clk);
+    uart_rx = 1'b0;
+    repeat (ClksPerBit) @(negedge clk);
+    for (int i = 0; i < $bits(b); i++) begin
+      uart_rx = b[i];
+      repeat (ClksPerBit) @(negedge clk);
+    end
+    uart_rx = 1'b1;
+    repeat (ClksPerBit) @(negedge clk);
+  endtask  // Automatic
+
+  // Zero length boot
+  task automatic start_core();
+    repeat (BootCycles) @(posedge clk);
+    repeat (Xlen / 8) send_byte('0);
+  endtask  // Automatic
+
+  task automatic recv_byte(output logic [7:0] ch);
+    @(negedge uart_tx);
+    repeat (ClksPerBit / 2) @(negedge clk);
+    check("start bit", uart_tx, 1'b0);
+    for (int i = 0; i < $bits(ch); i++) begin
+      repeat (ClksPerBit) @(negedge clk);
+      ch[i] = uart_tx;
+    end
+    repeat (ClksPerBit) @(negedge clk);
+    check("stop bit", uart_tx, 1'b1);
+  endtask  // Automatic
 
   // Console monitor
-  logic [23:0] tail = '0;
-  logic done = 0;
-  initial begin
+  task automatic console();
     logic [7:0] ch;
     forever begin
-      @(negedge uart_tx);
-      repeat (ClksPerBit + ClksPerBit / 2) @(posedge clk);
-      for (int i = 0; i < 8; i++) begin
-        ch[i] = uart_tx;
-        repeat (ClksPerBit) @(posedge clk);
-      end
+      recv_byte(ch);
       $write("%c", ch);
       $fflush();
-      tail = {tail[15:0], ch};
-      if (tail == "END") done = 1;
+      if (ch == "\n") begin
+        if (line == pass_token) saw_token = 1'b1;
+        if (line == "END") done = 1'b1;
+        line = "";
+      end else line = {line, string'(ch)};
     end
-  end
+  endtask  // Automatic
 
-  initial begin
-    rst = 1;
-    if (!$value$plusargs("HEX=%s", hexfile)) $fatal(1, "no +HEX");
-    for (int k = 0; k < DEPTH; k++) img[k] = 32'h0;
-    $readmemh(hexfile, img);
-    if (img[0] == 32'h0) $fatal(1, "%s missing or empty", hexfile);
-    for (int l = 0; l < DEPTH / LineWords; l++) begin
-      for (int w = 0; w < LineWords; w++) pline[32*w+:32] = img[l*LineWords+w];
-      if (pline != '0) dut.mig_inst.mem[l] = pline;
-    end
-    sw = 0;
-    repeat (2) @(posedge clk);
-    rst = 0;
-    repeat (2000) @(posedge clk);
-    // Zero count starts core
-    repeat (4) send_byte(8'd0);
+  task automatic wait_end();
     wait (done);
-    repeat (200) @(posedge clk);
+    repeat (DrainCycles) @(posedge clk);
+  endtask  // Automatic
+
+  // Core cycle limit
+  task automatic watchdog();
+    if (!$value$plusargs("LIMIT=%d", limit)) limit = DefaultLimit;
+    for (longint m = 0; m < limit; m++) repeat (ClkDiv) @(posedge clk);
+    $fatal(1, "TIMEOUT");
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (pass_token != "") check("PASS token", saw_token, 1'b1);
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
+  endtask  // Automatic
+
+  initial begin
+    read_args();
+    load_image();
+    do_reset();
+    start_core();
+    wait_end();
+    do_verdict();
   end
 
-  // +LIMIT counts core cycles
-  initial begin
-    if (!$value$plusargs("LIMIT=%d", limit)) limit = 64'd20_000_000;
-    for (longint m = 0; m < limit; m++) @(posedge dut.core_en);
-    $fatal(1, "TIMEOUT");
-  end
+  initial console();
+
+  initial watchdog();
 
 endmodule
 
