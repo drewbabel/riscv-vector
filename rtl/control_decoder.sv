@@ -23,6 +23,7 @@ module control_decoder
     output logic                                  is_ecall,
     output logic                                  is_ebreak,
     output logic                                  is_mret,
+    output logic                                  illegal,
     output logic                                  is_muldiv,
     output muldiv_pkg::muldiv_op_e                muldiv_op
 );
@@ -53,6 +54,7 @@ module control_decoder
     is_ecall      = 1'b0;
     is_ebreak     = 1'b0;
     is_mret       = 1'b0;
+    illegal       = 1'b0;
     is_muldiv     = 1'b0;
     muldiv_op     = MD_MUL;
 
@@ -134,6 +136,8 @@ module control_decoder
           is_ecall  = (funct12 == Funct12Ecall);
           is_ebreak = (funct12 == Funct12Ebreak);
           is_mret   = (funct12 == Funct12Mret);
+        end else if (funct3 == Funct3SysRsvd) begin
+          illegal = 1'b1;
         end else begin
           reg_write  = 1'b1;
           csr_access = 1'b1;

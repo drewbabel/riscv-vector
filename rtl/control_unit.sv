@@ -24,6 +24,7 @@ module control_unit
     output logic                                  is_ecall,
     output logic                                  is_ebreak,
     output logic                                  is_mret,
+    output logic                                  illegal,
     output logic                                  is_muldiv,
     output muldiv_pkg::muldiv_op_e                muldiv_op
 );
@@ -48,6 +49,7 @@ module control_unit
       .is_ecall     (is_ecall),
       .is_ebreak    (is_ebreak),
       .is_mret      (is_mret),
+      .illegal      (illegal),
       .is_muldiv    (is_muldiv),
       .muldiv_op    (muldiv_op)
   );
