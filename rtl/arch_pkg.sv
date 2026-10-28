@@ -41,7 +41,8 @@ package arch_pkg;
   parameter logic [7:0] PmuTag = 8'h05;
 
   // Instruction fetch
-  parameter int InstrBytes = 4;
+  parameter int ILEN = 32;
+  parameter int InstrBytes = ILEN / 8;
   parameter int InstrLsb = $clog2(InstrBytes);
   parameter logic [XLEN-1:0] ResetAddr = '0;
 

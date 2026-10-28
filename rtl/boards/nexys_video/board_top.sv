@@ -13,7 +13,8 @@ module board_top
     parameter  bit UNCACHED     = 1'b0,
     parameter  bit GSHARE_EN    = 1'b1,
     parameter  bit SINGLE_CYCLE = 1'b0,
-    localparam int GpioW        = 8
+    localparam int GpioW        = 8,
+    localparam int ILEN         = arch_pkg::ILEN
 ) (
     input  wire              clk,
     input  wire              rst,
@@ -57,7 +58,7 @@ module board_top
   end
 
   logic                    rst_n;
-  logic [            31:0] instr;
+  logic [        ILEN-1:0] instr;
   logic [        XLEN-1:0] pc;
   logic [        XLEN-1:0] mem_addr;
   logic [      XLEN/8-1:0] store_wstrb;

@@ -3,11 +3,12 @@
 module top
   import cache_pkg::*;
 #(
-    parameter int XLEN      = arch_pkg::XLEN,
-    parameter int VLEN      = arch_pkg::VLEN,
-    parameter int ELEN      = arch_pkg::ELEN,
-    parameter int MUL_LANES = arch_pkg::MulLanes,
-    parameter int DEPTH     = 64
+    parameter  int XLEN      = arch_pkg::XLEN,
+    parameter  int VLEN      = arch_pkg::VLEN,
+    parameter  int ELEN      = arch_pkg::ELEN,
+    parameter  int MUL_LANES = arch_pkg::MulLanes,
+    parameter  int DEPTH     = 64,
+    localparam int ILEN      = arch_pkg::ILEN
 ) (
     input  wire             clk,
     input  wire             rst_n,
@@ -17,7 +18,7 @@ module top
     output logic            mem_write
 );
 
-  logic [31:0] instr;
+  logic [ILEN-1:0] instr;
   logic [LineBits-1:0] read_data;
   logic [LineBytes-1:0] store_wstrb;
   logic [LineBits-1:0] store_data;

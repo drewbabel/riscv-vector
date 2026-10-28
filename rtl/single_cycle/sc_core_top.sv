@@ -4,12 +4,13 @@ module sc_core_top
   import opcode_pkg::*;
 #(
     parameter  int XLEN  = arch_pkg::XLEN,
-    localparam int StrbW = XLEN / 8
+    localparam int StrbW = XLEN / 8,
+    localparam int ILEN  = arch_pkg::ILEN
 ) (
     input  wire              clk,
     input  wire              core_en,
     input  wire              rst_n,
-    input  wire  [     31:0] instr,
+    input  wire  [ ILEN-1:0] instr,
     input  wire  [ XLEN-1:0] read_data,
     input  wire              timer_irq,
     input  wire              imem_ready,
@@ -33,7 +34,7 @@ module sc_core_top
 
   state_t               state;
 
-  logic   [       31:0] instr_h;
+  logic   [   ILEN-1:0] instr_h;
   logic   [   XLEN-1:0] rdata_h;
   logic                 irq_h;
   logic   [OpcodeW-1:0] opcode;
