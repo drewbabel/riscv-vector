@@ -231,5 +231,11 @@ testfloat: $(TF_GEN)
 clean:
 	rm -rf build *.vcd sim_build results.xml
 
+rules:
+	python3 tests/rules/check.py $(if $(BASE),--base $(BASE))
+
+sweep:
+	python3 tests/rules/sweep.py $(ROWS)
+
 .DEFAULT_GOAL := run
-.PHONY: run vsim prog wave fmt formal view view-rvfi trace view-formal hex dis cosim testfloat clean sw sw-run
+.PHONY: run vsim prog wave fmt formal view view-rvfi trace view-formal hex dis cosim testfloat clean sw sw-run rules sweep
