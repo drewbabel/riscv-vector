@@ -117,11 +117,11 @@ module vec_mask
   logic [ELEN-1:0] b_w[Widths][MaxElems];
 
   for (genvar g = 0; g < Widths; g++) begin : g_w
-    localparam int W = 8 << g;
+    localparam int ElemW = 8 << g;
     for (genvar e = 0; e < MaxElems; e++) begin : g_e
-      if (e < DLEN / W) begin : g_in
-        assign a_w[g][e] = ELEN'(vs2_data[e*W+:W]);
-        assign b_w[g][e] = ELEN'(vs1_data[e*W+:W]);
+      if (e < DLEN / ElemW) begin : g_in
+        assign a_w[g][e] = ELEN'(vs2_data[e*ElemW+:ElemW]);
+        assign b_w[g][e] = ELEN'(vs1_data[e*ElemW+:ElemW]);
       end else begin : g_out
         assign a_w[g][e] = '0;
         assign b_w[g][e] = '0;
@@ -236,9 +236,9 @@ module vec_mask
   logic [DLEN-1:0] index_data;
 
   for (genvar g = 0; g < Widths; g++) begin : g_iw
-    localparam int W = 8 << g;
-    for (genvar e = 0; e < DLEN / W; e++) begin : g_e
-      assign idx_w[g][e*W+:W] = ion[e] ? W'(ival[e]) : '0;
+    localparam int ElemW = 8 << g;
+    for (genvar e = 0; e < DLEN / ElemW; e++) begin : g_e
+      assign idx_w[g][e*ElemW+:ElemW] = ion[e] ? ElemW'(ival[e]) : '0;
     end
   end
 

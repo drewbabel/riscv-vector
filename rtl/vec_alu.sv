@@ -35,19 +35,19 @@ module vec_alu
   assign scalar = (src == VEC_SRC_VI) ? {{(XLEN - 5) {simm[4]}}, simm} : xdata;
 
   for (genvar w = 0; w < Widths; w++) begin : g_w
-    localparam int EW = 8 << w;
-    for (genvar e = 0; e < DLEN / EW; e++) begin : g_e
-      logic [EW-1:0] b;
-      assign b = is_vv ? vs1_data[e*EW+:EW] : EW'($signed(scalar));
+    localparam int ElemW = 8 << w;
+    for (genvar e = 0; e < DLEN / ElemW; e++) begin : g_e
+      logic [ElemW-1:0] b;
+      assign b = is_vv ? vs1_data[e*ElemW+:ElemW] : ElemW'($signed(scalar));
       vec_alu_lane #(
-          .W(EW)
+          .W(ElemW)
       ) u_lane (
           .op(op),
           .vm(vm),
           .mask_bit(mask_bits[e]),
-          .a(vs2_data[e*EW+:EW]),
+          .a(vs2_data[e*ElemW+:ElemW]),
           .b(b),
-          .result(res_w[w][e*EW+:EW])
+          .result(res_w[w][e*ElemW+:ElemW])
       );
     end
   end

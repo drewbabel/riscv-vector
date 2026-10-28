@@ -90,10 +90,10 @@ module vec_reduce
   logic [ELEN-1:0] val  [MaxElems];
 
   for (genvar w = 0; w < Widths; w++) begin : g_w
-    localparam int EW = 8 << w;
+    localparam int ElemW = 8 << w;
     for (genvar e = 0; e < MaxElems; e++) begin : g_e
-      if (e < DLEN / EW) begin : g_in
-        assign raw_w[w][e] = ELEN'(vs2_data[EW*e+:EW]);
+      if (e < DLEN / ElemW) begin : g_in
+        assign raw_w[w][e] = ELEN'(vs2_data[ElemW*e+:ElemW]);
       end else begin : g_out
         assign raw_w[w][e] = '0;
       end

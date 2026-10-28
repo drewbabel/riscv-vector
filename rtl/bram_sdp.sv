@@ -17,7 +17,7 @@ module bram_sdp #(
     output logic [Width-1:0] rdata
 );
 
-// TB preload
+  // TB preload
 `ifdef SIM_BACKDOOR
   logic             bd_we = 1'b0;
   logic [AddrW-1:0] bd_idx;
@@ -27,27 +27,27 @@ module bram_sdp #(
   // Byte lanes dodge parity pins
   for (genvar b = 0; b < Lanes; b++) begin : g_lane
     localparam int Lo = 8 * b;
-    localparam int W = (Width - Lo < 8) ? Width - Lo : 8;
+    localparam int LaneW = (Width - Lo < 8) ? Width - Lo : 8;
     if (Block) begin : g_bram
-      (* ram_style = "block" *) logic [W-1:0] bmem[Depth];
+      (* ram_style = "block" *) logic [LaneW-1:0] bmem[Depth];
       // Zero init
       initial for (int i = 0; i < Depth; i++) bmem[i] = '0;
       always_ff @(posedge clk) begin
-        if (we && wlane[b]) bmem[widx] <= wdata[Lo+:W];
-        if (re) rdata[Lo+:W] <= bmem[ridx];
+        if (we && wlane[b]) bmem[widx] <= wdata[Lo+:LaneW];
+        if (re) rdata[Lo+:LaneW] <= bmem[ridx];
 `ifdef SIM_BACKDOOR
-        if (bd_we) bmem[bd_idx] <= bd_data[Lo+:W];
+        if (bd_we) bmem[bd_idx] <= bd_data[Lo+:LaneW];
 `endif
       end
     end else begin : g_dist
-      (* ram_style = "distributed" *) logic [W-1:0] bmem[Depth];
+      (* ram_style = "distributed" *) logic [LaneW-1:0] bmem[Depth];
       // Zero init
       initial for (int i = 0; i < Depth; i++) bmem[i] = '0;
       always_ff @(posedge clk) begin
-        if (we && wlane[b]) bmem[widx] <= wdata[Lo+:W];
-        if (re) rdata[Lo+:W] <= bmem[ridx];
+        if (we && wlane[b]) bmem[widx] <= wdata[Lo+:LaneW];
+        if (re) rdata[Lo+:LaneW] <= bmem[ridx];
 `ifdef SIM_BACKDOOR
-        if (bd_we) bmem[bd_idx] <= bd_data[Lo+:W];
+        if (bd_we) bmem[bd_idx] <= bd_data[Lo+:LaneW];
 `endif
       end
     end
