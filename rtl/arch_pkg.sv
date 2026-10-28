@@ -10,10 +10,10 @@ package arch_pkg;
   // Vector unit
   parameter int VLEN = 128;
   parameter int ELEN = 32;
-  parameter int MulLanes = 4;
+  parameter int MulLanes = (VLEN / ELEN < 4) ? VLEN / ELEN : 4;
 
   // Cache line
-  parameter int LineWords = 4;
+  parameter int LineWords = VLEN / XLEN;
 
   // Instruction cache
   parameter int IcIdxLen = 9;
