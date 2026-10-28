@@ -7,19 +7,24 @@ module vec_fp_div_lane_tb
 ();
 
   localparam int FLEN = fp_pkg::FLEN;
-  localparam int FlagW = $bits(fp_pkg::FlagNx);
-  localparam int RmW = $bits(fp_pkg::RmRne);
+  localparam int FracW = fp_pkg::FracW;
+  localparam int Bias = fp_pkg::Bias;
+  localparam int FlagW = fp_pkg::FlagW;
+  localparam int RmW = fp_pkg::RmW;
   localparam int MinChecks = 2_000_000;
   localparam int OpTimeout = 400;
   localparam int StallPct = 25;
   localparam string TfDir = "build/testfloat/";
 
-  localparam logic [FLEN-1:0] One = 'h3F80_0000;
-  localparam logic [FLEN-1:0] Two = 'h4000_0000;
-  localparam logic [FLEN-1:0] Three = 'h4040_0000;
-  localparam logic [FLEN-1:0] Third = 'h3EAA_AAAB;
-  localparam logic [FLEN-1:0] Root2 = 'h3FB5_04F3;
-  localparam logic [FLEN-1:0] OneHalf = 'h3F00_0000;
+  localparam real Sqrt2 = $sqrt(2.0);
+  localparam longint Root2Frac = longint'($floor((Sqrt2 - 1.0) * 2.0 ** FracW + 0.5));
+
+  localparam logic [FLEN-1:0] One = FLEN'(Bias) << FracW;
+  localparam logic [FLEN-1:0] Two = FLEN'(Bias + 1) << FracW;
+  localparam logic [FLEN-1:0] Three = Two | (FLEN'(1) << (FracW - 1));
+  localparam logic [FLEN-1:0] Third = (FLEN'(Bias - 2) << FracW) | (((FLEN'(1) << FracW) + 1) / 3);
+  localparam logic [FLEN-1:0] Root2 = (FLEN'(Bias) << FracW) | FLEN'(Root2Frac);
+  localparam logic [FLEN-1:0] OneHalf = FLEN'(Bias - 1) << FracW;
 
   int checks = 0;
   int errors = 0;
@@ -145,7 +150,7 @@ module vec_fp_div_lane_tb
     logic [FLEN-1:0] y;
     logic [FLEN-1:0] exp_res;
     logic [FlagW-1:0] exp_flags;
-    fname = {TfDir, "f32_", sq ? "sqrt" : "div", "_", rname, ".txt"};
+    fname = {TfDir, $sformatf("f%0d_", FLEN), sq ? "sqrt" : "div", "_", rname, ".txt"};
     fd = $fopen(fname, "r");
     if (fd == 0) $fatal(1, "TB MISSING FILE: %s (run make testfloat)", fname);
     line = 0;

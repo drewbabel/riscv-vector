@@ -72,8 +72,8 @@ module fp_div_sqrt_bench
 
   localparam int StallCycles = 7;
   localparam int Bias = (1 << (EXP_W - 1)) - 1;
-  localparam int FlagW = $bits(FlagNx);
-  localparam int RmW = $bits(RmRne);
+  localparam int FlagW = fp_pkg::FlagW;
+  localparam int RmW = fp_pkg::RmW;
   localparam string TfDir = "build/testfloat/";
 
   localparam logic [FLEN-1:0] One = {2'b00, {(EXP_W - 1) {1'b1}}, {FRAC_W{1'b0}}};

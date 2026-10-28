@@ -23,7 +23,7 @@ module cosim_bench #(
   localparam int Vregs = arch_pkg::NumRegs;
   localparam int AddrW = arch_pkg::RegAddrW;
   localparam int Flen = fp_pkg::FLEN;
-  localparam int FlagW = $bits(fp_pkg::FlagNv);
+  localparam int FlagW = fp_pkg::FlagW;
   localparam int CauseW = $bits(CauseMachineExternalIrq);
   localparam int VlW = $clog2(Vlen + 1);
   localparam int VstartW = $clog2(Vlen);

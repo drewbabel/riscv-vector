@@ -70,8 +70,8 @@ module fp_add_bench
 
   localparam int Latency = FpAddLatency;
   localparam int StallOps = 1000;
-  localparam int FlagW = $bits(FlagNv);
-  localparam int RmW = $bits(RmRne);
+  localparam int FlagW = fp_pkg::FlagW;
+  localparam int RmW = fp_pkg::RmW;
   localparam string TfDir = "build/testfloat/";
   localparam logic [FLEN-1:0] PosInf = {1'b0, {EXP_W{1'b1}}, {FRAC_W{1'b0}}};
   localparam logic [FLEN-1:0] One = {2'b00, {(EXP_W - 1) {1'b1}}, {FRAC_W{1'b0}}};
