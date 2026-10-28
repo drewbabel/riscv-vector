@@ -51,59 +51,60 @@ module dcache
   localparam int TagWordW = DcTagLen + FlagBits;
   localparam int ValidBit = DcTagLen + 1;
   localparam int DirtyBit = DcTagLen;
+  localparam int PlruW = DcWays - 1;
 
   // Tree in flops
-  logic [   DcSets-1:0][DcWays-2:0] plru_mem;
+  logic [   DcSets-1:0][PlruW-1:0] plru_mem;
 
-  logic [ DcTagLen-1:0]             addr_tag;
-  logic [ DcIdxLen-1:0]             addr_idx;
-  logic [ DcIdxLen-1:0]             rd_idx;
-  logic [ DcIdxLen-1:0]             wr_idx;
-  logic [ DcIdxLen-1:0]             init_ctr;
+  logic [ DcTagLen-1:0]            addr_tag;
+  logic [ DcIdxLen-1:0]            addr_idx;
+  logic [ DcIdxLen-1:0]            rd_idx;
+  logic [ DcIdxLen-1:0]            wr_idx;
+  logic [ DcIdxLen-1:0]            init_ctr;
 
   // Sampled request
-  logic [     XLEN-1:0]             req_addr;
-  logic [ LineBits-1:0]             req_wdata;
-  logic [LineBytes-1:0]             req_wstrb;
-  logic                             req_rw;
-  logic                             refill;
+  logic [     XLEN-1:0]            req_addr;
+  logic [ LineBits-1:0]            req_wdata;
+  logic [LineBytes-1:0]            req_wstrb;
+  logic                            req_rw;
+  logic                            refill;
 
-  logic [ TagWordW-1:0]             tag_rd       [DcWays];
-  logic [ LineBits-1:0]             line_rd      [DcWays];
-  logic [ TagWordW-1:0]             tag_q        [DcWays];
-  logic [ LineBits-1:0]             line_q       [DcWays];
+  logic [ TagWordW-1:0]            tag_rd       [DcWays];
+  logic [ LineBits-1:0]            line_rd      [DcWays];
+  logic [ TagWordW-1:0]            tag_q        [DcWays];
+  logic [ LineBits-1:0]            line_q       [DcWays];
 
-  logic [ TagWordW-1:0]             tag_wdata    [DcWays];
-  logic                             tag_we       [DcWays];
-  logic                             data_we      [DcWays];
-  logic [ LineBits-1:0]             data_wdata;
+  logic [ TagWordW-1:0]            tag_wdata    [DcWays];
+  logic                            tag_we       [DcWays];
+  logic                            data_we      [DcWays];
+  logic [ LineBits-1:0]            data_wdata;
 
-  logic                             fill_q;
-  logic [ DcWaySel-1:0]             victim_way_q;
-  logic [ TagWordW-1:0]             fill_tag_q;
-  logic [ LineBits-1:0]             fill_line_q;
+  logic                            fill_q;
+  logic [ DcWaySel-1:0]            victim_way_q;
+  logic [ TagWordW-1:0]            fill_tag_q;
+  logic [ LineBits-1:0]            fill_line_q;
 
-  logic [   DcWays-1:0]             way_hit;
-  logic [   DcWays-1:0]             way_valid;
-  logic                             hit;
-  logic                             compare_hit;
-  logic                             compare_miss;
-  logic [ DcWaySel-1:0]             hit_way;
-  logic [   DcWays-2:0]             plru_tree;
-  logic [   DcWays-2:0]             plru_next;
-  logic [ DcWaySel-1:0]             plru_way;
-  logic [ DcWaySel-1:0]             victim_way;
-  logic                             victim_dirty;
-  logic [ DcTagLen-1:0]             victim_tag;
-  logic [ LineBits-1:0]             victim_line;
-  logic [ LineBits-1:0]             line_read;
-  logic [ LineBits-1:0]             line_write;
-  logic                             fill;
-  logic                             write_hit;
-  logic                             full_store;
-  logic                             install;
-  logic [ DcWaySel-1:0]             touch_way;
-  logic                             init_done;
+  logic [   DcWays-1:0]            way_hit;
+  logic [   DcWays-1:0]            way_valid;
+  logic                            hit;
+  logic                            compare_hit;
+  logic                            compare_miss;
+  logic [ DcWaySel-1:0]            hit_way;
+  logic [    PlruW-1:0]            plru_tree;
+  logic [    PlruW-1:0]            plru_next;
+  logic [ DcWaySel-1:0]            plru_way;
+  logic [ DcWaySel-1:0]            victim_way;
+  logic                            victim_dirty;
+  logic [ DcTagLen-1:0]            victim_tag;
+  logic [ LineBits-1:0]            victim_line;
+  logic [ LineBits-1:0]            line_read;
+  logic [ LineBits-1:0]            line_write;
+  logic                            fill;
+  logic                            write_hit;
+  logic                            full_store;
+  logic                            install;
+  logic [ DcWaySel-1:0]            touch_way;
+  logic                            init_done;
 
   assign addr_tag = req_addr[XLEN-1 : XLEN-DcTagLen];
   assign addr_idx = req_addr[XLEN-DcTagLen-1 : XLEN-DcTagLen-DcIdxLen];
