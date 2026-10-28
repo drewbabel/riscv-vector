@@ -160,12 +160,17 @@ regfile          regfile             arch_pkg::XLEN=128
 regfile          regfile             arch_pkg::RegAddrW=4
 regfile          regfile             arch_pkg::RegAddrW=6
 riscv_pipelined  cosim               -
-riscv_pipelined  cosim               arch_pkg::VLEN=256,arch_pkg::LineWords=8
-riscv_pipelined  cosim               arch_pkg::VLEN=64,arch_pkg::LineWords=2
+riscv_pipelined  cosim               arch_pkg::VLEN=256
+riscv_pipelined  cosim               arch_pkg::VLEN=64
 riscv_pipelined  cosim               arch_pkg::MulLanes=1
 riscv_pipelined  cosim               arch_pkg::MulLanes=2
-riscv_pipelined  cosim               arch_pkg::MulLanes=8
-riscv_pipelined  cosim               arch_pkg::ELEN=64
+riscv_pipelined  cosim               arch_pkg::MulLanes=1,arch_pkg::VLEN=64
+riscv_pipelined  cosim               arch_pkg::MulLanes=1,arch_pkg::VLEN=256
+riscv_pipelined  cosim               arch_pkg::MulLanes=2,arch_pkg::VLEN=256
+riscv_pipelined  cosim               arch_pkg::MulLanes=8,arch_pkg::VLEN=256
+riscv_pipelined  cosim               arch_pkg::MulLanes=4,arch_pkg::VLEN=64   expect="MUL_LANES * ELEN must not exceed VLEN"
+riscv_pipelined  cosim               arch_pkg::MulLanes=8                     expect="MUL_LANES * ELEN must not exceed VLEN"
+riscv_pipelined  cosim               arch_pkg::ELEN=64                        expect="ELEN must be 32"
 riscv_pipelined  cosim               arch_pkg::XLEN=64                         expect="VLEN must equal LineBits"
 riscv_pipelined  cosim               arch_pkg::DcWays=2
 riscv_pipelined  cosim               arch_pkg::DcWays=8
@@ -179,11 +184,11 @@ riscv_pipelined  cosim               arch_pkg::BtbIdxLen=5
 riscv_pipelined  cosim               arch_pkg::BtbIdxLen=7
 riscv_pipelined  cosim               GSHARE_EN=0
 riscv_pipelined  cosim               VLEN=256                                  expect="VLEN must equal LineBits"
-riscv_pipelined  cosim               arch_pkg::VLEN=256                        expect="VLEN must equal LineBits"
+riscv_pipelined  cosim               arch_pkg::LineWords=4,arch_pkg::VLEN=256 expect="VLEN must equal LineBits"
 riscv_pipelined  cosim               arch_pkg::LineWords=8                     expect="VLEN must equal LineBits"
 datapath         cosim               -
-datapath         cosim               arch_pkg::VLEN=256,arch_pkg::LineWords=8
-datapath         cosim               arch_pkg::VLEN=64,arch_pkg::LineWords=2
+datapath         cosim               arch_pkg::VLEN=256
+datapath         cosim               arch_pkg::VLEN=64
 datapath         cosim               GSHARE_EN=0
 datapath         cosim               VLEN=256                                  expect="VLEN must equal LineBits"
 datapath         cosim               VLEN=64                                   expect="VLEN must equal LineBits"
@@ -232,8 +237,6 @@ uart_tx          uart_tx             DATA_BITS=9
 uart_tx          uart_tx             arch_pkg::BaudRate=9600
 uart_tx          uart_tx             arch_pkg::BaudRate=115200
 vec_alu_lane     vec_alu             -
-vec_alu_lane     vec_alu             arch_pkg::ELEN=64
-vec_alu_lane     vec_alu             arch_pkg::ELEN=16
 vec_alu          vec_alu             -
 vec_alu          vec_alu             arch_pkg::XLEN=64
 vec_alu          vec_alu             arch_pkg::XLEN=128
@@ -247,11 +250,11 @@ vec_config       vec_config          arch_pkg::XLEN=64
 vec_config       vec_config          arch_pkg::XLEN=128
 vec_config       vec_config          arch_pkg::VLEN=64
 vec_config       vec_config          arch_pkg::VLEN=256
-vec_config       vec_config          arch_pkg::ELEN=64
-vec_config       vec_config          arch_pkg::ELEN=16
+vec_config       vec_config          arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_config       vec_config          arch_pkg::ELEN=16                        expect="ELEN must be 32"
 vec_div_lane     vec_div_lane        -
-vec_div_lane     vec_div_lane        arch_pkg::ELEN=64
-vec_div_lane     vec_div_lane        arch_pkg::ELEN=16
+vec_div_lane     vec_div_lane        arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_div_lane     vec_div_lane        arch_pkg::ELEN=16                        expect="ELEN must be 32"
 vec_fp_reduce    vec_fp_reduce       -
 vec_fp_reduce    vec_fp_reduce       arch_pkg::VLEN=64
 vec_fp_reduce    vec_fp_reduce       arch_pkg::VLEN=256
@@ -269,8 +272,8 @@ vec_mask         vec_mask            arch_pkg::XLEN=64
 vec_mask         vec_mask            arch_pkg::XLEN=128
 vec_mask         vec_mask            arch_pkg::VLEN=64
 vec_mask         vec_mask            arch_pkg::VLEN=256
-vec_mask         vec_mask            arch_pkg::ELEN=64
-vec_mask         vec_mask            arch_pkg::ELEN=16
+vec_mask         vec_mask            arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_mask         vec_mask            arch_pkg::ELEN=16                        expect="ELEN must be 32"
 vec_mem          vec_mem             -
 vec_mem          vec_mem             arch_pkg::XLEN=64
 vec_mem          vec_mem             arch_pkg::XLEN=128
@@ -284,28 +287,28 @@ vec_mixed        vec_mixed           arch_pkg::XLEN=128
 vec_mixed        vec_mixed           arch_pkg::VLEN=64
 vec_mixed        vec_mixed           arch_pkg::VLEN=256
 vec_mul_lane     vec_mul_lane        -
-vec_mul_lane     vec_mul_lane        arch_pkg::ELEN=64
-vec_mul_lane     vec_mul_lane        arch_pkg::ELEN=16
+vec_mul_lane     vec_mul_lane        arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_mul_lane     vec_mul_lane        arch_pkg::ELEN=16                        expect="ELEN must be 32"
 vec_reduce       vec_reduce          -
 vec_reduce       vec_reduce          arch_pkg::VLEN=64
 vec_reduce       vec_reduce          arch_pkg::VLEN=256
-vec_reduce       vec_reduce          arch_pkg::ELEN=64
-vec_reduce       vec_reduce          arch_pkg::ELEN=16
+vec_reduce       vec_reduce          arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_reduce       vec_reduce          arch_pkg::ELEN=16                        expect="ELEN must be 32"
 vec_regfile      vec_regfile         -
 vec_regfile      vec_regfile         arch_pkg::RegAddrW=4
 vec_regfile      vec_regfile         arch_pkg::RegAddrW=6
 vec_regfile      vec_regfile         arch_pkg::VLEN=64
 vec_regfile      vec_regfile         arch_pkg::VLEN=256
 vec_sat_lane     vec_sat_lane        -
-vec_sat_lane     vec_sat_lane        arch_pkg::ELEN=64
-vec_sat_lane     vec_sat_lane        arch_pkg::ELEN=16
+vec_sat_lane     vec_sat_lane        arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_sat_lane     vec_sat_lane        arch_pkg::ELEN=16                        expect="ELEN must be 32"
 vec_sequencer    vec_sequencer       -
 vec_sequencer    vec_sequencer       arch_pkg::RegAddrW=4
 vec_sequencer    vec_sequencer       arch_pkg::RegAddrW=6
 vec_sequencer    vec_sequencer       arch_pkg::VLEN=64
 vec_sequencer    vec_sequencer       arch_pkg::VLEN=256
-vec_sequencer    vec_sequencer       arch_pkg::ELEN=64
-vec_sequencer    vec_sequencer       arch_pkg::ELEN=16
+vec_sequencer    vec_sequencer       arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_sequencer    vec_sequencer       arch_pkg::ELEN=16                        expect="ELEN must be 32"
 vec_sequencer    vec_sequencer       arch_pkg::MulLanes=1
 vec_sequencer    vec_sequencer       arch_pkg::MulLanes=2
 vec_sequencer    vec_sequencer       arch_pkg::MulLanes=8
@@ -324,11 +327,13 @@ vec_unit         vec_unit            arch_pkg::RegAddrW=4
 vec_unit         vec_unit            arch_pkg::RegAddrW=6
 vec_unit         vec_unit            arch_pkg::VLEN=64
 vec_unit         vec_unit            arch_pkg::VLEN=256
-vec_unit         vec_unit            arch_pkg::ELEN=64
-vec_unit         vec_unit            arch_pkg::ELEN=16
+vec_unit         vec_unit            arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_unit         vec_unit            arch_pkg::ELEN=16                        expect="ELEN must be 32"
 vec_unit         vec_unit            arch_pkg::MulLanes=1
 vec_unit         vec_unit            arch_pkg::MulLanes=2
-vec_unit         vec_unit            arch_pkg::MulLanes=8
+vec_unit         vec_unit            arch_pkg::MulLanes=1,arch_pkg::VLEN=64
+vec_unit         vec_unit            arch_pkg::MulLanes=8,arch_pkg::VLEN=256
+vec_unit         vec_unit            arch_pkg::MulLanes=8                     expect="MUL_LANES * ELEN must not exceed VLEN"
 vec_unit         vec_unit            arch_pkg::MulLanes=3                      expect="MUL_LANES must be a power of two"
 vec_write_slots  vec_write_slots     -
 vec_write_slots  vec_write_slots     DEPTH=2
@@ -336,9 +341,9 @@ vec_write_slots  vec_write_slots     DEPTH=5
 vec_write_slots  vec_write_slots     DEPTH=8
 vec_config       formal:vec_config   arch_pkg::VLEN=64
 vec_config       formal:vec_config   arch_pkg::VLEN=256
-vec_config       formal:vec_config   arch_pkg::ELEN=64
-vec_sat_lane     formal:vec_sat      arch_pkg::ELEN=16
-vec_sat_lane     formal:vec_sat      arch_pkg::ELEN=64
+vec_config       formal:vec_config   arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_sat_lane     formal:vec_sat      arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_sat_lane     formal:vec_sat      arch_pkg::ELEN=64                        expect="ELEN must be 32"
 vec_sequencer    formal:vec_seq      arch_pkg::VLEN=64
 vec_sequencer    formal:vec_seq      arch_pkg::VLEN=256
 vec_sequencer    formal:vec_seq      arch_pkg::MulLanes=2
