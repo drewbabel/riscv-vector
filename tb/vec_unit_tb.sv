@@ -243,13 +243,8 @@ module vec_unit_tb
 
   task automatic check_vreg(input string name, input logic [VLEN-1:0] got,
                             input logic [VLEN-1:0] exp);
-    checks++;
-    if (got !== exp) begin
-      errors++;
-      if (errors <= ShowErrors)
-        $display("FAIL %s: got %h, expected %h at %0t", name, got, exp, $time);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
+    for (int w = 0; w < VLEN / XLEN; w++)
+      check($sformatf("%0s word %0d", name, w), got[w*XLEN+:XLEN], exp[w*XLEN+:XLEN]);
   endtask  // Automatic
 
   task automatic check_ref(input string name, input fres_t got, input fres_t exp);
@@ -1453,12 +1448,7 @@ module vec_unit_tb
     issue(enc(6'b010000, 1'b1, s2, 5'b00000, 3'b010, AWIDTH'(7)));
     drain();
     check_regs("move xs");
-    checks = checks + 1;
-    if (xreg_result !== want) begin
-      errors = errors + 1;
-      $display("FAIL move xs got=%h want=%h at %0t", xreg_result, want, $time);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
+    check("move xs", XLEN'(xreg_result), XLEN'(want));
   endtask  // Automatic
 
   task automatic check_widening();
@@ -2046,12 +2036,7 @@ module vec_unit_tb
                                       XLEN'(ref_first_bit(s2, vmb, len)));
       issue(enc(6'b010000, vmb, s2, is_pop ? 5'b10000 : 5'b10001, 3'b010, AWIDTH'(7)));
       drain();
-      checks = checks + 1;
-      if (xreg_result !== want) begin
-        errors = errors + 1;
-        $display("FAIL mask summary got=%h want=%h at %0t", xreg_result, want, $time);
-        if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-      end
+      check("mask summary", XLEN'(xreg_result), XLEN'(want));
       check_regs("mask summary");
     end
   endtask  // Automatic
