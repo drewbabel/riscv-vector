@@ -35,6 +35,11 @@ PRAGMA = re.compile(
 RESET_PORT = re.compile(
     r"^(rst|rst_n|rstn|reset|reset_n|resetn|areset|aresetn|rst_ni)$"
 )
+CHECK_SIG = re.compile(
+    r"\(input string name, "
+    r"input (logic (?:\[[^\]]*[A-Za-z_][^\]]*\] )?|(?:\w+::)?\w+_t )got, "
+    r"input \1exp\)"
+)
 CLOCK_NAME = re.compile(r"^(clk|clock)(_\w+)?$")
 CAMEL = re.compile(r"^[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*$")
 LOWER_SNAKE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
@@ -845,16 +850,13 @@ def rule_bench_syntax(u, rep):
                 if name == "check":
                     a, b = span(hdr)
                     sig = re.sub(r"\s+", " ", u.src.slice(a, b))
-                    if (
-                        "(input string name, input logic got, input logic exp)"
-                        not in sig
-                    ):
+                    if not CHECK_SIG.search(sig):
                         rep.add(
                             u.path,
                             line,
                             col,
                             "bench-check",
-                            "check is not (input string name, input logic got, input logic exp)",
+                            "check is not (input string name, input logic [W] got, input logic [W] exp), W a parameter",
                         )
         if t == "kSystemTFCall":
             fn = first_leaf(n)
