@@ -26,16 +26,16 @@ module fp_decode
     output logic     [               2:0] funct3
 );
 
-  logic [    6:0] opcode;
-  logic [    1:0] fmt;
-  logic [    4:0] rs2;
+  logic [                   6:0] opcode;
+  logic [                   1:0] fmt;
+  logic [arch_pkg::RegAddrW-1:0] rs2;
 
-  logic [RmW-1:0] rm_eff;
-  logic           rm_ok;
-  logic           rs2_zero;
-  logic           rs2_cvt_ok;
-  logic           rs2_cvt_wu;
-  logic           legal;
+  logic [               RmW-1:0] rm_eff;
+  logic                          rm_ok;
+  logic                          rs2_zero;
+  logic                          rs2_cvt_ok;
+  logic                          rs2_cvt_wu;
+  logic                          legal;
 
   assign opcode = instr[6:0];
   assign funct5 = instr[31:27];
