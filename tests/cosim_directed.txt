@@ -32,3 +32,4 @@ cosim_m
 --vec --fp vecffrm
 --vec --fp vecfwtrap
 --vec --fp vecve64
+systrap
