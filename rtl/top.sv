@@ -7,7 +7,7 @@ module top
     parameter  int VLEN      = arch_pkg::VLEN,
     parameter  int ELEN      = arch_pkg::ELEN,
     parameter  int MUL_LANES = arch_pkg::MulLanes,
-    parameter  int DEPTH     = 64,
+    parameter  int DEPTH     = arch_pkg::SimMemWords,
     localparam int ILEN      = arch_pkg::ILEN
 ) (
     input  wire             clk,

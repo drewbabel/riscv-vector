@@ -48,6 +48,8 @@ package arch_pkg;
 
   // Board parameters
   parameter int MemWords = 16384;
+  parameter int SimMemWords = 64;
+  parameter int PorW = 4;
   parameter int PeriphTagW = $bits(ClintTag);
   parameter int CoreClkHz = BoardClkHz / ClkDiv;
   parameter int UartDataBits = 8;

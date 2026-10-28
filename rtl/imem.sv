@@ -2,7 +2,7 @@
 
 module imem #(
     parameter int XLEN = arch_pkg::XLEN,
-    parameter int DEPTH = 64,
+    parameter int DEPTH = arch_pkg::SimMemWords,
     localparam int AddrWidth = $clog2(DEPTH),
     localparam int WordLsb = $clog2(XLEN / 8)
 ) (

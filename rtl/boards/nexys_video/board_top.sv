@@ -44,7 +44,7 @@ module board_top
   localparam int MaskBits = LineBits / 8;
   localparam int DataBits = arch_pkg::UartDataBits;
   localparam int TagW = arch_pkg::PeriphTagW;
-  localparam int PorW = 4;
+  localparam int PorW = arch_pkg::PorW;
   localparam logic [GpioW-1:0] LoadPattern = {(GpioW / 2) {2'b01}};
 
   localparam int MigSysClkHz = 100_000_000;
