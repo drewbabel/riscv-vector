@@ -308,13 +308,14 @@ module cosim_bench #(
   endtask  // Automatic
 
   task automatic load_image();
+    for (int i = 0; i < Depth; i++) g_dut.imem_inst.mem[i] = '0;
     $readmemh(hexfile, g_dut.imem_inst.mem);
     if ($isunknown(g_dut.imem_inst.mem[0]) || g_dut.imem_inst.mem[0] == '0)
       $fatal(1, "%s missing or empty", hexfile);
-    if (preload != 0)
-      for (int l = 0; l < Depth / LineWords; l++)
-        for (int w = 0; w < LineWords; w++)
-          g_dut.dmem_inst.mem[l][Xlen*w+:Xlen] = g_dut.imem_inst.mem[LineWords*l+w];
+    for (int l = 0; l < Depth / LineWords; l++)
+      for (int w = 0; w < LineWords; w++)
+        g_dut.dmem_inst.mem[l][Xlen*w+:Xlen] =
+            (preload != 0) ? g_dut.imem_inst.mem[LineWords*l+w] : '0;
   endtask  // Automatic
 
   task automatic do_reset();
