@@ -13,16 +13,16 @@ module vec_slide
     input wire core_en,
 
     // Issued instruction
-    input wire                       start,
-    input wire vec_op_e              op,
-    input wire                       vm,
-    input wire          [AWIDTH-1:0] vs2,
-    input wire          [AWIDTH-1:0] vd,
-    input wire          [   VlW-1:0] vl,
-    input wire          [       2:0] vsew,
-    input wire          [       2:0] vlmul,
-    input wire          [  XLEN-1:0] offset,
-    input wire          [  XLEN-1:0] scalar,
+    input wire                                start,
+    input wire vec_op_e                       op,
+    input wire                                vm,
+    input wire          [         AWIDTH-1:0] vs2,
+    input wire          [         AWIDTH-1:0] vd,
+    input wire          [            VlW-1:0] vl,
+    input wire          [ vec_pkg::VsewW-1:0] vsew,
+    input wire          [vec_pkg::VlmulW-1:0] vlmul,
+    input wire          [           XLEN-1:0] offset,
+    input wire          [           XLEN-1:0] scalar,
 
     // Register file
     input  wire  [  VLEN-1:0] v0,

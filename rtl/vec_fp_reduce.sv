@@ -42,7 +42,7 @@ module vec_fp_reduce
     $error("ordered sum expects a pipelined adder");
   end
 
-  function automatic logic [2:0] pick(input vec_fop_e kind);
+  function automatic logic [opcode_pkg::Funct3W-1:0] pick(input vec_fop_e kind);
     pick = (kind == VEC_FMAX) ? Funct3Fmax : Funct3Fmin;
   endfunction
 

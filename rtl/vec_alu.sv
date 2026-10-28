@@ -9,16 +9,16 @@ module vec_alu
     localparam int MaxElems = DLEN / 8,
     localparam int Widths   = $clog2(ELEN / 8) + 1
 ) (
-    input  wire vec_op_e                 op,
-    input  wire vec_src_e                src,
-    input  wire           [         2:0] vsew,
-    input  wire                          vm,
-    input  wire           [MaxElems-1:0] mask_bits,
-    input  wire           [    DLEN-1:0] vs2_data,
-    input  wire           [    DLEN-1:0] vs1_data,
-    input  wire           [    XLEN-1:0] xdata,
-    input  wire           [         4:0] simm,
-    output logic          [    DLEN-1:0] result
+    input  wire vec_op_e                       op,
+    input  wire vec_src_e                      src,
+    input  wire           [vec_pkg::VsewW-1:0] vsew,
+    input  wire                                vm,
+    input  wire           [      MaxElems-1:0] mask_bits,
+    input  wire           [          DLEN-1:0] vs2_data,
+    input  wire           [          DLEN-1:0] vs1_data,
+    input  wire           [          XLEN-1:0] xdata,
+    input  wire           [               4:0] simm,
+    output logic          [          DLEN-1:0] result
 );
 
   if (ELEN != 32) begin : g_elen
