@@ -1,6 +1,8 @@
+`default_nettype none
+
 module rvfi_wrapper (
-    input clock,
-    input reset,  // riscv-formal convention
+    input wire clock,
+    input wire reset,
     `RVFI_OUTPUTS
 );
 
@@ -326,3 +328,5 @@ module rvfi_wrapper (
 `endif
 
 endmodule
+
+`default_nettype wire
