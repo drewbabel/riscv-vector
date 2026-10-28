@@ -29,21 +29,23 @@ module fp_fma_tb ();
       .FMT   ("f16")
   ) f16_bench ();
 
-  task automatic under(input string fmt, input int n, input int stalled, input int held);
-    if (n < MinChecks || stalled < MinStall || held < MinHold)
-      $fatal(
-          1, "TB UNDER-RAN: %s %0d checks, %0d stall checks, %0d hold checks", fmt, n, stalled, held
-      );
-  endtask  // Automatic
+  function automatic logic short_run(input int n, input int stalled, input int held);
+    return (n < MinChecks) || (stalled < MinStall) || (held < MinHold);
+  endfunction
 
   task automatic do_verdict();
-    under("f32", f32_bench.checks, f32_bench.stall_checks, f32_bench.hold_checks);
-    under("f64", f64_bench.checks, f64_bench.stall_checks, f64_bench.hold_checks);
-    under("f16", f16_bench.checks, f16_bench.stall_checks, f16_bench.hold_checks);
     checks = f32_bench.checks + f64_bench.checks + f16_bench.checks;
     stall_checks = f32_bench.stall_checks + f64_bench.stall_checks + f16_bench.stall_checks;
     hold_checks = f32_bench.hold_checks + f64_bench.hold_checks + f16_bench.hold_checks;
     errors = f32_bench.errors + f64_bench.errors + f16_bench.errors;
+    if (short_run(
+            f32_bench.checks, f32_bench.stall_checks, f32_bench.hold_checks
+        ) || short_run(
+            f64_bench.checks, f64_bench.stall_checks, f64_bench.hold_checks
+        ) || short_run(
+            f16_bench.checks, f16_bench.stall_checks, f16_bench.hold_checks
+        ))
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d per format", checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
