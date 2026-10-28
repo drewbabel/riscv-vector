@@ -218,15 +218,19 @@ module vec_sat_formal
     end
 
     logic signed [R-1:0] clipped;
-    assign clipped = !clip ? t : ((t > hi) ? hi : ((t < lo) ? lo : t));
+    always_comb begin
+      if (clip && (t > hi)) clipped = hi;
+      else if (clip && (t < lo)) clipped = lo;
+      else clipped = t;
+    end
 
-    assign ref_res[w] = ELEN'(clipped[S-1:0]);
-    assign ref_sat[w] = clip && ((t > hi) || (t < lo));
-    assign ref_hi[w] = clip && (t > hi);
-    assign ref_inc[w] = r;
-    assign ref_odd[w] = v[d];
+    assign ref_res[w]  = ELEN'(clipped[S-1:0]);
+    assign ref_sat[w]  = clip && ((t > hi) || (t < lo));
+    assign ref_hi[w]   = clip && (t > hi);
+    assign ref_inc[w]  = r;
+    assign ref_odd[w]  = v[d];
     assign ref_lost[w] = (d != 0) && ((v & ((R'(1) << d) - R'(1))) != '0);
-    assign ref_tie[w] = (d != 0) && ((v & ((R'(1) << d) - R'(1))) == (R'(1) << (d - 1)));
+    assign ref_tie[w]  = (d != 0) && ((v & ((R'(1) << d) - R'(1))) == (R'(1) << (d - 1)));
 
     // vec_mul_lane product contract
     always @(posedge clk)
