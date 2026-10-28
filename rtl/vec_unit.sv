@@ -81,6 +81,10 @@ module vec_unit
     output logic store_pending
 );
 
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
+  end
+
   localparam int OffW = $clog2(VLEN);
   localparam int CountW = $clog2(MaxElems + 1);
   localparam int GrpW = AWIDTH + 1;

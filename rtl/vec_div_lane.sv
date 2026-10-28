@@ -20,8 +20,8 @@ module vec_div_lane
 
   localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
 
-  if ((ELEN < 16) || (ELEN != (8 << SewTop))) begin : g_elen_error
-    $error("ELEN must be a power of two from 16");
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
   end
 
   logic is_signed;

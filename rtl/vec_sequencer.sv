@@ -62,6 +62,10 @@ module vec_sequencer
     output logic done
 );
 
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
+  end
+
   localparam int LnW   = $clog2(OffW + 1);
   localparam int MulLn = $clog2(MUL_LANES);
   localparam int ProdW = VlW + $clog2(ELEN);
