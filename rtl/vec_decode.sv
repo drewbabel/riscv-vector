@@ -35,7 +35,6 @@ module vec_decode
   localparam logic [2:0] Funct3Opivv = 3'b000;
   localparam logic [2:0] Funct3Opivx = 3'b100;
   localparam logic [2:0] Funct3Opivi = 3'b011;
-  localparam logic [2:0] Funct3Opmvv = 3'b010;
   localparam logic [2:0] Funct3Opmvx = 3'b110;
   localparam logic [2:0] Funct3Opfvv = 3'b001;
   localparam logic [2:0] Funct3Opfvf = 3'b101;
