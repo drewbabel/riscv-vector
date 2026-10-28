@@ -126,7 +126,7 @@ module fp_rec7_bench
   endtask  // Automatic
 
   function automatic logic [FLEN-1:0] rnd_bits();
-    rnd_bits = FLEN'({$urandom, $urandom});
+    rnd_bits = FLEN'({32'($urandom), 32'($urandom)});
   endfunction
 
   function automatic logic [FRAC_W-1:0] top_frac(input logic [22:0] p);

@@ -141,7 +141,7 @@ module fp_add_bench
   endtask  // Automatic
 
   function automatic logic [FLEN-1:0] rand_bits();
-    rand_bits = FLEN'({$urandom, $urandom});
+    rand_bits = FLEN'({32'($urandom), 32'($urandom)});
   endfunction
 
   task automatic retire();

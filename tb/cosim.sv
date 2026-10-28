@@ -426,8 +426,8 @@ module cosim_bench #(
 
   function automatic int draw_wait();
     if (stall_pct == 0) return 0;
-    if ($urandom(stall_seed) % 100 >= stall_pct) return 0;
-    return 1 + $urandom(stall_seed) % stall_max;
+    if (32'($urandom(stall_seed)) % 100 >= stall_pct) return 0;
+    return 1 + 32'($urandom(stall_seed)) % stall_max;
   endfunction
 
   function automatic logic is_fence(input logic [Xlen-1:0] insn);
@@ -493,8 +493,8 @@ module cosim_bench #(
         if (irq_ext) ext_line <= 1'b0;
         else timer_line <= 1'b0;
       end else if (irq_rate != 0) begin
-        if (!ext_line && $urandom(irq_seed) % 1000 < irq_rate) ext_line <= 1'b1;
-        if (!timer_line && $urandom(irq_seed) % 1000 < irq_rate) timer_line <= 1'b1;
+        if (!ext_line && 32'($urandom(irq_seed)) % 1000 < irq_rate) ext_line <= 1'b1;
+        if (!timer_line && 32'($urandom(irq_seed)) % 1000 < irq_rate) timer_line <= 1'b1;
       end
     end
   end

@@ -65,7 +65,7 @@ module vec_mixed_tb ();
   // Random register data
   function automatic logic [DLEN-1:0] rand_data();
     rand_data = '0;
-    for (int i = 0; i < DLEN; i += ELEN) rand_data[i+:ELEN] = ELEN'({$urandom, $urandom});
+    for (int i = 0; i < DLEN; i += ELEN) rand_data[i+:ELEN] = ELEN'({32'($urandom), 32'($urandom)});
   endfunction
 
   task automatic drive(input vec_op_e o, input vec_src_e s, input vec_eew_e w,
@@ -76,7 +76,7 @@ module vec_mixed_tb ();
     vsew     = sew;
     vs2_data = rand_data();
     vs1_data = rand_data();
-    xdata    = XLEN'({$urandom, $urandom});
+    xdata    = XLEN'({32'($urandom), 32'($urandom)});
     simm     = 5'($urandom);
   endtask  // Automatic
 
