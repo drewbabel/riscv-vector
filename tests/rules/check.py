@@ -760,16 +760,18 @@ def rule_naming(u, rep):
             ids = [l for l in ls if ident(l)]
             if (
                 ls
-                and ls[0].get("tag") == "input"
-                and not any(l.get("tag") == "wire" for l in ls)
+                and ls[0].get("tag") in ("input", "inout")
+                and (len(ls) < 2 or ls[1].get("tag") not in ("wire", "var"))
             ):
                 line, col = u.at(ls[0]["start"])
+                name = ids[-1]["text"] if ids else "?"
                 rep.add(
                     u.path,
                     line,
                     col,
                     "input-wire",
-                    f"input {ids[-1]['text'] if ids else '?'} does not say wire",
+                    f"{ls[0]['tag']} {name} needs a net kind under "
+                    f"default_nettype none, write {ls[0]['tag']} wire",
                 )
             if ids and ids[-1]["text"].endswith("_nxt"):
                 line, col = u.at(ids[-1]["start"])
