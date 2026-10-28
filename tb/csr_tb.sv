@@ -49,8 +49,8 @@ module csr_tb
   logic [Xlen-1:0] mepc_out;
 
   logic is_vset;
-  logic [VlW-1:0] vl_d;
-  logic [Xlen-1:0] vtype_d;
+  logic [VlW-1:0] vl_next;
+  logic [Xlen-1:0] vtype_next;
   logic is_vec_instr;
   logic [1:0] vec_vxrm;
   logic vec_vxsat;
@@ -120,8 +120,8 @@ module csr_tb
       .mret_taken          (mret_taken),
       .mepc_out            (mepc_out),
       .is_vset             (is_vset),
-      .vl_d                (vl_d),
-      .vtype_d             (vtype_d),
+      .vl_next             (vl_next),
+      .vtype_next          (vtype_next),
       .is_vec_instr        (is_vec_instr),
       .vl_q                (vl_q),
       .vtype_q             (vtype_q),
@@ -179,8 +179,8 @@ module csr_tb
     is_vec_instr = 1'b0;
     vec_vxrm = '0;
     vec_vxsat = 1'b0;
-    vl_d = '0;
-    vtype_d = '0;
+    vl_next = '0;
+    vtype_next = '0;
     {exc_ecall, exc_ebreak} = '0;
     {exc_instr_misaligned, exc_load_misaligned, exc_store_misaligned} = '0;
     idle_retire();
@@ -260,8 +260,8 @@ module csr_tb
     @(negedge clk);
     is_vec_instr = 1'b1;
     is_vset      = set_cfg;
-    vl_d         = next_vl;
-    vtype_d      = next_vtype;
+    vl_next      = next_vl;
+    vtype_next   = next_vtype;
     @(posedge clk);
     @(negedge clk);
     is_vec_instr = 1'b0;

@@ -70,8 +70,8 @@ module csr
 
     // Vector configuration
     input  wire             is_vset,
-    input  wire  [ VlW-1:0] vl_d,
-    input  wire  [XLEN-1:0] vtype_d,
+    input  wire  [ VlW-1:0] vl_next,
+    input  wire  [XLEN-1:0] vtype_next,
     input  wire             is_vec_instr,
     output logic [ VlW-1:0] vl_q,
     output logic [XLEN-1:0] vtype_q,
@@ -290,9 +290,9 @@ module csr
           mstatus[MstatusMpie] <= 1'b1;
         end
         if (is_vset) begin  // store vec_config computation on config instr
-          vl <= vl_d;
-          vtype_bits <= vtype_d[7:0];
-          vtype_ill <= vtype_d[XLEN-1];
+          vl <= vl_next;
+          vtype_bits <= vtype_next[7:0];
+          vtype_ill <= vtype_next[XLEN-1];
         end
         if (is_vec_instr) begin
           vstart <= '0;  // Clear on vector finish

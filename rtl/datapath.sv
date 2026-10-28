@@ -950,8 +950,8 @@ module datapath
   end
 
   logic            is_vset;
-  logic [ VlW-1:0] vl_d;
-  logic [XLEN-1:0] vtype_d;
+  logic [ VlW-1:0] vl_next;
+  logic [XLEN-1:0] vtype_next;
   logic [ VlW-1:0] vl_q;
   logic [XLEN-1:0] vtype_q;
   logic            exc_vec_encoding;
@@ -976,14 +976,14 @@ module datapath
       .VLEN(VLEN),
       .ELEN(ELEN)
   ) vec_config_inst (
-      .instr   (instr_ex),
-      .rs1_data(forwarded_rs1),
-      .rs2_data(forwarded_rs2),
-      .vl_q    (vl_q),
-      .vtype_q (vtype_q),
-      .is_vset (is_vset),
-      .vl_d    (vl_d),
-      .vtype_d (vtype_d)
+      .instr     (instr_ex),
+      .rs1_data  (forwarded_rs1),
+      .rs2_data  (forwarded_rs2),
+      .vl_q      (vl_q),
+      .vtype_q   (vtype_q),
+      .is_vset   (is_vset),
+      .vl_next   (vl_next),
+      .vtype_next(vtype_next)
   );
 
   assign vec_issue_ok = commit_ready;
@@ -1097,8 +1097,8 @@ module datapath
       .mret_taken(mret_taken),
       .mepc_out(mepc_out),
       .is_vset(is_vset && commit_valid),
-      .vl_d(vl_d),
-      .vtype_d(vtype_d),
+      .vl_next(vl_next),
+      .vtype_next(vtype_next),
       .is_vec_instr((is_vset || vec_is_vector) && commit_valid),
       .vl_q(vl_q),
       .vtype_q(vtype_q),
@@ -1123,7 +1123,7 @@ module datapath
     if (is_muldiv_ex) result_ex = muldiv_result;
     else if (fxrd_write_ex) result_ex = fp_xresult;
     else if (vec_xreg_valid) result_ex = vec_xreg_result;
-    else if (is_vset) result_ex = {{XLEN - VlW{1'b0}}, vl_d};
+    else if (is_vset) result_ex = {{XLEN - VlW{1'b0}}, vl_next};
     else if (csr_access_ex) result_ex = csr_rdata;
     else result_ex = alu_result;
   end

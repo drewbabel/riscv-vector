@@ -18,8 +18,8 @@ module vec_config
     input  wire  [XLEN-1:0] vtype_q,
     // Next setting
     output logic            is_vset,
-    output logic [ VlW-1:0] vl_d,
-    output logic [XLEN-1:0] vtype_d
+    output logic [ VlW-1:0] vl_next,
+    output logic [XLEN-1:0] vtype_next
 );
 
   // Widest legal SEW
@@ -86,14 +86,14 @@ module vec_config
 
     // Answer
     if (!is_vset) begin
-      vtype_d = vtype_q;
-      vl_d    = vl_q;
+      vtype_next = vtype_q;
+      vl_next    = vl_q;
     end else if (vill) begin
-      vtype_d = {1'b1, {XLEN - 1{1'b0}}};
-      vl_d    = '0;
+      vtype_next = {1'b1, {XLEN - 1{1'b0}}};
+      vl_next    = '0;
     end else begin
-      vtype_d = {{XLEN - 8{1'b0}}, vtype_arg[7:0]};
-      vl_d    = (avl < {{XLEN - VlW{1'b0}}, vlmax}) ? avl[VlW-1:0] : vlmax;
+      vtype_next = {{XLEN - 8{1'b0}}, vtype_arg[7:0]};
+      vl_next    = (avl < {{XLEN - VlW{1'b0}}, vlmax}) ? avl[VlW-1:0] : vlmax;
     end
   end
 
