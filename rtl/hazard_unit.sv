@@ -3,14 +3,9 @@
 module hazard_unit
   import opcode_pkg::*;
 #(
-    parameter  int XLEN     = arch_pkg::XLEN,
     localparam int RegAddrW = arch_pkg::RegAddrW,
     localparam int NRegs    = arch_pkg::NumRegs
 ) (
-    input wire clk,
-    input wire core_en,
-    input wire rst_n,
-
     input wire [RegAddrW-1:0] rs1_id,
     input wire [RegAddrW-1:0] rs2_id,
     input wire [RegAddrW-1:0] rs1_ex,
@@ -24,11 +19,8 @@ module hazard_unit
     input wire reg_write_ex,
     input wire reg_write_mem,
     input wire reg_write_wb,
-    input wire mem_write_ex,
 
     input wire [ResSrcW-1:0] result_src_ex,
-    input wire [ResSrcW-1:0] result_src_mem,
-    input wire [ResSrcW-1:0] result_src_wb,
 
     input wire fp_op_id,
     input wire frs1_read_id,

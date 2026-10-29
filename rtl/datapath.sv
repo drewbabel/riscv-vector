@@ -673,12 +673,7 @@ module datapath
   assign commit_ready = valid_ex && !muldiv_hold && !vmem_hold && !mem_hold && !fp_hold;
   assign commit_valid = commit_ready && !vec_hold;
 
-  hazard_unit #(
-      .XLEN(XLEN)
-  ) hazard_unit_inst (
-      .clk(clk),
-      .core_en(core_en),
-      .rst_n(rst_n),
+  hazard_unit hazard_unit_inst (
       .rs1_id(instr_id[19:15]),
       .rs2_id(instr_id[24:20]),
       .rs1_ex(rs1_ex),
@@ -690,10 +685,7 @@ module datapath
       .reg_write_ex(reg_write_ex),
       .reg_write_mem(reg_write_mem),
       .reg_write_wb(reg_write_wb),
-      .mem_write_ex(mem_write_ex),
       .result_src_ex(result_src_ex),
-      .result_src_mem(result_src_mem),
-      .result_src_wb(result_src_wb),
       .fp_op_id((fp_is_d || vec_fp_id) && valid_id),
       .frs1_read_id(frs1_read_d || vec_dec_id.reads_freg),
       .frs2_read_id(frs2_read_d),
