@@ -40,12 +40,18 @@ module embench_boot_tb ();
       .ClkDiv(ClkDiv),
       .MemLatency(MemLat)
   ) dut (
-      .clk    (clk),
-      .rst    (rst),
-      .sw     (sw),
-      .led    (led),
-      .uart_rx(uart_rx),
-      .uart_tx(uart_tx)
+      .clk             (clk),
+      .rst             (rst),
+      .sw              (sw),
+      .led             (led),
+      .uart_rx         (uart_rx),
+      .uart_tx         (uart_tx),
+      .sim_branch      (),
+      .sim_branch_taken(),
+      .sim_mispredict  (),
+      .sim_muldiv_hold (),
+      .sim_tx_valid    (),
+      .sim_tx_data     ()
   );
 
   task automatic check(input string name, input logic got, input logic exp);

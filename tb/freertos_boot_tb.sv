@@ -37,7 +37,13 @@ module freertos_boot_tb ();
       .sw(sw),
       .led(led),
       .uart_rx(uart_rx),
-      .uart_tx(uart_tx)
+      .uart_tx(uart_tx),
+      .sim_branch(),
+      .sim_branch_taken(),
+      .sim_mispredict(),
+      .sim_muldiv_hold(),
+      .sim_tx_valid(),
+      .sim_tx_data()
   );
 
   task automatic check(input string name, input logic [$bits(led)-1:0] got,
