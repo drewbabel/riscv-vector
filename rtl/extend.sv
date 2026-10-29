@@ -11,6 +11,9 @@ module extend
     output logic [   XLEN-1:0] imm_ext
 );
 
+  logic unused_opcode;
+  assign unused_opcode = ^instr[OpcodeW-1:0];
+
   always_comb begin
     case (imm_src)
       ImmI: imm_ext = XLEN'($signed(instr[31:20]));
