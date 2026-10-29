@@ -11,7 +11,7 @@ module vec_mask_tb
   localparam int VlW = $clog2(DLEN + 1);
   localparam int Words = DLEN / 32;
   localparam int Widths = $clog2(ELEN / 8) + 1;
-  localparam int MinChecks = 49000;
+  localparam int MinChecks = 2990 * MaxElems + 840;
 
   int                      checks = 0;
   int                      errors = 0;
