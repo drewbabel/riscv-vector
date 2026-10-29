@@ -24,18 +24,23 @@ module pl_muldiv_tb ();
   logic [Xlen-1:0] drain_x10;
   logic [Xlen-1:0] drain_x11;
   logic            drain_seen = 1'b0;
+  logic            muldiv_hold;
 
   always #5 clk = ~clk;
 
   top #(
       .XLEN(Xlen)
   ) dut (
-      .clk       (clk),
-      .rst_n     (rst_n),
-      .pc        (pc),
-      .alu_result(alu_result),
-      .write_data(write_data),
-      .mem_write (mem_write)
+      .clk             (clk),
+      .rst_n           (rst_n),
+      .pc              (pc),
+      .alu_result      (alu_result),
+      .write_data      (write_data),
+      .mem_write       (mem_write),
+      .sim_branch      (),
+      .sim_branch_taken(),
+      .sim_mispredict  (),
+      .sim_muldiv_hold (muldiv_hold)
   );
 
   task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
@@ -109,7 +114,7 @@ module pl_muldiv_tb ();
 
   // Older instructions retire while divide holds EX
   always @(negedge clk) begin
-    if (dut.riscv_pipelined_inst.datapath_inst.muldiv_hold) hold_run = hold_run + 1;
+    if (muldiv_hold) hold_run = hold_run + 1;
     else hold_run = 0;
     if (hold_run == HoldCycles && !drain_seen) begin
       drain_seen = 1'b1;

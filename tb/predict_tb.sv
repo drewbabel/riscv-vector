@@ -22,26 +22,26 @@ module predict_tb ();
   logic [Xlen-1:0] write_data;
   logic            mem_write;
   logic            last_taken = 1'b0;
+  logic            core_branch;
+  logic            core_taken_ex;
+  logic            core_mispred;
 
   always #5 clk = ~clk;
 
   top #(
       .XLEN(Xlen)
   ) dut (
-      .clk       (clk),
-      .rst_n     (rst_n),
-      .pc        (pc),
-      .alu_result(alu_result),
-      .write_data(write_data),
-      .mem_write (mem_write)
+      .clk             (clk),
+      .rst_n           (rst_n),
+      .pc              (pc),
+      .alu_result      (alu_result),
+      .write_data      (write_data),
+      .mem_write       (mem_write),
+      .sim_branch      (core_branch),
+      .sim_branch_taken(core_taken_ex),
+      .sim_mispredict  (core_mispred),
+      .sim_muldiv_hold ()
   );
-
-  // Resolve taps
-  logic core_valid_ex, core_branch_ex, core_taken_ex, core_mispred;
-  assign core_valid_ex  = dut.riscv_pipelined_inst.datapath_inst.valid_ex;
-  assign core_branch_ex = dut.riscv_pipelined_inst.datapath_inst.branch_ex;
-  assign core_taken_ex  = dut.riscv_pipelined_inst.datapath_inst.branch_taken_ex;
-  assign core_mispred   = dut.riscv_pipelined_inst.datapath_inst.mispredict;
 
   task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
     checks++;
@@ -117,7 +117,7 @@ module predict_tb ();
   end
 
   always @(posedge clk) begin
-    if (rst_n && core_valid_ex && core_branch_ex) begin
+    if (rst_n && core_branch) begin
       branches++;
       if (core_taken_ex) taken++;
       last_taken = core_taken_ex;
