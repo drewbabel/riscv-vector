@@ -42,6 +42,11 @@ module vec_fp_reduce
     $error("ordered sum expects a pipelined adder");
   end
 
+  if (DLEN > FpW) begin : g_unused_vs1
+    logic unused_vs1;
+    assign unused_vs1 = ^vs1_data[DLEN-1:FpW];
+  end
+
   function automatic logic [opcode_pkg::Funct3W-1:0] pick(input vec_fop_e kind);
     pick = (kind == VEC_FMAX) ? Funct3Fmax : Funct3Fmin;
   endfunction
