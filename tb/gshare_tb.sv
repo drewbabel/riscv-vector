@@ -141,7 +141,11 @@ module gshare_tb;
     do_verdict();
   end
 
-  initial for (int i = 0; i < PhtDepth; i++) ref_pht[i] = WeakNotTaken;
+  task automatic init_ref();
+    for (int i = 0; i < PhtDepth; i++) ref_pht[i] = WeakNotTaken;
+  endtask  // Automatic
+
+  initial init_ref();
 
   always @(posedge clk) begin
     if (!rst_n) begin
