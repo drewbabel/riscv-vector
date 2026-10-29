@@ -1454,7 +1454,7 @@ module vec_unit_tb
     issue(enc(6'b010000, 1'b1, s2, 5'b00000, 3'b010, AWIDTH'(7)));
     drain();
     check_regs("move xs");
-    check("move xs", XLEN'(xreg_result), XLEN'(want));
+    check("move xs", XLEN'(xreg_result), XLEN'($signed(want)));
   endtask  // Automatic
 
   task automatic check_widening();
@@ -2030,7 +2030,7 @@ module vec_unit_tb
   task automatic run_msum(input logic is_pop, input logic [AWIDTH-1:0] s2, input logic vmb,
                           input logic [VlW-1:0] len);
     int count;
-    logic [ELEN-1:0] want;
+    logic [XLEN-1:0] want;
     begin
       vsew  = 3'd0;
       vlmul = 3'd0;
@@ -2040,7 +2040,7 @@ module vec_unit_tb
         if ((vmb || mbit(AWIDTH'(0), i)) && mbit(s2, i)) count = count + 1;
       end
       if (is_pop) want = XLEN'(count);
-      else if (ref_first_bit(s2, vmb, len) < 0) want = XLEN'('hFFFF_FFFF);
+      else if (ref_first_bit(s2, vmb, len) < 0) want = '1;
       else want = XLEN'(ref_first_bit(s2, vmb, len));
       issue(enc(6'b010000, vmb, s2, is_pop ? 5'b10000 : 5'b10001, 3'b010, AWIDTH'(7)));
       drain();
@@ -4494,7 +4494,8 @@ module vec_unit_tb
       check("vfmv.f.s holds", XLEN'(held), XLEN'(1));
       check("vfmv.f.s not integer", XLEN'(early), XLEN'(0));
       drain();
-      check($sformatf("vfmv.f.s v%0d lmul %0d vl %0d", s2, lmul, len), XLEN'(got), XLEN'(want));
+      check($sformatf("vfmv.f.s v%0d lmul %0d vl %0d", s2, lmul, len), XLEN'(got[FLEN-1:0]),
+            XLEN'(want));
       check_regs($sformatf("vfmv.f.s v%0d lmul %0d vl %0d", s2, lmul, len));
       check("vfmv.f.s flags", XLEN'(flags_seen), XLEN'(0));
     end
@@ -4923,7 +4924,7 @@ module vec_unit_tb
         read_scalar(enc(6'b010000, 1'b1, AWIDTH'(16), AWIDTH'(0), 3'b001, AWIDTH'(3)), held, early,
                     got);
         drain();
-        check($sformatf("vfmv.f.s after merge %0d", r), XLEN'(got), XLEN'(want));
+        check($sformatf("vfmv.f.s after merge %0d", r), XLEN'(got[FLEN-1:0]), XLEN'(want));
         check_regs($sformatf("float move stream %0d", r));
         frm = fp_pkg::RmRne;
       end
