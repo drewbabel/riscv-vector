@@ -11,7 +11,8 @@ module vec_mixed_tb ();
   localparam logic [2:0] Sew16 = 3'd1;
   localparam logic [2:0] Sew32 = 3'd2;
   localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
-  localparam int MinChecks = 2000;
+  localparam int MaxElems = DLEN / 8;
+  localparam int MinChecks = 125 * MaxElems;
 
   int                  checks = 0;
   int                  errors = 0;
