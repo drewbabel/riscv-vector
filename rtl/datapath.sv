@@ -70,6 +70,17 @@ module datapath
     output logic                         dbg_vec_idle,
     output logic                         dbg_ex_commit,
     output logic [             ILEN-1:0] dbg_ex_insn,
+    output logic                         dbg_vec_accept,
+    output logic                         dbg_fetch_en,
+    output logic                         dbg_id_en,
+    output logic                         dbg_fp_idle,
+    output logic                         dbg_fp_wb_valid,
+    output logic [         RegAddrW-1:0] dbg_fp_wb_rd,
+    output logic [     fp_pkg::FLEN-1:0] dbg_fp_wb_data,
+    output logic                         dbg_fp_load_wb,
+    output logic [         RegAddrW-1:0] dbg_fp_load_rd,
+    output logic [             XLEN-1:0] dbg_fp_load_data,
+    output logic [      fp_pkg::RmW-1:0] dbg_frm,
 `endif
     input  wire                          clk,
     input  wire                          core_en,
@@ -997,6 +1008,7 @@ module datapath
       .dbg_vec_retire(dbg_vec_retire),
       .dbg_vec_wregs (dbg_vec_wregs),
       .dbg_vec_idle  (dbg_vec_idle),
+      .dbg_vec_accept(dbg_vec_accept),
 `endif
       .clk           (clk),
       .rst_n         (rst_n),
@@ -1305,25 +1317,35 @@ module datapath
     end
   end
 
-  assign dbg_valid      = valid_wb;
-  assign dbg_ex_commit  = commit_valid && !trap_taken;
-  assign dbg_ex_insn    = instr_ex;
-  assign dbg_insn       = rvfi_insn_wb;
-  assign dbg_pc_rdata   = rvfi_pc_wb;
-  assign dbg_pc_wdata   = rvfi_pcw_wb;
-  assign dbg_rs1_rdata  = rvfi_rs1d_wb;
-  assign dbg_rs2_rdata  = rvfi_rs2d_wb;
-  assign dbg_rd_wdata   = result;
-  assign dbg_reg_write  = reg_write_wb;
-  assign dbg_mem_addr   = alu_result_wb;
-  assign dbg_mem_wmask  = rvfi_wstrb_wb;
-  assign dbg_mem_wdata  = rvfi_wdata_wb;
-  assign dbg_mem_rdata  = rvfi_memrd_wb;
-  assign dbg_trap       = rvfi_trap_wb;
-  assign dbg_vl         = rvfi_vl_wb;
-  assign dbg_vtype_bits = rvfi_vtype_bits_wb;
-  assign dbg_vtype_ill  = rvfi_vtype_ill_wb;
-  assign dbg_vstart     = rvfi_vstart_wb;
+  assign dbg_valid        = valid_wb;
+  assign dbg_ex_commit    = commit_valid && !trap_taken;
+  assign dbg_ex_insn      = instr_ex;
+  assign dbg_fetch_en     = pc_en;
+  assign dbg_id_en        = idex_en;
+  assign dbg_fp_idle      = fp_idle;
+  assign dbg_fp_wb_valid  = fp_wb_valid;
+  assign dbg_fp_wb_rd     = fp_wb_rd;
+  assign dbg_fp_wb_data   = fp_wb_data;
+  assign dbg_fp_load_wb   = fp_load_wb;
+  assign dbg_fp_load_rd   = rd_wb;
+  assign dbg_fp_load_data = load_data_wb;
+  assign dbg_frm          = frm_q;
+  assign dbg_insn         = rvfi_insn_wb;
+  assign dbg_pc_rdata     = rvfi_pc_wb;
+  assign dbg_pc_wdata     = rvfi_pcw_wb;
+  assign dbg_rs1_rdata    = rvfi_rs1d_wb;
+  assign dbg_rs2_rdata    = rvfi_rs2d_wb;
+  assign dbg_rd_wdata     = result;
+  assign dbg_reg_write    = reg_write_wb;
+  assign dbg_mem_addr     = alu_result_wb;
+  assign dbg_mem_wmask    = rvfi_wstrb_wb;
+  assign dbg_mem_wdata    = rvfi_wdata_wb;
+  assign dbg_mem_rdata    = rvfi_memrd_wb;
+  assign dbg_trap         = rvfi_trap_wb;
+  assign dbg_vl           = rvfi_vl_wb;
+  assign dbg_vtype_bits   = rvfi_vtype_bits_wb;
+  assign dbg_vtype_ill    = rvfi_vtype_ill_wb;
+  assign dbg_vstart       = rvfi_vstart_wb;
 `endif
 
 `ifndef SYNTHESIS
