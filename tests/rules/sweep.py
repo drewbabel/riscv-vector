@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -261,12 +262,17 @@ def bench_instances(tree, bench, tmp, cache):
     key = (tree, bench)
     if key in cache:
         return cache[key]
-    path = f"tb/{bench}.sv" if bench == "cosim" else f"tb/{bench}_tb.sv"
+    cosim = bench.split(":", 1)
+    if cosim[0] == "cosim":
+        path = "tb/cosim.sv"
+        top = cosim[-1]
+    else:
+        path = f"tb/{bench}_tb.sv"
+        top = os.path.basename(path)[:-3]
     if not os.path.exists(os.path.join(tree, path)):
         cache[key] = None
         return None
     srcs, defs = check.bench_build(path, tree)
-    top = os.path.basename(path)[:-3]
     data, _ = check.slang_json(
         top,
         srcs + [path],
@@ -312,13 +318,16 @@ def run_bench(tree, bench):
         name = bench.split(":", 1)[1]
         rc, out = run(["make", "formal", f"MOD={name}"], tree, timeout=21600)
         return rc == 0, [] if rc == 0 else [f"{bench}: {last_line(out)}"]
-    if bench == "cosim":
+    if bench.split(":", 1)[0] == "cosim":
+        top = ["--top", bench.split(":", 1)[1]] if ":" in bench else []
         fails = []
         with open(os.path.join(tree, "tests", "cosim_directed.txt")) as f:
             progs = [shlex.split(l) for l in f if l.strip()]
         for args in progs:
             rc, out = run(
-                [sys.executable, "tests/cosim.py", *args], tree, timeout=3600
+                [sys.executable, "tests/cosim.py", *top, *args],
+                tree,
+                timeout=3600,
             )
             if rc:
                 fails.append(f"cosim {' '.join(args)}: {last_line(out)}")
@@ -407,9 +416,18 @@ def sweep(rows, jobs, benches=True):
     )
     results = {}
 
+    locks = {k: threading.Lock() for k in trees}
+
     def bench_one(item):
         t0 = time.time()
-        ok, notes = run_bench(trees[item[0]], item[1])
+        lock = locks[item[0]] if item[1].startswith("cosim") else None
+        if lock:
+            lock.acquire()
+        try:
+            ok, notes = run_bench(trees[item[0]], item[1])
+        finally:
+            if lock:
+                lock.release()
         results[item] = (ok, notes, time.time() - t0)
 
     with ThreadPoolExecutor(max_workers=jobs) as ex:
@@ -429,7 +447,7 @@ def sweep(rows, jobs, benches=True):
 
 def is_heavy(r):
     return not r.expect and (
-        r.bench == "cosim" or r.bench.startswith("formal:")
+        r.bench.split(":", 1)[0] == "cosim" or r.bench.startswith("formal:")
     )
 
 
