@@ -35,6 +35,11 @@ module vec_reduce
     $error("DLEN must be a power of two bytes");
   end
 
+  if (DLEN > ELEN) begin : g_unused_vs1
+    logic unused_vs1;
+    assign unused_vs1 = ^vs1_data[DLEN-1:ELEN];
+  end
+
   logic sign_ext;
   assign sign_ext = (op == VEC_REDMIN) || (op == VEC_REDMAX) || (op == VEC_WREDSUM);
 
