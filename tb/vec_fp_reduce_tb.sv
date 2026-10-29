@@ -14,6 +14,9 @@ module vec_fp_reduce_tb ();
   localparam int MinChecks = 74_000;
   localparam int AddLat = fp_pkg::FpAddLatency;
   localparam int MaxSum = 32;
+  localparam int DirElems = 4;
+  localparam int DirW = DirElems * FLEN;
+  localparam int DirPhases = (DirElems + Elems - 1) / Elems;
   localparam int ExactW = (1 << ExpW) + SigW + 2;
   localparam logic [FLEN-1:0] Qnan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
   localparam logic [FLEN-2:0] InfMag = {{ExpW{1'b1}}, {FracW{1'b0}}};
@@ -224,28 +227,34 @@ module vec_fp_reduce_tb ();
     end
   endtask  // Automatic
 
-  function automatic logic [DLEN-1:0] elems4(input logic [FLEN-1:0] e3, input logic [FLEN-1:0] e2,
+  function automatic logic [DirW-1:0] elems4(input logic [FLEN-1:0] e3, input logic [FLEN-1:0] e2,
                                              input logic [FLEN-1:0] e1, input logic [FLEN-1:0] e0);
-    return DLEN'({e3, e2, e1, e0});
+    return {e3, e2, e1, e0};
   endfunction
 
-  function automatic logic [DLEN-1:0] splat(input logic [FLEN-1:0] x);
-    return {Elems{x}};
+  function automatic logic [DirW-1:0] splat(input logic [FLEN-1:0] x);
+    return {DirElems{x}};
   endfunction
 
   // Fixed inputs
-  task automatic directed(input vec_fop_e o, input logic [FLEN-1:0] s, input logic [DLEN-1:0] v,
-                          input logic [Elems-1:0] act, input logic [FLEN-1:0] want,
+  task automatic directed(input vec_fop_e o, input logic [FLEN-1:0] s, input logic [DirW-1:0] v,
+                          input logic [DirElems-1:0] act, input logic [FLEN-1:0] want,
                           input logic [FlagW-1:0] wflags, input string tag);
-    op          = o;
-    vs1_data    = DLEN'(s);
-    vs2_data    = v;
-    elem_active = act;
-    first       = 1'b1;
-    step        = 1'b1;
-    @(posedge clk);
-    @(negedge clk);
-    check_step({tag, " ", o.name()}, want, wflags);
+    logic [FlagW-1:0] seen;
+    seen     = '0;
+    op       = o;
+    vs1_data = DLEN'(s);
+    for (int p = 0; p < DirPhases; p++) begin
+      vs2_data    = DLEN'(v >> (p * DLEN));
+      elem_active = Elems'(act >> (p * Elems));
+      first       = (p == 0);
+      step        = 1'b1;
+      @(posedge clk);
+      @(negedge clk);
+      seen = seen | fflags;
+    end
+    check({tag, " ", o.name(), " result"}, result[FLEN-1:0], want);
+    check({tag, " ", o.name(), " fflags"}, FLEN'(seen), FLEN'(wflags));
     step  = 1'b0;
     first = 1'b0;
   endtask  // Automatic
