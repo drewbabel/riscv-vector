@@ -45,8 +45,9 @@ module fp_unit
     output logic [FlagW-1:0] xflags
 );
 
-  localparam int CvtW = (FLEN > XLEN) ? FLEN : XLEN;
-  localparam int LatW = $clog2(MaxLat + 1);
+  localparam int CvtW  = (FLEN > XLEN) ? FLEN : XLEN;
+  localparam int WordW = 32;
+  localparam int LatW  = $clog2(MaxLat + 1);
 
   typedef enum logic [1:0] {
     SRC_ADD,
@@ -82,6 +83,10 @@ module fp_unit
 
   logic [NREGS-1:0] busy_q;
   logic [NREGS-1:0] clr_bits;
+
+  if ((XLEN != WordW) && (XLEN != 2 * WordW)) begin : g_xlen_error
+    $error("fp_unit implements RV32 and RV64 only");
+  end
 
   fp_add u_add (
       .clk    (clk),
@@ -131,12 +136,17 @@ module fp_unit
 
   assign cvt_a = to_int ? CvtW'(a) : CvtW'(xa);
 
+  if (CvtW > WordW) begin : g_cvt_high
+    logic unused_cvt_high;
+    assign unused_cvt_high = ^cvt_result[CvtW-1:WordW];
+  end
+
   fp_cvt #(
       .XLEN(XLEN)
   ) u_cvt (
       .to_int     (to_int),
       .is_unsigned(is_unsigned),
-      .half       (1'b0),
+      .half       (XLEN != WordW),
       .rm         (rm),
       .a          (cvt_a),
       .result     (cvt_result),
@@ -277,11 +287,11 @@ module fp_unit
         xvalid <= 1'b1;
         case (unit)
           FP_MV_X_W: begin
-            xresult <= XLEN'(a);
+            xresult <= XLEN'($signed(a));
             xflags  <= '0;
           end
           FP_CVT: begin
-            xresult <= XLEN'(cvt_result);
+            xresult <= XLEN'($signed(cvt_result[WordW-1:0]));
             xflags  <= cvt_flags;
           end
           default: begin
