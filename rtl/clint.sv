@@ -32,7 +32,9 @@ module clint #(
   logic [TimeW-1:0] mtimecmp;
 
   logic [ OffW-1:0] off;
+  logic             unused_addr_high;
   assign off = addr[OffW-1:0];
+  assign unused_addr_high = ^addr[XLEN-1:OffW];
 
   logic [TimeWords-1:0] cmp_word;
   logic [TimeWords-1:0] time_word;
