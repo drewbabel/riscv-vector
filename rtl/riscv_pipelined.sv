@@ -9,8 +9,10 @@ module riscv_pipelined
     parameter  int ELEN      = arch_pkg::ELEN,
     parameter  int MUL_LANES = arch_pkg::MulLanes,
     parameter  bit GSHARE_EN = 1'b1,
+`ifdef RISCV_FORMAL
     localparam int VlW       = $clog2(VLEN + 1),
     localparam int VstartW   = $clog2(VLEN),
+`endif
     localparam int StrbW     = XLEN / 8,
     localparam int ILEN      = arch_pkg::ILEN
 ) (
