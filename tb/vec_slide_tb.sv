@@ -11,7 +11,8 @@ module vec_slide_tb
   localparam int VlW = $clog2(VLEN + 1);
   localparam int Regs = arch_pkg::NumRegs;
   localparam int Timeout = 2000000;
-  localparam int MinChecks = 61000;
+  localparam int RandomRuns = 600;
+  localparam int MinChecks = RandomRuns * (2 * Regs + 36);
 
   int checks = 0;
   int errors = 0;
@@ -211,38 +212,44 @@ module vec_slide_tb
 
   // Directed forms
   task automatic test_directed();
-    run_regs(VEC_SLIDEUP, 3'd0, 3'd0, 16, XLEN'(3), '0, 1'b1, 1, 2);
-    run_regs(VEC_SLIDEDOWN, 3'd0, 3'd0, 16, XLEN'(3), '0, 1'b1, 1, 3);
-    run_regs(VEC_SLIDE1UP, 3'd2, 3'd0, 4, '0, XLEN'(32'hDEAD_BEEF), 1'b1, 4, 5);
-    run_regs(VEC_SLIDE1DOWN, 3'd1, 3'd0, 8, '0, XLEN'(32'h0000_1234), 1'b1, 6, 7);
+    run_regs(VEC_SLIDEUP, 3'd0, 3'd0, vlmax_of(3'd0, 3'd0), XLEN'(3), '0, 1'b1, 1, 2);
+    run_regs(VEC_SLIDEDOWN, 3'd0, 3'd0, vlmax_of(3'd0, 3'd0), XLEN'(3), '0, 1'b1, 1, 3);
+    run_regs(VEC_SLIDE1UP, 3'd2, 3'd0, vlmax_of(3'd2, 3'd0), '0, XLEN'(32'hDEAD_BEEF), 1'b1, 4, 5);
+    run_regs(VEC_SLIDE1DOWN, 3'd1, 3'd0, vlmax_of(3'd1, 3'd0), '0, XLEN'(32'h0000_1234), 1'b1, 6,
+             7);
   endtask  // Automatic
 
   // Group spans
   task automatic test_groups();
-    run_regs(VEC_SLIDEUP, 3'd1, 3'd2, 32, XLEN'(11), '0, 1'b1, 8, 16);
-    run_regs(VEC_SLIDEDOWN, 3'd2, 3'd3, 32, XLEN'(9), '0, 1'b1, 16, 8);
-    run_regs(VEC_SLIDE1UP, 3'd0, 3'd1, 29, '0, XLEN'(32'h0000_00A5), 1'b0, 10, 12);
-    run_regs(VEC_SLIDE1DOWN, 3'd0, 3'd1, 29, '0, XLEN'(32'h0000_005A), 1'b0, 12, 14);
+    run_regs(VEC_SLIDEUP, 3'd1, 3'd2, vlmax_of(3'd1, 3'd2), XLEN'(11), '0, 1'b1, 8, 16);
+    run_regs(VEC_SLIDEDOWN, 3'd2, 3'd3, vlmax_of(3'd2, 3'd3), XLEN'(9), '0, 1'b1, 16, 8);
+    run_regs(VEC_SLIDE1UP, 3'd0, 3'd1, vlmax_of(3'd0, 3'd1) - 3, '0, XLEN'(32'h0000_00A5), 1'b0, 10,
+             12);
+    run_regs(VEC_SLIDE1DOWN, 3'd0, 3'd1, vlmax_of(3'd0, 3'd1) - 3, '0, XLEN'(32'h0000_005A), 1'b0,
+             12, 14);
   endtask  // Automatic
 
   // Overlap walks upward
   task automatic test_overlap();
     run_regs(VEC_SLIDEDOWN, 3'd0, 3'd3, VLEN, XLEN'(21), '0, 1'b1, 24, 24);
-    run_regs(VEC_SLIDE1DOWN, 3'd2, 3'd2, 16, '0, XLEN'(32'h7777_0000), 1'b0, 20, 20);
+    run_regs(VEC_SLIDE1DOWN, 3'd2, 3'd2, vlmax_of(3'd2, 3'd2), '0, XLEN'(32'h7777_0000), 1'b0, 20,
+             20);
   endtask  // Automatic
 
   // Large offsets
   task automatic test_large_offsets();
-    run_regs(VEC_SLIDEUP, 3'd0, 3'd0, 16, '1, '0, 1'b1, 1, 2);
-    run_regs(VEC_SLIDEDOWN, 3'd0, 3'd0, 16, '1, '0, 1'b1, 1, 3);
-    run_regs(VEC_SLIDEDOWN, 3'd2, 3'd3, 32, XLEN'(128), '0, 1'b1, 8, 16);
-    run_regs(VEC_SLIDEUP, 3'd2, 3'd3, 32, XLEN'(31), '0, 1'b1, 8, 16);
+    run_regs(VEC_SLIDEUP, 3'd0, 3'd0, vlmax_of(3'd0, 3'd0), '1, '0, 1'b1, 1, 2);
+    run_regs(VEC_SLIDEDOWN, 3'd0, 3'd0, vlmax_of(3'd0, 3'd0), '1, '0, 1'b1, 1, 3);
+    run_regs(VEC_SLIDEDOWN, 3'd2, 3'd3, vlmax_of(3'd2, 3'd3), XLEN'(VLEN), '0, 1'b1, 8, 16);
+    run_regs(VEC_SLIDEUP, 3'd2, 3'd3, vlmax_of(3'd2, 3'd3), XLEN'(vlmax_of(3'd2, 3'd3) - 1), '0,
+             1'b1, 8, 16);
   endtask  // Automatic
 
   // Fractional groups
   task automatic test_fractional();
-    run_regs(VEC_SLIDEDOWN, 3'd0, 3'd7, 8, XLEN'(5), '0, 1'b1, 9, 11);
-    run_regs(VEC_SLIDE1DOWN, 3'd0, 3'd6, 3, '0, XLEN'(32'h0000_0011), 1'b1, 9, 11);
+    run_regs(VEC_SLIDEDOWN, 3'd0, 3'd7, vlmax_of(3'd0, 3'd7), XLEN'(5), '0, 1'b1, 9, 11);
+    run_regs(VEC_SLIDE1DOWN, 3'd0, 3'd6, vlmax_of(3'd0, 3'd6) - 1, '0, XLEN'(32'h0000_0011), 1'b1,
+             9, 11);
   endtask  // Automatic
 
   // Zero length
@@ -284,10 +291,8 @@ module vec_slide_tb
     test_large_offsets();
     test_fractional();
     test_zero_length();
-    run_many(600, 100);
-
-    // Clock enable gaps
-    run_many(600, 60);
+    run_many(RandomRuns, 100);
+    run_many(RandomRuns, 60);
 
     do_verdict();
   end
@@ -309,8 +314,8 @@ module vec_slide_tb
     int bits;
     int epr;
     int vlmax;
-    longint unsigned amt;
-    longint unsigned from;
+    logic [XLEN-1:0] amt;
+    int from;
     logic [ELEN-1:0] val;
     logic up;
     logic one;
@@ -319,22 +324,24 @@ module vec_slide_tb
     vlmax = vlmax_of(vsew, vlmul);
     up = (op == VEC_SLIDEUP) || (op == VEC_SLIDE1UP);
     one = (op == VEC_SLIDE1UP) || (op == VEC_SLIDE1DOWN);
-    amt = one ? 1 : longint'(offset);
+    amt = one ? XLEN'(1) : offset;
     for (int r = 0; r < Regs; r++) src[r] = golden_regs[r];
     for (int i = 0; i < int'(vl); i++) begin
       if (!(vm || src[0][i])) continue;
       if (up) begin
         if (one && i == 0) val = ELEN'(scalar);
-        else if (longint'(i) < amt) continue;
+        else if (XLEN'(i) < amt) continue;
         else begin
-          from = longint'(i) - amt;
-          val  = ELEN'(src[(int'(vs2)+int'(from)/epr)%Regs] >> ((int'(from) % epr) * bits));
+          from = i - int'(amt);
+          val  = ELEN'(src[(int'(vs2)+from/epr)%Regs] >> ((from % epr) * bits));
         end
       end else begin
-        from = longint'(i) + amt;
         if (one && i == int'(vl) - 1) val = ELEN'(scalar);
-        else if (from >= longint'(vlmax)) val = '0;
-        else val = ELEN'(src[(int'(vs2)+int'(from)/epr)%Regs] >> ((int'(from) % epr) * bits));
+        else if (amt >= XLEN'(vlmax - i)) val = '0;
+        else begin
+          from = i + int'(amt);
+          val  = ELEN'(src[(int'(vs2)+from/epr)%Regs] >> ((from % epr) * bits));
+        end
       end
       for (int k = 0; k < bits; k++) golden_regs[(int'(vd)+i/epr)%Regs][(i%epr)*bits+k] = val[k];
     end
