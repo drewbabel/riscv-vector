@@ -34,6 +34,11 @@ module vec_alu
   logic [XLEN-1:0] scalar;
   assign scalar = (src == VEC_SRC_VI) ? {{(XLEN - 5) {simm[4]}}, simm} : xdata;
 
+  if (XLEN > ELEN) begin : g_unused_scalar
+    logic unused_scalar;
+    assign unused_scalar = ^scalar[XLEN-1:ELEN];
+  end
+
   for (genvar w = 0; w < Widths; w++) begin : g_w
     localparam int ElemW = 8 << w;
     for (genvar e = 0; e < DLEN / ElemW; e++) begin : g_e
