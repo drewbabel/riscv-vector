@@ -1,11 +1,61 @@
 `default_nettype none
 
-module gpio_tb;
+module gpio_tb ();
 
   localparam int MinChecks = 9;
+
+  int checks;
+  int errors;
+  int max_errors;
+  int live_errors;
+
+  gpio_bench #(.WIDTH(8)) w8_bench ();
+
+  gpio_bench #(.WIDTH(16)) w16_bench ();
+
+  gpio_bench #(.WIDTH(32)) w32_bench ();
+
+  task automatic check_floor(input string name, input int got, input int floor);
+    if (got < floor)
+      $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    checks = w8_bench.checks + w16_bench.checks + w32_bench.checks;
+    errors = w8_bench.errors + w16_bench.errors + w32_bench.errors;
+    check_floor("w8_bench", w8_bench.checks, MinChecks);
+    check_floor("w16_bench", w16_bench.checks, MinChecks);
+    check_floor("w32_bench", w32_bench.checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("gpio_tb.vcd");
+    $dumpvars(0, gpio_tb);
+    wait (w8_bench.done && w16_bench.done && w32_bench.done);
+    do_verdict();
+  end
+
+  always_comb live_errors = w8_bench.errors + w16_bench.errors + w32_bench.errors;
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (live_errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", live_errors);
+    end
+  end
+
+endmodule
+
+module gpio_bench #(
+    parameter int WIDTH = 16
+) ();
+
   localparam int Xlen = arch_pkg::XLEN;
   localparam int StrbW = Xlen / 8;
-  localparam int Width = 16;
+  localparam int Width = WIDTH;
   localparam int TagW = $bits(arch_pkg::GpioTag);
   localparam logic [Xlen-1:0] Base = {arch_pkg::GpioTag, {(Xlen - TagW) {1'b0}}};
   localparam logic [Xlen-1:0] LedAddr = Base;
@@ -14,6 +64,7 @@ module gpio_tb;
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  logic done = 1'b0;
 
   logic clk = 1'b0;
   logic rst_n = 1'b1;
@@ -47,7 +98,7 @@ module gpio_tb;
     checks++;
     if (got !== exp) begin
       errors++;
-      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      $display("FAIL %m %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
@@ -101,25 +152,25 @@ module gpio_tb;
 
   task automatic test_led_write();
     check_led("led_at_reset", '0);
-    mmio_write(LedAddr, Xlen'('hBEEF), '1);
-    check_led("led_after_write", Width'('hBEEF));
-    check_read("led_readback", LedAddr, Xlen'('hBEEF));
+    mmio_write(LedAddr, Xlen'('hCAFE_BEEF), '1);
+    check_led("led_after_write", Width'('hCAFE_BEEF));
+    check_read("led_readback", LedAddr, Xlen'(Width'('hCAFE_BEEF)));
   endtask  // Automatic
 
   task automatic test_switches();
-    set_switches(Width'('hA5A5));
-    check_read("sw_read", SwAddr, Xlen'('hA5A5));
-    mmio_write(SwAddr, Xlen'('h1234), '1);
-    check_led("sw_write_ignored", Width'('hBEEF));
+    set_switches(Width'('h5A5A_A5A5));
+    check_read("sw_read", SwAddr, Xlen'(Width'('h5A5A_A5A5)));
+    mmio_write(SwAddr, Xlen'('h5678_1234), '1);
+    check_led("sw_write_ignored", Width'('hCAFE_BEEF));
   endtask  // Automatic
 
   task automatic test_write_guards();
-    mmio_write(LedAddr, Xlen'('h0F0F), '0);
-    check_led("no_strobe_ignored", Width'('hBEEF));
-    mmio_write(LedAddr, Xlen'('h00FF), '1);
-    check_led("led_second_write", Width'('h00FF));
-    bus_write(1'b0, LedAddr, Xlen'('hDEAD), '1);
-    check_led("deselected_write_ignored", Width'('h00FF));
+    mmio_write(LedAddr, Xlen'('hF0F0_0F0F), '0);
+    check_led("no_strobe_ignored", Width'('hCAFE_BEEF));
+    mmio_write(LedAddr, Xlen'('hFF00_00FF), '1);
+    check_led("led_second_write", Width'('hFF00_00FF));
+    bus_write(1'b0, LedAddr, Xlen'('h0BAD_DEAD), '1);
+    check_led("deselected_write_ignored", Width'('hFF00_00FF));
   endtask  // Automatic
 
   task automatic test_reset_clears();
@@ -127,19 +178,14 @@ module gpio_tb;
     check_led("led_cleared_by_reset", '0);
   endtask  // Automatic
 
-  task automatic do_verdict();
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
+  task automatic finish();
+    @(negedge clk);
+    done = 1'b1;
   endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
-    $dumpfile("gpio_tb.vcd");
-    $dumpvars(0, gpio_tb);
     do_reset();
 
     test_led_write();
@@ -147,7 +193,7 @@ module gpio_tb;
     test_write_guards();
     test_reset_clears();
 
-    do_verdict();
+    finish();
   end
 
 endmodule
