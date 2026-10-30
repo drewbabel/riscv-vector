@@ -40,6 +40,11 @@ module uart_ctrl #(
     $error("DATA_BITS must not exceed XLEN");
   end
 
+  if (DATA_BITS < XLEN) begin : g_wdata_high
+    logic unused_wdata_high;
+    assign unused_wdata_high = ^wdata[XLEN-1:DATA_BITS];
+  end
+
   logic [     OffW-1:0] off;
   logic                 wr_stb;
   logic                 rd_stb;
@@ -49,13 +54,15 @@ module uart_ctrl #(
   logic                 rx_full;
   logic                 rx_overrun;
   logic                 rx_ie;
+  logic                 unused_addr;
 
-  assign off      = addr[WordLsb+:OffW];
-  assign wr_stb   = core_en && sel && |wstrb;
-  assign rd_stb   = core_en && sel && req && !(|wstrb);
+  assign off         = addr[WordLsb+:OffW];
+  assign unused_addr = ^{addr[XLEN-1:WordLsb+OffW], addr[WordLsb-1:0]};
+  assign wr_stb      = core_en && sel && |wstrb;
+  assign rd_stb      = core_en && sel && req && !(|wstrb);
 
-  assign tx_valid = wr_stb && (off == TxDataOff);
-  assign tx_data  = wdata[DATA_BITS-1:0];
+  assign tx_valid    = wr_stb && (off == TxDataOff);
+  assign tx_data     = wdata[DATA_BITS-1:0];
 
   always_comb begin
     case (off)
