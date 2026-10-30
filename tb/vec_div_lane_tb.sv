@@ -43,7 +43,14 @@ module vec_div_lane_tb
       .done(done)
   );
 
-  vec_op_e ops[4] = '{VEC_DIVU, VEC_DIV, VEC_REMU, VEC_REM};
+  vec_op_e ops[4];
+
+  initial begin
+    ops[0] = VEC_DIVU;
+    ops[1] = VEC_DIV;
+    ops[2] = VEC_REMU;
+    ops[3] = VEC_REM;
+  end
 
   // Random stalls
   always @(negedge clk) core_en <= ($urandom_range(99) >= stall_pct);
@@ -157,6 +164,28 @@ module vec_div_lane_tb
     end
   endtask
 
+
+  task automatic measure_cycles(input logic [2:0] sew);
+    int cycles;
+
+    // Use an ordinary unsigned division
+    launch(VEC_DIVU, sew, 32'd13, 32'd3);
+
+    cycles = 0;
+    while (done !== 1'b1) begin
+      @(negedge clk);
+      cycles++;
+    end
+
+    $display("SEW=%0d: %0d cycles, result=%0d", 8 << sew, cycles, result);
+
+    if (result !== 32'd4) begin
+      errors++;
+      $display("FAIL: expected quotient 4");
+    end
+  endtask
+
+
   // Edge values
   function automatic logic [ELEN-1:0] edge_val(input int idx, input int w);
     longint m;
@@ -269,6 +298,10 @@ module vec_div_lane_tb
     random_cases(3'd0, 50);
     random_cases(3'd2, 50);
     stall_pct = 0;
+
+    measure_cycles(3'd0);  // 8-bit
+    measure_cycles(3'd1);  // 16-bit
+    measure_cycles(3'd2);  // 32-bit
 
     verdict();
   end
