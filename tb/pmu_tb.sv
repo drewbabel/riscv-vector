@@ -55,23 +55,23 @@ module pmu_tb;
     dc_hits   = 32'h3333_3333;
     dc_misses = 32'h4444_4444;
 
-    read_check("ic_hits", 32'h0500_0000, 32'h1111_1111);
-    read_check("ic_misses", 32'h0500_0004, 32'h2222_2222);
-    read_check("dc_hits", 32'h0500_0008, 32'h3333_3333);
-    read_check("dc_misses", 32'h0500_000C, 32'h4444_4444);
+    read_check("ic_hits", 32'h0B00_0000, 32'h1111_1111);
+    read_check("ic_misses", 32'h0B00_0004, 32'h2222_2222);
+    read_check("dc_hits", 32'h0B00_0008, 32'h3333_3333);
+    read_check("dc_misses", 32'h0B00_000C, 32'h4444_4444);
 
-    read_check("clk_hz", 32'h0500_0010, ClkFreqHz);
-    read_check("reserved_reads_zero", 32'h0500_0014, 32'h0);
+    read_check("clk_hz", 32'h0B00_0010, ClkFreqHz);
+    read_check("reserved_reads_zero", 32'h0B00_0014, 32'h0);
 
-    read_check("byte_offset_ignored", 32'h0500_0001, 32'h1111_1111);
-    read_check("clk_hz_byte_offset", 32'h0500_0012, ClkFreqHz);
-    read_check("upper_addr_ignored", 32'h0500_0104, 32'h2222_2222);
+    read_check("byte_offset_ignored", 32'h0B00_0001, 32'h1111_1111);
+    read_check("clk_hz_byte_offset", 32'h0B00_0012, ClkFreqHz);
+    read_check("upper_addr_ignored", 32'h0B00_0104, 32'h2222_2222);
 
     ic_hits   = 32'hAAAA_AAAA;
     dc_misses = 32'hBBBB_BBBB;
 
-    read_check("ic_hits_updated", 32'h0500_0000, 32'hAAAA_AAAA);
-    read_check("dc_misses_updated", 32'h0500_000C, 32'hBBBB_BBBB);
+    read_check("ic_hits_updated", 32'h0B00_0000, 32'hAAAA_AAAA);
+    read_check("dc_misses_updated", 32'h0B00_000C, 32'hBBBB_BBBB);
 
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);

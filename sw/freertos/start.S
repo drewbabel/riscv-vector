@@ -19,7 +19,7 @@ _start:
     addi  t0, t0, 4
     j     1b
 2:
-    li    t0, 0x03000000
+    li    t0, 0x09000000
     li    t1, 0x0100
     sw    t1, 0(t0)            # startup done
     call  main

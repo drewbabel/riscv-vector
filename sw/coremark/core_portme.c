@@ -20,7 +20,7 @@ volatile ee_s32 seed3_volatile = 0x8;
 volatile ee_s32 seed4_volatile = ITERATIONS;
 volatile ee_s32 seed5_volatile = 0;
 
-#define PMU_BASE ((volatile unsigned int *)0x05000000)
+#define PMU_BASE ((volatile unsigned int *)0x0B000000)
 #define PMU_CLK_HZ 4
 
 /* Read at startup */

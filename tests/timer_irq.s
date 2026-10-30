@@ -5,10 +5,10 @@ _start:
         la   t0, handler
         csrw mtvec, t0
 
-        li   t2, 0x02004000        # CLINT mtimecmp low
+        li   t2, 0x08004000        # CLINT mtimecmp low
         li   t1, 200
         sw   t1, 0(t2)             # fire once mtime reaches 200
-        li   t2, 0x02004004
+        li   t2, 0x08004004
         sw   x0, 0(t2)             # mtimecmp high = 0
 
         li   t0, 0x80              # mie.MTIE
@@ -20,10 +20,10 @@ wait:
 
         .balign 4
 handler:
-        li   t2, 0x02004004        # disarm the timer first
+        li   t2, 0x08004004        # disarm the timer first
         li   t1, -1
         sw   t1, 0(t2)
-        li   s0, 0x04000000        # UART base
+        li   s0, 0x0A000000        # UART base
         la   s1, msg
 ploop:
         lbu  a0, 0(s1)

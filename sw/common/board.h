@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-#define UART_DATA (*(volatile uint32_t *)0x04000000)
-#define UART_STAT (*(volatile uint32_t *)0x04000004)
+#define UART_DATA (*(volatile uint32_t *)0x0A000000)
+#define UART_STAT (*(volatile uint32_t *)0x0A000004)
 
 void board_putc(char c);
 void board_puts(const char *s);

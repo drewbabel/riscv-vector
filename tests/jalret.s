@@ -3,7 +3,7 @@
         .section .init
         .global _start
 _start:
-        li    t5, 0x04000000     # uart base
+        li    t5, 0x0A000000     # uart base
         jal   ra, sub
         li    a0, 0x44           # D, only if the return advanced to pc+4
         sw    a0, 0(t5)

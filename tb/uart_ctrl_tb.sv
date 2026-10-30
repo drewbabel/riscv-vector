@@ -8,10 +8,10 @@ module uart_ctrl_tb ();
 
   localparam int Xlen = arch_pkg::XLEN;
 
-  localparam logic [Xlen-1:0] TxDataAddr = 32'h0400_0000;
-  localparam logic [Xlen-1:0] StatusAddr = 32'h0400_0004;
-  localparam logic [Xlen-1:0] RxDataAddr = 32'h0400_0008;
-  localparam logic [Xlen-1:0] CtrlAddr = 32'h0400_000C;
+  localparam logic [Xlen-1:0] TxDataAddr = 32'h0A00_0000;
+  localparam logic [Xlen-1:0] StatusAddr = 32'h0A00_0004;
+  localparam logic [Xlen-1:0] RxDataAddr = 32'h0A00_0008;
+  localparam logic [Xlen-1:0] CtrlAddr = 32'h0A00_000C;
 
   logic              clk = 1'b0;
   logic              rst_n;

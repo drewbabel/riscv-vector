@@ -92,34 +92,34 @@ module gpio_tb;
     #1;
     check("led_at_reset", Xlen'(led), '0);
 
-    mmio_write(32'h0300_0000, 32'h0000_BEEF, '1);
+    mmio_write(32'h0900_0000, 32'h0000_BEEF, '1);
     #1;
     check("led_after_write", Xlen'(led), 32'h0000_BEEF);
 
-    mmio_read(32'h0300_0000, got);
+    mmio_read(32'h0900_0000, got);
     check("led_readback", got, 32'h0000_BEEF);
 
     sw = 16'hA5A5;
-    mmio_read(32'h0300_0004, got);
+    mmio_read(32'h0900_0004, got);
     check("sw_read", got, 32'h0000_A5A5);
 
-    mmio_write(32'h0300_0004, 32'h0000_1234, '1);
+    mmio_write(32'h0900_0004, 32'h0000_1234, '1);
     #1;
     check("sw_write_ignored", Xlen'(led), 32'h0000_BEEF);
 
-    mmio_write(32'h0300_0000, 32'h0000_0F0F, 4'h0);
+    mmio_write(32'h0900_0000, 32'h0000_0F0F, 4'h0);
     #1;
     check("no_strobe_ignored", Xlen'(led), 32'h0000_BEEF);
 
     sel = 0;
-    mmio_write(32'h0300_0000, 32'h0000_00FF, '1);
+    mmio_write(32'h0900_0000, 32'h0000_00FF, '1);
     #1;
     check("led_second_write", Xlen'(led), 32'h0000_00FF);
 
     #1;
     sel   = 0;
     wstrb = '1;
-    addr  = 32'h0300_0000;
+    addr  = 32'h0900_0000;
     wdata = 32'h0000_DEAD;
     @(posedge clk);
     #1;

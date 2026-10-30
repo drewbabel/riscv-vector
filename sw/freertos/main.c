@@ -4,11 +4,11 @@
 #include "task.h"
 #include "queue.h"
 
-#define LED (*(volatile unsigned int *) 0x03000000)
-#define SW  (*(volatile unsigned int *) 0x03000004)
-#define UART_TX (*(volatile unsigned int *) 0x04000000)
-#define UART_ST (*(volatile unsigned int *) 0x04000004)
-#define CORE_CLK_HZ (*(volatile unsigned int *) 0x05000010)
+#define LED (*(volatile unsigned int *)0x09000000)
+#define SW (*(volatile unsigned int *)0x09000004)
+#define UART_TX (*(volatile unsigned int *)0x0A000000)
+#define UART_ST (*(volatile unsigned int *)0x0A000004)
+#define CORE_CLK_HZ (*(volatile unsigned int *)0x0B000010)
 
 /* Replaces kernel copy */
 size_t uxTimerIncrementsForOneTick = 0;

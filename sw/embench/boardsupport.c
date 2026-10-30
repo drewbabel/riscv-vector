@@ -1,7 +1,7 @@
 #include <support.h>
 
-#define UART_DATA  ((volatile unsigned int *) 0x04000000)
-#define UART_READY ((volatile unsigned int *) 0x04000004)
+#define UART_DATA ((volatile unsigned int *)0x0A000000)
+#define UART_READY ((volatile unsigned int *)0x0A000004)
 
 static unsigned int start_cycle, stop_cycle;
 

@@ -21,7 +21,7 @@ _start:
 2:
     call  main
     call  bench_report
-    li    t0, 0x03000000
+    li    t0, 0x09000000
     li    t1, 0xC0DE
     sw    t1, 0(t0)
 3:  j     3b
@@ -29,7 +29,7 @@ _start:
     /* emit hex nibble */
     .balign 4
 puthex:
-    li    t5, 0x04000000
+    li    t5, 0x0A000000
 1:  lw    t6, 4(t5)
     andi  t6, t6, 1
     beqz  t6, 1b
@@ -46,7 +46,7 @@ puthex:
     .balign 4
 trap_handler:
     li    a0, 0x54
-    li    t5, 0x04000000
+    li    t5, 0x0A000000
 1:  lw    t6, 4(t5)
     andi  t6, t6, 1
     beqz  t6, 1b

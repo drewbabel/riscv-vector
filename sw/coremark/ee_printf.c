@@ -662,7 +662,7 @@ ee_vsprintf(char *buf, const char *fmt, va_list args)
 void
 uart_send_char(char c)
 {
-    volatile unsigned int *tx = (unsigned int *)0x04000000;
+    volatile unsigned int *tx = (unsigned int *)0x0A000000;
     while ((tx[1] & 1u) == 0u)
         ;
     tx[0] = (unsigned int)(unsigned char)c;

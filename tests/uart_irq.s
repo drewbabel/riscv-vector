@@ -5,7 +5,7 @@ _start:
         la   t0, handler
         csrw mtvec, t0
 
-        li   s0, 0x04000000        # UART base
+        li   s0, 0x0A000000        # UART base
         li   t0, 1
         sw   t0, 12(s0)            # enable receive interrupt
 
@@ -18,7 +18,7 @@ wait:
 
         .balign 4
 handler:
-        li   s0, 0x04000000
+        li   s0, 0x0A000000
         lw   a0, 8(s0)             # read clears flag
 poll:
         lw   t0, 4(s0)

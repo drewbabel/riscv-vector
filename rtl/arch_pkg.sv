@@ -36,10 +36,10 @@ package arch_pkg;
   parameter int MemLatency = 20;
 
   // Peripheral address tags
-  parameter logic [7:0] ClintTag = 8'h02;
-  parameter logic [7:0] GpioTag = 8'h03;
-  parameter logic [7:0] UartTag = 8'h04;
-  parameter logic [7:0] PmuTag = 8'h05;
+  parameter logic [7:0] ClintTag = 8'h08;
+  parameter logic [7:0] GpioTag = 8'h09;
+  parameter logic [7:0] UartTag = 8'h0A;
+  parameter logic [7:0] PmuTag = 8'h0B;
 
 endpackage
 

@@ -5,8 +5,8 @@
 #define configCPU_CLOCK_HZ                      0
 
 /* SiFive CLINT layout */
-#define configMTIME_BASE_ADDRESS                0x0200BFF8
-#define configMTIMECMP_BASE_ADDRESS             0x02004000
+#define configMTIME_BASE_ADDRESS 0x0800BFF8
+#define configMTIMECMP_BASE_ADDRESS 0x08004000
 
 #define configTICK_RATE_HZ                      1000
 #define configUSE_PREEMPTION                    1
