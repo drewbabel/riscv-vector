@@ -4,7 +4,8 @@ module dcache_tb;
 
   import cache_pkg::*;
 
-  localparam int MinChecks = 71;
+  localparam int MinChecks = 43 + 6 * DcWays + LineWords;
+  localparam int PoisonWord = (LineWords > 1) ? 1 : 0;
   localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 8192;
   localparam int Latency = 4;
@@ -100,7 +101,7 @@ module dcache_tb;
   );
 
   // Addressed word
-  assign rword = cpu_rdata[cpu_addr[WordLsb+:BlkOffLen]*Xlen+:Xlen];
+  assign rword = cpu_rdata[word_of(cpu_addr)*Xlen+:Xlen];
 
   task automatic check(input string name, input logic [LineBits-1:0] got,
                        input logic [LineBits-1:0] exp);
@@ -190,7 +191,7 @@ module dcache_tb;
 
   task automatic write_word(input logic [Xlen-1:0] addr, input logic [Xlen-1:0] data);
     int word;
-    word = int'(addr[WordLsb+:BlkOffLen]);
+    word = word_of(addr);
     cpu_access(1'b1, addr, LineBytes'({WordBytes{1'b1}}) << (WordBytes * word),
                LineBits'(data) << (Xlen * word));
   endtask  // Automatic
@@ -241,14 +242,14 @@ module dcache_tb;
   endtask  // Automatic
 
   task automatic test_store_hit();
-    write_word(addr_of(0, 0) + Xlen'(WordBytes), Poison);
-    check_word("store hit", addr_of(0, 0) + Xlen'(WordBytes), Poison);
+    write_word(addr_of(0, 0) + Xlen'(PoisonWord * WordBytes), Poison);
+    check_word("store hit", addr_of(0, 0) + Xlen'(PoisonWord * WordBytes), Poison);
     fill_set(0, 1, DcWays - 1);
   endtask  // Automatic
 
   task automatic test_every_way_kept();
     mark();
-    check_word("dirty way kept", addr_of(0, 0) + Xlen'(WordBytes), Poison);
+    check_word("dirty way kept", addr_of(0, 0) + Xlen'(PoisonWord * WordBytes), Poison);
     fill_set(0, 1, DcWays - 1);
     expect_traffic("every way kept", 0, 0, 0);
   endtask  // Automatic
@@ -257,7 +258,7 @@ module dcache_tb;
     mark();
     read_word("extra tag", 0, DcWays, 0);
     expect_traffic("dirty evict", 1, 1, 1);
-    check_word("write back landed", addr_of(0, 0) + Xlen'(WordBytes), Poison);
+    check_word("write back landed", addr_of(0, 0) + Xlen'(PoisonWord * WordBytes), Poison);
   endtask  // Automatic
 
   task automatic test_clean_evict();
@@ -343,6 +344,10 @@ module dcache_tb;
 
     do_verdict();
   end
+
+  function automatic int word_of(input logic [Xlen-1:0] addr);
+    return int'((addr >> WordLsb) % LineWords);
+  endfunction
 
   function automatic logic [Xlen-1:0] addr_of(input int set, input int tag);
     return Xlen'(tag * SetStride + set * LineBytes);
