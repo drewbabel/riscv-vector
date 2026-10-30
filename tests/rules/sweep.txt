@@ -22,7 +22,7 @@ btb              btb                 arch_pkg::BtbIdxLen=5
 btb              btb                 arch_pkg::BtbIdxLen=7
 clint            clint               -
 clint            clint               arch_pkg::XLEN=64
-clint            clint               arch_pkg::XLEN=128
+clint            clint               arch_pkg::XLEN=128                       expect="XLEN must divide the 64-bit timer"
 csr              csr                 -
 csr              csr                 arch_pkg::XLEN=64                        expect="implements RV32 only"
 csr              csr                 arch_pkg::XLEN=128                       expect="implements RV32 only"
