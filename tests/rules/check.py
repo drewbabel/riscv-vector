@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1380,6 +1381,233 @@ def bench_one(path, tmp):
     return r
 
 
+SWEEP_DIRS = (
+    "rtl",
+    "rtl/single_cycle",
+    "rtl/boards/bram",
+    "rtl/boards/nexys_video",
+)
+HIER_LINE = re.compile(
+    r'^Module="(\w+)" Instance="([^"]+)" File="[^"]*"\s*(?:Parameters: (.*))?$'
+)
+HIER_PARAM = re.compile(r"(\w+)=(.*?)(?:, (?=\w+=)|$)")
+
+
+def set_package(text, name, value):
+    return re.subn(
+        rf"(parameter\s+[^;=]*\b{re.escape(name)}\s*=\s*)[^;]+;",
+        rf"\g<1>{value};",
+        text,
+    )
+
+
+def sweep_rows():
+    rows = []
+    with open(os.path.join(HERE, "sweep.txt")) as f:
+        for no, line in enumerate(f, 1):
+            parts = shlex.split(line)
+            if not parts:
+                continue
+            sets = [] if parts[2] == "-" else parts[2].split(",")
+            rows.append(
+                {
+                    "line": no,
+                    "module": parts[0],
+                    "sets": dict(s.split("=", 1) for s in sets),
+                    "guard": any(p.startswith("expect=") for p in parts[3:]),
+                }
+            )
+    return rows
+
+
+def load_exempt():
+    path = os.path.join(HERE, "sweep.exempt")
+    entries = []
+    if not os.path.exists(path):
+        return entries
+    with open(path) as f:
+        for no, line in enumerate(f, 1):
+            parts = line.split(None, 1)
+            if not parts:
+                continue
+            entries.append(
+                {
+                    "line": no,
+                    "key": parts[0],
+                    "reason": parts[1].strip() if len(parts) > 1 else "",
+                    "used": False,
+                }
+            )
+    return entries
+
+
+def sweep_srcs():
+    board = "rtl/boards/bram"
+    return rtl_files() + sorted(
+        os.path.join(board, f)
+        for f in os.listdir(os.path.join(ROOT, board))
+        if f.endswith(".sv")
+    )
+
+
+def elaborate(top, sets, tmp):
+    header = []
+    pkgs = {}
+    for k, v in sets.items():
+        if "::" not in k:
+            header += ["-G", f"{k}={v}"]
+            continue
+        pkg, name = k.split("::")
+        src = f"rtl/{pkg}.sv"
+        if src not in pkgs:
+            with open(os.path.join(ROOT, src)) as f:
+                pkgs[src] = f.read()
+        pkgs[src], n = set_package(pkgs[src], name, v)
+        if n != 1:
+            return None
+    srcs = sweep_srcs()
+    for src, text in pkgs.items():
+        fd, dst = tempfile.mkstemp(suffix=".sv", dir=tmp)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        srcs = [dst if s == src else s for s in srcs]
+    r = subprocess.run(
+        ["slang-hier", "--top", top, "--params", *header, *srcs],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    out = []
+    for line in r.stdout.splitlines():
+        m = HIER_LINE.match(line)
+        if m:
+            ps = dict(HIER_PARAM.findall(m.group(3) or ""))
+            out.append((m.group(1), m.group(2), ps))
+    return out
+
+
+def overridable(name, tmp):
+    data, _ = slang_json(
+        name,
+        sweep_srcs(),
+        [],
+        os.path.join(tmp, name + ".json"),
+        extra=["--ast-json-scope", name],
+    )
+    found = []
+    jwalk(
+        data or {},
+        lambda x: (
+            found.append(x)
+            if x.get("kind") == "Instance" and x.get("name") == name
+            else None
+        ),
+    )
+    body = found[0].get("body") if found else None
+    return {
+        m["name"]: m.get("source_line", 1)
+        for m in (body or {}).get("members", [])
+        if m.get("kind") == "Parameter" and not m.get("isLocal")
+    }
+
+
+def rtl_modules(units):
+    out = []
+    for u in units:
+        if not u.path.startswith("rtl/") or u.path in PKGS:
+            continue
+        for n, _ in walk(u.tree):
+            if n.get("tag") != "kModuleDeclaration":
+                continue
+            tok = next(l for l in leaves(n) if ident(l))
+            home = next(
+                (
+                    os.path.join(d, tok["text"] + ".sv")
+                    for d in SWEEP_DIRS
+                    if os.path.isfile(
+                        os.path.join(ROOT, d, tok["text"] + ".sv")
+                    )
+                ),
+                None,
+            )
+            key = tok["text"] if home == u.path else u.path[4:-3]
+            out.append((key, u.path, u.at(tok["start"])[0]))
+    return out
+
+
+def rule_sweep(units, rep):
+    rows = sweep_rows()
+    exempt = load_exempt()
+    mods = rtl_modules(units)
+    named = {r["module"] for r in rows}
+    workers = os.cpu_count() or 4
+    keys = [k for k, _, _ in mods if "/" not in k]
+    with (
+        tempfile.TemporaryDirectory() as tmp,
+        ThreadPoolExecutor(max_workers=workers) as ex,
+    ):
+        params = dict(zip(keys, ex.map(lambda k: overridable(k, tmp), keys)))
+        base = {}
+        for k, insts in zip(
+            keys, ex.map(lambda k: elaborate(k, {}, tmp), keys)
+        ):
+            base[k] = next((p for _, i, p in insts if i == k), {})
+        runs = list(
+            ex.map(lambda r: elaborate(r["module"], r["sets"], tmp), rows)
+        )
+    varied = set()
+    for r, insts in zip(rows, runs):
+        for mod, inst, ps in insts or []:
+            # Guard rows pin top
+            if r["guard"] and inst != r["module"]:
+                continue
+            for p in params.get(mod, {}):
+                if p in ps and ps[p] != base[mod].get(p):
+                    varied.add((mod, p))
+
+    def waived(key):
+        e = next((e for e in exempt if e["key"] == key and e["reason"]), None)
+        if e:
+            e["used"] = True
+        return e is not None
+
+    for key, path, line in mods:
+        gaps = [p for p in params.get(key, {}) if (key, p) not in varied]
+        if (key not in named or gaps) and waived(key):
+            continue
+        if key not in named:
+            rep.add(
+                path,
+                line,
+                1,
+                "sweep-module",
+                f"module {key} has no sweep.txt row, add one or list "
+                f"{key} with a reason in tests/rules/sweep.exempt",
+            )
+        for p in gaps:
+            if waived(f"{key}.{p}"):
+                continue
+            rep.add(
+                path,
+                params[key][p],
+                1,
+                "sweep-param",
+                f"parameter {key}.{p} keeps its default in every sweep.txt "
+                f"row, add a row that sets it or the package constant it "
+                f"derives from, or list {key}.{p} with a reason in "
+                f"tests/rules/sweep.exempt",
+            )
+    for e in exempt:
+        if not e["reason"]:
+            msg = "entry needs a module or module.param and a reason"
+        elif not e["used"]:
+            msg = f"stale entry {e['key']}, nothing left to exempt"
+        else:
+            continue
+        rep.add("tests/rules/sweep.exempt", e["line"], 1, "sweep-exempt", msg)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -1426,6 +1654,7 @@ def main():
                 f"stale entry {e['file']} {e['name']}",
             )
     rule_consts(units, rep)
+    rule_sweep(units, rep)
     if not args.no_elab:
         with tempfile.TemporaryDirectory() as tmp:
             benches = [u.path for u in units if is_bench(u.path)]
