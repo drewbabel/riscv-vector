@@ -39,7 +39,7 @@ check_required() {
 
 report_optional() {
     local absent=""
-    for tool in surfer yosys sby sv2v riscv64-elf-gcc python3; do
+    for tool in surfer yosys sby sv2v riscv64-elf-gcc riscv-none-elf-gcc python3; do
         command -v "$tool" > /dev/null 2>&1 || absent="$absent $tool"
     done
     if [ -n "$absent" ]; then

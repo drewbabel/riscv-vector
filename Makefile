@@ -177,11 +177,12 @@ cosim:
 	@test -n "$(PROG)" || { echo "usage: make cosim PROG=<name>  (lockstep tests/$(PROG).s vs Spike)"; exit 1; }
 	python3 tests/cosim.py $(if $(TRACE),--trace) $(PROG)
 
-SWPREFIX  ?= riscv64-unknown-elf-
+SWPREFIX  ?= riscv-none-elf-
 SWCOMMON  := sw/common
 SWARCH    := rv32imf_zicsr_zve32f_zvl128b
-SWCFLAGS  := -march=$(SWARCH) -mabi=ilp32 -O2 -fno-tree-vectorize -I$(SWCOMMON)
-SWLDFLAGS := -march=$(SWARCH) -mabi=ilp32 -specs=nano.specs -nostartfiles -Wl,--no-warn-rwx-segments -T $(SWCOMMON)/board.ld
+SWDEFS    ?=
+SWCFLAGS  := -march=$(SWARCH) -mabi=ilp32f -O2 -fno-tree-vectorize -I$(SWCOMMON) $(SWDEFS)
+SWLDFLAGS := -march=$(SWARCH) -mabi=ilp32f -specs=nano.specs -nostartfiles -Wl,--no-warn-rwx-segments -T $(SWCOMMON)/board.ld
 SWLIMIT   ?= 4294967295
 BOARD_RTL := $(PKGS) $(filter-out $(PKGS),$(wildcard rtl/*.sv)) $(wildcard rtl/single_cycle/*.sv) rtl/boards/nexys_video/board_top.sv
 
