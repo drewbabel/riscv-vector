@@ -1,18 +1,84 @@
 `default_nettype none
 
-module mem_delay_tb;
+module mem_delay_tb ();
+
+  localparam int MinChecks = 5;
+
+  int checks;
+  int errors;
+  int max_errors;
+  int live_errors;
+
+  mem_delay_bench pkg_bench ();
+
+  mem_delay_bench #(
+      .DEPTH  (256),
+      .LATENCY(5)
+  ) small_bench ();
+
+  mem_delay_bench #(.DEPTH(4096)) short_bench ();
+
+  mem_delay_bench #(.DEPTH(65536)) long_bench ();
+
+  mem_delay_bench #(.LATENCY(5)) mid_bench ();
+
+  task automatic check_floor(input string name, input int got, input int floor);
+    if (got < floor)
+      $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    checks = pkg_bench.checks + small_bench.checks + short_bench.checks + long_bench.checks +
+        mid_bench.checks;
+    errors = pkg_bench.errors + small_bench.errors + short_bench.errors + long_bench.errors +
+        mid_bench.errors;
+    check_floor("pkg_bench", pkg_bench.checks, MinChecks);
+    check_floor("small_bench", small_bench.checks, MinChecks);
+    check_floor("short_bench", short_bench.checks, MinChecks);
+    check_floor("long_bench", long_bench.checks, MinChecks);
+    check_floor("mid_bench", mid_bench.checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("mem_delay_tb.vcd");
+    $dumpvars(0, mem_delay_tb);
+    wait (pkg_bench.done && small_bench.done && short_bench.done && long_bench.done &&
+          mid_bench.done);
+    do_verdict();
+  end
+
+  always_comb
+    live_errors = pkg_bench.errors + small_bench.errors + short_bench.errors + long_bench.errors +
+        mid_bench.errors;
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (live_errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", live_errors);
+    end
+  end
+
+endmodule
+
+module mem_delay_bench #(
+    parameter int DEPTH   = arch_pkg::MemWords,
+    parameter int LATENCY = arch_pkg::MemLatency
+) ();
 
   import cache_pkg::*;
 
-  localparam int MinChecks = 5;
   localparam int Xlen = arch_pkg::XLEN;
-  localparam int Depth = 256;
-  localparam int Latency = 5;
+  localparam int Depth = DEPTH;
+  localparam int Latency = LATENCY;
   localparam int MaxWait = 100;
 
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  logic done = 1'b0;
   int waited = 0;
 
   logic clk = 1'b0;
@@ -56,7 +122,7 @@ module mem_delay_tb;
     checks++;
     if (got !== exp) begin
       errors++;
-      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      $display("FAIL %m %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
@@ -129,26 +195,21 @@ module mem_delay_tb;
     check("word select", LineBits'(resp_rdata[2*Xlen-1:Xlen]), LineBits'(Xlen'('hBBBB_0001)));
   endtask  // Automatic
 
-  task automatic do_verdict();
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
+  task automatic finish();
+    @(negedge clk);
+    done = 1'b1;
   endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
-    $dumpfile("mem_delay_tb.vcd");
-    $dumpvars(0, mem_delay_tb);
     do_reset();
 
     test_boot_line();
     test_line_write();
     test_word_select();
 
-    do_verdict();
+    finish();
   end
 
   function automatic logic [LineBits-1:0] line_of(input logic [Xlen-1:0] seed);
