@@ -137,12 +137,18 @@ module board_top_bench #(
       .DEPTH (Depth),
       .ClkDiv(ClkDiv)
   ) dut (
-      .clk    (clk),
-      .rst    (rst),
-      .sw     (sw),
-      .led    (led),
-      .uart_rx(uart_rx),
-      .uart_tx(uart_tx)
+      .clk             (clk),
+      .rst             (rst),
+      .sw              (sw),
+      .led             (led),
+      .uart_rx         (uart_rx),
+      .uart_tx         (uart_tx),
+      .sim_branch      (),
+      .sim_branch_taken(),
+      .sim_mispredict  (),
+      .sim_muldiv_hold (),
+      .sim_tx_valid    (),
+      .sim_tx_data     ()
   );
 
   task automatic check(input string name, input logic [LedW-1:0] got, input logic [LedW-1:0] exp);
@@ -329,7 +335,7 @@ module bram_sdp_bench #(
   endfunction
 
   function automatic logic [WIDTH-1:0] rand_data();
-    return WIDTH'({$urandom, $urandom});
+    return WIDTH'({32'($urandom), 32'($urandom)});
   endfunction
 
   task automatic step(input string name, input logic w, input logic [Lanes-1:0] lanes,
