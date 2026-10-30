@@ -1,5 +1,5 @@
 ENTRY(_start)
-MEMORY { ram (rwx) : ORIGIN = 0x00000000, LENGTH = 0x01000000 }
+MEMORY { ram (rwx) : ORIGIN = 0x00000000, LENGTH = 0x04000000 }
 SECTIONS {
   .text : { *(.text.init) *(.text*) } > ram
   .init_array : { PROVIDE_HIDDEN(__init_array_start = .); KEEP(*(.init_array*)) PROVIDE_HIDDEN(__init_array_end = .); } > ram

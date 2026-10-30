@@ -81,7 +81,7 @@ module mig_7series_0 #(
     output logic [ 11:0] device_temp
 );
 
-  localparam int Lines = 1048576;
+  localparam int Lines = 4194304;
 
   logic [127:0] mem[Lines];
   int cyc = 0;

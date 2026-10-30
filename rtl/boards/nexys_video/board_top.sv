@@ -4,7 +4,7 @@ module board_top
   import cache_pkg::*;
 #(
     parameter int XLEN         = arch_pkg::XLEN,
-    parameter int DEPTH        = 4194304,
+    parameter int DEPTH        = 16777216,
     parameter int ClkDiv       = arch_pkg::ClkDiv,
     parameter int BoardClkHz   = arch_pkg::BoardClkHz,
     parameter bit UNCACHED     = 1'b0,

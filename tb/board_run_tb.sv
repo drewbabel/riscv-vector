@@ -4,7 +4,7 @@ module board_run_tb ();
 
   import cache_pkg::*;
 
-  localparam int DEPTH = 4194304;
+  localparam int DEPTH = 16777216;
   localparam int BaudRate = arch_pkg::BaudRate;
   localparam int ClksPerBit = (arch_pkg::BoardClkHz + BaudRate / 2) / BaudRate;
 

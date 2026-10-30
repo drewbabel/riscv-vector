@@ -29,9 +29,9 @@ def load_words(path):
 def main():
     port, hexfile = sys.argv[1], sys.argv[2]
     words = load_words(hexfile)
-    if not 1 <= len(words) <= 4194304:
+    if not 1 <= len(words) <= 16777216:
         sys.exit(
-            f"word count {len(words)} out of range 1..4194304 "
+            f"word count {len(words)} out of range 1..16777216 "
             "(nexys_video ceiling)"
         )
     ser = serial.Serial(port, 28800, timeout=1)
