@@ -14,16 +14,19 @@ module mem_word_if_tb ();
 
   mem_word_if_bench #(.CPU_W(cache_pkg::LineBits)) line_bench ();
 
+  mem_word_if_bench #(.CPU_W(64)) dword_bench ();
+
   task automatic check_floor(input string name, input int got, input int floor);
     if (got < floor)
       $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
   endtask  // Automatic
 
   task automatic do_verdict();
-    checks = xlen_bench.checks + line_bench.checks;
-    errors = xlen_bench.errors + line_bench.errors;
+    checks = xlen_bench.checks + line_bench.checks + dword_bench.checks;
+    errors = xlen_bench.errors + line_bench.errors + dword_bench.errors;
     check_floor("xlen_bench", xlen_bench.checks, MinChecks);
     check_floor("line_bench", line_bench.checks, MinLineChecks);
+    check_floor("dword_bench", dword_bench.checks, MinLineChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
@@ -32,11 +35,11 @@ module mem_word_if_tb ();
   initial begin
     $dumpfile("mem_word_if_tb.vcd");
     $dumpvars(0, mem_word_if_tb);
-    wait (xlen_bench.done && line_bench.done);
+    wait (xlen_bench.done && line_bench.done && dword_bench.done);
     do_verdict();
   end
 
-  always_comb live_errors = xlen_bench.errors + line_bench.errors;
+  always_comb live_errors = xlen_bench.errors + line_bench.errors + dword_bench.errors;
 
   initial begin
     if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
