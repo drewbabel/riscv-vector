@@ -96,15 +96,19 @@ module uart_rx_bench #(
   localparam int DataBits = DATA_BITS;
 
   localparam int ClksPerBit = (ClkFreqHz + BaudRate / 2) / BaudRate;
-  localparam int ClksPerOversample = (ClksPerBit + Oversample / 2) / Oversample;
 
   // TX bit period for baud-mismatch tests
   localparam int ClksPerBitFast = (ClksPerBit * 98) / 100;
   localparam int ClksPerBitSlow = (ClksPerBit * 102) / 100;
+  function automatic int value_count(input int budget, input int scaled, input int all);
+    if (budget == 0 || scaled >= all) return all;
+    if (scaled < 16) return 16;
+    return scaled;
+  endfunction
+
   localparam int Exhaustive = 2 ** DataBits;
   localparam int Scaled = BUDGET / ClksPerBit;
-  localparam int Values = (BUDGET == 0 || Scaled >= Exhaustive) ? Exhaustive :
-      (Scaled < 16) ? 16 : Scaled;
+  localparam int Values = value_count(BUDGET, Scaled, Exhaustive);
   localparam int Step = Exhaustive / Values;
   localparam int MinChecks = 40 * Values;
 
