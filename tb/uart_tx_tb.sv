@@ -2,17 +2,73 @@
 
 module uart_tx_tb ();
 
-  localparam int ClkDiv = 32;
+  localparam int MinChecks = 6;
+
+  int checks;
+  int errors;
+  int max_errors;
+  int live_errors;
+
+  uart_tx_bench core_bench ();
+
+  uart_tx_bench #(.CLK_DIV(32)) slow_bench ();
+
+  uart_tx_bench #(.DATA_BITS(7)) seven_bench ();
+
+  uart_tx_bench #(.DATA_BITS(9)) nine_bench ();
+
+  task automatic check_floor(input string name, input int got, input int floor);
+    if (got < floor)
+      $fatal(1, "TB UNDER-RAN: %s %0d checks, expected at least %0d", name, got, floor);
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    checks = core_bench.checks + slow_bench.checks + seven_bench.checks + nine_bench.checks;
+    errors = core_bench.errors + slow_bench.errors + seven_bench.errors + nine_bench.errors;
+    check_floor("core_bench", core_bench.checks, MinChecks);
+    check_floor("slow_bench", slow_bench.checks, MinChecks);
+    check_floor("seven_bench", seven_bench.checks, MinChecks);
+    check_floor("nine_bench", nine_bench.checks, MinChecks);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
+
+  initial begin
+    $dumpfile("uart_tx_tb.vcd");
+    $dumpvars(0, uart_tx_tb);
+    wait (core_bench.done && slow_bench.done && seven_bench.done && nine_bench.done);
+    do_verdict();
+  end
+
+  always_comb
+    live_errors = core_bench.errors + slow_bench.errors + seven_bench.errors + nine_bench.errors;
+
+  initial begin
+    if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
+      wait (live_errors >= max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches", live_errors);
+    end
+  end
+
+endmodule
+
+module uart_tx_bench #(
+    parameter int CLK_DIV   = arch_pkg::ClkDiv,
+    parameter int DATA_BITS = arch_pkg::UartDataBits
+) ();
+
+  localparam int ClkDiv = CLK_DIV;
   localparam int ClkFreqHz = arch_pkg::BoardClkHz / ClkDiv;
   localparam int BaudRate = arch_pkg::BaudRate;
-  localparam int DataBits = 8;
+  localparam int DataBits = DATA_BITS;
   localparam int BitFast = ((ClkFreqHz + BaudRate / 2) / BaudRate) * ClkDiv;
-  localparam int MinChecks = 6;
   localparam int TimeoutCycles = 8 * (DataBits + 2) * BitFast;
 
   int checks = 0;
   int errors = 0;
   int max_errors = 0;
+  logic done = 1'b0;
 
   logic clk = 1'b0;
   logic core_en;
@@ -48,7 +104,7 @@ module uart_tx_tb ();
     checks++;
     if (got !== exp) begin
       errors++;
-      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      $display("FAIL %m %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
   endtask  // Automatic
@@ -106,12 +162,9 @@ module uart_tx_tb ();
     $fatal(1, "TIMEOUT: %0d cycles", cycles);
   endtask  // Automatic
 
-  task automatic do_verdict();
-    if (checks < MinChecks)
-      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
-    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
-    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $finish;
+  task automatic finish();
+    @(negedge clk);
+    done = 1'b1;
   endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
@@ -119,12 +172,10 @@ module uart_tx_tb ();
   initial watchdog(TimeoutCycles);
 
   initial begin
-    $dumpfile("uart_tx_tb.vcd");
-    $dumpvars(0, uart_tx_tb);
     do_reset();
     check_idle();
     stream_bytes();
-    do_verdict();
+    finish();
   end
 
 endmodule
