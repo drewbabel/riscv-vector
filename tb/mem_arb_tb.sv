@@ -2,7 +2,7 @@
 
 module mem_arb_tb ();
 
-  localparam int MinChecks = 15500;
+  localparam int MinChecks = 14650 + 330 * cache_pkg::LineWords;
 
   int checks;
   int errors;
@@ -58,6 +58,7 @@ module mem_arb_bench
   localparam int Xlen = arch_pkg::XLEN;
   localparam int AppAddrW = APP_ADDR_WIDTH;
   localparam int MaskW = LineBits / 8;
+  localparam int Second = (LineWords > 1) ? 1 : 0;
   localparam int MemLines = 1024;
   localparam int QDepth = 8;
   localparam int RdLat = 12;
@@ -286,13 +287,23 @@ module mem_arb_bench
     @(negedge clk);
   endtask  // Automatic
 
+  function automatic int word_of(input logic [Xlen-1:0] a);
+    return int'(a >> WordLsb) % LineWords;
+  endfunction
+
+  function automatic logic [LineBits-1:0] with_word(input logic [LineBits-1:0] l, input int i,
+                                                    input logic [Xlen-1:0] w);
+    with_word = l;
+    with_word[i*Xlen+:Xlen] = w;
+  endfunction
+
   task automatic dc_word_write(input logic [Xlen-1:0] addr, input logic [WordBytes-1:0] strb,
                                input logic [Xlen-1:0] data);
     dc_req_valid = 1'b1;
     dc_req_rw    = 1'b1;
     dc_req_addr  = addr;
     dc_req_wdata = {LineWords{data}};
-    dc_req_wstrb = MaskW'(strb) << (WordBytes * addr[WordLsb+:BlkOffLen]);
+    dc_req_wstrb = MaskW'(strb) << (WordBytes * word_of(addr));
     wait_dc();
     dc_req_valid = 1'b0;
     dc_req_wstrb = '0;
@@ -376,9 +387,9 @@ module mem_arb_bench
       dc_write(Xlen'('h500), line_seq(Xlen'('hABAB_0000)));
       want = line_seq(Xlen'('hABAB_0000));
       for (int b = 0; b < WordBytes; b++) begin
-        if (strobes[s][b]) want[Xlen+b*8+:8] = byte_ramp(b);
+        if (strobes[s][b]) want[Second*Xlen+b*8+:8] = byte_ramp(b);
       end
-      dc_word_write(Xlen'('h504), strobes[s], word_ramp());
+      dc_word_write(Xlen'('h500) + Xlen'(Second * WordBytes), strobes[s], word_ramp());
       check_dc($sformatf("data cache word write ignored byte strobe %b", strobes[s]), Xlen'('h500),
                want);
     end
@@ -457,9 +468,9 @@ module mem_arb_bench
       d = line_seq(Xlen'('h6666_0000) + Xlen'(L));
       dc_write(a, d);
       check_ic($sformatf("read after write reads back wrong at a read latency of %0d", L), a, d);
-      boot_word(a + Xlen'(WordBytes), Xlen'('h7777_0000) + Xlen'(L));
-      check_dc($sformatf("boot word write did not land at a read latency of %0d", L), a, {
-               d[LineBits-1:2*Xlen], Xlen'('h7777_0000) + Xlen'(L), d[Xlen-1:0]});
+      boot_word(a + Xlen'(WordBytes * Second), Xlen'('h7777_0000) + Xlen'(L));
+      check_dc($sformatf("boot word write did not land at a read latency of %0d", L), a, with_word(
+               d, Second, Xlen'('h7777_0000) + Xlen'(L)));
     end
     rd_lat = RdLat;
   endtask  // Automatic
@@ -480,9 +491,8 @@ module mem_arb_bench
       check($sformatf("boot word address truncated above the old block ram cap, %h", highs[h]),
             LineBits'(last_wr_addr), LineBits'({highs[h][AppAddrW-1:IdxLsb], {IdxLsb{1'b0}}}));
       ic_read(highs[h], got);
-      check($sformatf("boot word write did not land at %h", highs[h]),
-            LineBits'(got[highs[h][WordLsb+:BlkOffLen]*Xlen+:Xlen]),
-            LineBits'(Xlen'('hB007_0000) + Xlen'(h)));
+      check($sformatf("boot word write did not land at %h", highs[h]), LineBits'(got[word_of(
+            highs[h])*Xlen+:Xlen]), LineBits'(Xlen'('hB007_0000) + Xlen'(h)));
     end
   endtask  // Automatic
 
