@@ -72,7 +72,7 @@ package opcode_pkg;
   localparam logic [ImmSrcW-1:0] ImmU = 3'd3;
   localparam logic [ImmSrcW-1:0] ImmJ = 3'd4;
 
-  // Operand A select
+  // Operand select
   localparam int SrcAW = 2;
   localparam logic [SrcAW-1:0] SrcARs1 = 2'd0;
   localparam logic [SrcAW-1:0] SrcAPc = 2'd1;
