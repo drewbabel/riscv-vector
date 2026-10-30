@@ -2,49 +2,44 @@
 
 module hazard_unit_formal ();
 
-  localparam int XLEN = arch_pkg::XLEN;
+  localparam int RegAddrW = arch_pkg::RegAddrW;
 
   localparam logic [1:0] FwdNone = 2'b00;
   localparam logic [1:0] FwdMem = 2'b01;
   localparam logic [1:0] FwdWb = 2'b10;
   localparam logic [1:0] ResMem = 2'd1;
 
-  logic       clk;
-  logic       core_en;
-  logic       rst_n;
-  logic [4:0] rs1_id;
-  logic [4:0] rs2_id;
-  logic [4:0] rs1_ex;
-  logic [4:0] rs2_ex;
-  logic [4:0] rd_id;
-  logic [4:0] rd_ex;
-  logic [4:0] rd_mem;
-  logic [4:0] rd_wb;
-  logic       reg_write_ex;
-  logic       reg_write_mem;
-  logic       reg_write_wb;
-  logic       mem_write_ex;
-  logic [1:0] result_src_ex;
-  logic [1:0] result_src_mem;
-  logic [1:0] result_src_wb;
-  logic       stall;
-  logic [1:0] forward_a;
-  logic [1:0] forward_b;
+  logic                clk;
+  logic [RegAddrW-1:0] rs1_id;
+  logic [RegAddrW-1:0] rs2_id;
+  logic [RegAddrW-1:0] rs1_ex;
+  logic [RegAddrW-1:0] rs2_ex;
+  logic [RegAddrW-1:0] rd_id;
+  logic [RegAddrW-1:0] rd_ex;
+  logic [RegAddrW-1:0] rd_mem;
+  logic [RegAddrW-1:0] rd_wb;
+  logic                reg_write_ex;
+  logic                reg_write_mem;
+  logic                reg_write_wb;
+  logic [         1:0] result_src_ex;
+  logic                stall;
+  logic [         1:0] forward_a;
+  logic [         1:0] forward_b;
 
   localparam int FpRegs = arch_pkg::NumRegs;
 
-  logic              fp_op_id;
-  logic              frs1_read_id;
-  logic              frs2_read_id;
-  logic              frs3_read_id;
-  logic              frd_write_id;
-  logic [       4:0] rs3_id;
-  logic [FpRegs-1:0] fp_busy;
-  logic              frd_write_ex;
-  logic              frd_write_mem;
-  logic              frm_write_ex;
-  logic              load_use;
-  logic              fp_dep;
+  logic                fp_op_id;
+  logic                frs1_read_id;
+  logic                frs2_read_id;
+  logic                frs3_read_id;
+  logic                frd_write_id;
+  logic [RegAddrW-1:0] rs3_id;
+  logic [  FpRegs-1:0] fp_busy;
+  logic                frd_write_ex;
+  logic                frd_write_mem;
+  logic                frm_write_ex;
+  logic                load_use;
+  logic                fp_dep;
 
   hazard_unit dut (
       .rs1_id       (rs1_id),
