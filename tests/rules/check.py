@@ -632,6 +632,32 @@ def imports(u):
     return pk
 
 
+INSTANCES = {}
+
+
+def instances(u, module):
+    key = (u.path, module)
+    if key in INSTANCES:
+        return INSTANCES[key]
+    out = INSTANCES[key] = set()
+    toks = u.tokens
+    for i, t in enumerate(toks):
+        if not ident(t) or t["text"] != module:
+            continue
+        j = i + 1
+        if j < len(toks) and toks[j].get("tag") == "#":
+            depth = 0
+            for j in range(i + 2, len(toks)):
+                tag = toks[j].get("tag")
+                depth += (tag == "(") - (tag == ")")
+                if depth == 0:
+                    break
+            j += 1
+        if j < len(toks) and ident(toks[j]):
+            out.add(toks[j]["text"])
+    return out
+
+
 def rule_consts(units, rep):
     decls = [d for u in units for d in u.params()]
     qualified = {}
@@ -666,6 +692,18 @@ def rule_consts(units, rep):
                     continue
                 reads += sum(
                     1 for t in v.tokens if ident(t) and t["text"] == name
+                )
+        else:
+            for v in units:
+                insts = instances(v, d["scope_name"])
+                toks = v.tokens
+                reads += sum(
+                    1
+                    for i in range(2, len(toks))
+                    if ident(toks[i])
+                    and toks[i]["text"] == name
+                    and toks[i - 1].get("tag") == "."
+                    and toks[i - 2].get("text") in insts
                 )
         if reads or (d["header"] and u.path.startswith("tb/")):
             continue
@@ -1196,16 +1234,27 @@ def rule_bench_semantic(path, rep, tmp):
     if v is None:
         rep.add(path, 1, 1, "bench-verdict", "no do_verdict task")
     else:
-        names = [s.split(" ", 1)[-1] for s in named_symbols(v)]
-        strings = []
+        calls = []
         jwalk(
             v,
             lambda x: (
-                strings.append(str(x.get("literal", x.get("value", ""))))
-                if x.get("kind") == "StringLiteral"
+                calls.append(str(x.get("subroutine", "")).split(" ", 1)[-1])
+                if x.get("kind") == "Call"
                 else None
             ),
         )
+        scope = [v] + [own[c] for c in dict.fromkeys(calls) if c in own]
+        names = [s.split(" ", 1)[-1] for b in scope for s in named_symbols(b)]
+        strings = []
+        for b in scope:
+            jwalk(
+                b,
+                lambda x: (
+                    strings.append(str(x.get("literal", x.get("value", ""))))
+                    if x.get("kind") == "StringLiteral"
+                    else None
+                ),
+            )
         where = (v["source_line"], v["source_column"])
         if not floors:
             rep.add(path, *where, "bench-verdict", "no MinChecks localparam")
