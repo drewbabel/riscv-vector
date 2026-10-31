@@ -5043,8 +5043,7 @@ module vec_unit_tb
         for (int v = 0; v < 2; v++) begin
           vstart_set = 1'(v);
           @(negedge clk);
-          check($sformatf("class %0d with vstart set %0d", k, v), XLEN'(is_vector),
-                XLEN'((k >= 14) || (v == 0)));
+          check($sformatf("class %0d with vstart set %0d", k, v), XLEN'(is_vector), XLEN'(v == 0));
         end
       end
       vstart_set = 1'b0;
