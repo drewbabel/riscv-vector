@@ -25,6 +25,7 @@ board_top        board_top           arch_pkg::ELEN=64                        ex
 board_top        board_top           arch_pkg::MulLanes=2
 board_top        board_top           DEPTH=1024,ClkDiv=32
 board_top        board_top           arch_pkg::BoardClkHz=200000000
+board_top        board_top           arch_pkg::BoardClkHz=50000000
 board_top        board_top           arch_pkg::MemLatency=5
 btb              btb                 -
 btb              btb                 arch_pkg::XLEN=64

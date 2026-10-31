@@ -15,9 +15,25 @@ module uart_rx #(
     output logic rx_error
 );
 
-  // (A+B/2)/B ensures correctly rounded
-  localparam int ClksPerBit = (CLK_FREQ_HZ + BAUD_RATE / 2) / BAUD_RATE;
-  localparam int ClksPerOversample = (ClksPerBit + OVERSAMPLE / 2) / OVERSAMPLE;
+  function automatic int gcd(input int a, input int b);
+    int t;
+    while (b != 0) begin
+      t = a % b;
+      a = b;
+      b = t;
+    end
+    return a;
+  endfunction
+
+  localparam int TickRate = OVERSAMPLE * BAUD_RATE;
+  localparam int TickGcd = gcd(CLK_FREQ_HZ, TickRate);
+  localparam int TickDen = CLK_FREQ_HZ / TickGcd;
+  localparam int TickStep = TickRate / TickGcd;
+  localparam int AccW = $clog2(TickDen) + 1;
+
+  if (CLK_FREQ_HZ < TickRate) begin : g_clk_freq
+    $error("CLK_FREQ_HZ must be at least OVERSAMPLE * BAUD_RATE");
+  end
 
   typedef enum logic [1:0] {
     IDLE,
@@ -41,15 +57,19 @@ module uart_rx #(
       .q(in)
   );
 
-  tick_gen #(
-      .DIVISOR(ClksPerOversample)
-  ) oversample_tick (
-      .clk(clk),
-      .core_en(core_en),
-      .rst_n(rst_n),
-      .clr(tick_clr),
-      .tick(tick)
-  );
+  logic [AccW-1:0] acc;
+  logic [AccW-1:0] acc_sum;
+
+  assign acc_sum = acc + AccW'(TickStep);
+  assign tick = acc_sum >= AccW'(TickDen);
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) acc <= '0;
+    else if (core_en) begin
+      if (tick_clr) acc <= '0;
+      else acc <= tick ? acc_sum - AccW'(TickDen) : acc_sum;
+    end
+  end
 
   always_ff @(posedge clk)
     if (core_en) begin
