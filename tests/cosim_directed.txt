@@ -1,0 +1,35 @@
+cosim_m
+--vec vecconf
+--vec vecmem
+--vec vectrap
+--vec vecmemcpy
+--vec vecmix
+--vec vecmask
+--vec vecalu
+--vec vecmul
+--vec vecsat
+--vec vecdiv
+--vec vecxres
+--fp cosim_f
+--vec --fp vecfp
+--vec --fp vecfmv
+--vec --fp vecfmvdiv
+--vec --fp vecfred
+--vec --fp vecfsum
+--vec --fp vecfunary
+--vec --fp vecslide
+--vec --fp vecfdiv
+--vec --fp vecfcvt
+--vec --fp vecfcvtw
+--fp --vec cosim_fls
+--vec --fp vecfrac
+--vec --fp vecfarith
+--vec --fp vecfminmax
+--vec --fp vecffma
+--vec --fp vecfredall
+--vec --fp vecfmove
+--vec --fp vecfround
+--vec --fp vecffrm
+--vec --fp vecfwtrap
+--vec --fp vecve64
+systrap

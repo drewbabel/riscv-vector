@@ -4,41 +4,50 @@ module fp_decode
   import fp_pkg::*;
   import opcode_pkg::*;
 (
-    input  wire      [31:0] instr,
-    input  wire      [ 2:0] frm,
-    output logic            is_fp,
-    output logic            illegal,
-    output fp_unit_e        unit,
-    output logic            frs1_read,
-    output logic            frs2_read,
-    output logic            frs3_read,
-    output logic            frd_write,
-    output logic            xrd_write,
-    output logic            xrs1_read,
-    output logic     [ 2:0] rm,
-    output logic            sub,
-    output logic            neg_prod,
-    output logic            neg_add,
-    output logic            to_int,
-    output logic            is_unsigned,
-    output logic            sqrt,
-    output logic     [ 4:0] funct5,
-    output logic     [ 2:0] funct3
+    input  wire      [arch_pkg::ILEN-1:0] instr,
+    input  wire      [           RmW-1:0] frm,
+    output logic                          is_fp,
+    output logic                          illegal,
+    output fp_unit_e                      unit,
+    output logic                          frs1_read,
+    output logic                          frs2_read,
+    output logic                          frs3_read,
+    output logic                          frd_write,
+    output logic                          xrd_write,
+    output logic                          xrs1_read,
+    output logic     [           RmW-1:0] rm,
+    output logic                          sub,
+    output logic                          neg_prod,
+    output logic                          neg_add,
+    output logic                          to_int,
+    output logic                          is_unsigned,
+    output logic                          sqrt,
+    output logic     [               4:0] funct5,
+    output logic     [               2:0] funct3
 );
 
-  logic [6:0] opcode;
-  logic [1:0] fmt;
-  logic [4:0] rs2;
+  logic [               6:0] opcode;
+  logic [               1:0] fmt;
+  logic [$bits(Rs2Zero)-1:0] rs2;
 
-  logic [2:0] rm_eff;
-  logic       rm_ok;
-  logic       legal;
+  logic [           RmW-1:0] rm_eff;
+  logic                      rm_ok;
+  logic                      rs2_zero;
+  logic                      rs2_cvt_ok;
+  logic                      rs2_cvt_wu;
+  logic                      legal;
+  logic                      unused_regs;
+
+  assign unused_regs = ^{instr[19:15], instr[11:7]};
 
   assign opcode = instr[6:0];
   assign funct5 = instr[31:27];
   assign fmt = instr[26:25];
   assign rs2 = instr[24:20];
   assign funct3 = instr[14:12];
+  assign rs2_zero = (rs2 == Rs2Zero);
+  assign rs2_cvt_wu = (rs2 == Rs2CvtWu);
+  assign rs2_cvt_ok = (rs2 == Rs2CvtW) || rs2_cvt_wu;
 
   assign rm_eff = (funct3 == RmDyn) ? frm : funct3;
   assign rm_ok = (rm_eff <= RmRmm);
@@ -55,7 +64,7 @@ module fp_decode
     frd_write   = 1'b0;
     xrd_write   = 1'b0;
     xrs1_read   = 1'b0;
-    rm          = 3'b000;
+    rm          = RmRne;
     sub         = 1'b0;
     neg_prod    = 1'b0;
     neg_add     = 1'b0;
@@ -138,7 +147,7 @@ module fp_decode
             end
 
             Funct5Fsqrt: begin
-              if ((rs2 == Rs2Zero) && rm_ok) begin
+              if (rs2_zero && rm_ok) begin
                 legal     = 1'b1;
                 unit      = FP_DIV_SQRT;
                 frs1_read = 1'b1;
@@ -180,35 +189,35 @@ module fp_decode
             end
 
             Funct5FcvtWS: begin
-              if (((rs2 == Rs2CvtW) || (rs2 == Rs2CvtWu)) && rm_ok) begin
+              if (rs2_cvt_ok && rm_ok) begin
                 legal       = 1'b1;
                 unit        = FP_CVT;
                 frs1_read   = 1'b1;
                 xrd_write   = 1'b1;
                 rm          = rm_eff;
                 to_int      = 1'b1;
-                is_unsigned = (rs2 == Rs2CvtWu);
+                is_unsigned = rs2_cvt_wu;
               end
             end
 
             Funct5FcvtSW: begin
-              if (((rs2 == Rs2CvtW) || (rs2 == Rs2CvtWu)) && rm_ok) begin
+              if (rs2_cvt_ok && rm_ok) begin
                 legal       = 1'b1;
                 unit        = FP_CVT;
                 xrs1_read   = 1'b1;
                 frd_write   = 1'b1;
                 rm          = rm_eff;
-                is_unsigned = (rs2 == Rs2CvtWu);
+                is_unsigned = rs2_cvt_wu;
               end
             end
 
             Funct5FmvXW: begin
-              if ((rs2 == Rs2Zero) && (funct3 == Funct3Fmv)) begin
+              if (rs2_zero && (funct3 == Funct3Fmv)) begin
                 legal     = 1'b1;
                 unit      = FP_MV_X_W;
                 frs1_read = 1'b1;
                 xrd_write = 1'b1;
-              end else if ((rs2 == Rs2Zero) && (funct3 == Funct3Fclass)) begin
+              end else if (rs2_zero && (funct3 == Funct3Fclass)) begin
                 legal     = 1'b1;
                 unit      = FP_MISC;
                 frs1_read = 1'b1;
@@ -217,7 +226,7 @@ module fp_decode
             end
 
             Funct5FmvWX: begin
-              if ((rs2 == Rs2Zero) && (funct3 == Funct3Fmv)) begin
+              if (rs2_zero && (funct3 == Funct3Fmv)) begin
                 legal     = 1'b1;
                 unit      = FP_MV_W_X;
                 xrs1_read = 1'b1;

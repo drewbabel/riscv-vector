@@ -6,7 +6,9 @@ module mem_word_if
     parameter  int XLEN     = arch_pkg::XLEN,
     parameter  bit RW       = 1'b0,
     parameter  int CPU_W    = XLEN,
-    localparam int CpuBytes = CPU_W / 8
+    localparam int CpuBytes = CPU_W / 8,
+    localparam int CpuLsb   = $clog2(CpuBytes),
+    localparam int LaneW    = $clog2(LineBits / CPU_W)
 ) (
     input wire clk,
     input wire core_en,
@@ -31,8 +33,8 @@ module mem_word_if
     input  wire                  mem_ready,
 
     // Counters
-    output logic [31:0] hit_count,
-    output logic [31:0] miss_count
+    output logic [XLEN-1:0] hit_count,
+    output logic [XLEN-1:0] miss_count
 );
 
   typedef enum logic {
@@ -42,20 +44,28 @@ module mem_word_if
 
   state_t state, next_state;
 
-  logic [     XLEN-1:0] req_addr;
-  logic [    CPU_W-1:0] req_wdata;
-  logic [ CpuBytes-1:0] req_wstrb;
-  logic [  BlkOffLen:0] lane;
-  logic                 req_rw;
-  logic [BlkOffLen-1:0] req_word;
-  logic                 done;
+  if ((CPU_W > LineBits) || (LineBits % CPU_W != 0)) begin : g_cpu_w
+    $error("CPU_W must divide the line");
+  end
 
-  assign req_word  = req_addr[IdxLsb-1 : WordLsb];
-  assign done      = (state == ACCESS) && mem_ready;
+  logic [    XLEN-1:0] req_addr;
+  logic [   CPU_W-1:0] req_wdata;
+  logic [CpuBytes-1:0] req_wstrb;
+  logic [     LaneW:0] lane;
+  logic                req_rw;
+  logic                done;
+
+  assign done = (state == ACCESS) && mem_ready;
+
+  // Lane within line
+  if (LaneW > 0) begin : g_lane
+    assign lane = {1'b0, req_addr[CpuLsb+:LaneW]};
+  end else begin : g_line_lane
+    assign lane = '0;
+  end
 
   // Response cycle only
   assign cpu_ready = done;
-  assign lane      = (CPU_W == LineBits) ? '0 : {1'b0, req_word};
   assign cpu_rdata = CPU_W'(mem_rdata >> (lane * CPU_W));
 
   assign mem_valid = (state == ACCESS);

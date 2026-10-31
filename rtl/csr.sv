@@ -3,10 +3,15 @@
 module csr
   import csr_pkg::*;
 #(
-    parameter  int XLEN    = arch_pkg::XLEN,
-    parameter  int VLEN    = arch_pkg::VLEN,
-    localparam int VlW     = $clog2(VLEN + 1),
-    localparam int VstartW = $clog2(VLEN)
+    parameter  int XLEN     = arch_pkg::XLEN,
+    parameter  int VLEN     = arch_pkg::VLEN,
+    localparam int VlW      = $clog2(VLEN + 1),
+    localparam int VstartW  = $clog2(VLEN),
+    localparam int RegAddrW = arch_pkg::RegAddrW,
+    localparam int Funct3W  = opcode_pkg::Funct3W,
+    localparam int InstrLsb = arch_pkg::InstrLsb,
+    localparam int FlagW    = fp_pkg::FlagW,
+    localparam int RmW      = fp_pkg::RmW
 ) (
 `ifdef RISCV_FORMAL
     output logic [   XLEN-1:0] dbg_csr_wdata,
@@ -25,7 +30,7 @@ module csr
     output logic [        7:0] dbg_vtype_bits,
     output logic               dbg_vtype_ill,
     output logic [VstartW-1:0] dbg_vstart,
-    output logic [        4:0] dbg_fflags,
+    output logic [  FlagW-1:0] dbg_fflags,
 `endif
     input  wire                clk,
     input  wire                core_en,
@@ -33,11 +38,11 @@ module csr
     input  wire                rst_n,
 
     // Zicsr access
-    input wire            csr_access,
-    input wire [    11:0] csr_addr,
-    input wire [     2:0] funct3,
-    input wire [XLEN-1:0] rs1_data,
-    input wire [     4:0] zimm,
+    input wire                csr_access,
+    input wire [CsrAddrW-1:0] csr_addr,
+    input wire [ Funct3W-1:0] funct3,
+    input wire [    XLEN-1:0] rs1_data,
+    input wire [RegAddrW-1:0] zimm,
 
     // Trapped-instruction context
     input wire [XLEN-1:0] pc,
@@ -67,30 +72,34 @@ module csr
 
     // Vector configuration
     input  wire             is_vset,
-    input  wire  [ VlW-1:0] vl_d,
-    input  wire  [XLEN-1:0] vtype_d,
+    input  wire  [ VlW-1:0] vl_next,
+    input  wire  [XLEN-1:0] vtype_next,
     input  wire             is_vec_instr,
     output logic [ VlW-1:0] vl_q,
     output logic [XLEN-1:0] vtype_q,
 
     // Fixed-point control
-    input  wire  [     1:0] vec_vxrm,
-    input  wire             vec_vxsat,
-    output logic            vec_csr_we,
-    output logic [    11:0] vec_csr_waddr,
-    output logic [XLEN-1:0] vec_csr_wdata,
+    input  wire  [   VxrmW-1:0] vec_vxrm,
+    input  wire                 vec_vxsat,
+    output logic                vec_csr_we,
+    output logic [CsrAddrW-1:0] vec_csr_waddr,
+    output logic [    XLEN-1:0] vec_csr_wdata,
 
     // Floating-point control
-    input  wire        is_fp_instr,
-    input  wire        fp_state_we,
-    input  wire        fp_flags_we,
-    input  wire  [4:0] fp_flags,
-    input  wire        fp_wb_flags_we,
-    input  wire  [4:0] fp_wb_flags,
-    input  wire  [4:0] vec_fflags,
-    output logic [2:0] frm_q,
-    output logic       vstart_set
+    input  wire              is_fp_instr,
+    input  wire              fp_state_we,
+    input  wire              fp_flags_we,
+    input  wire  [FlagW-1:0] fp_flags,
+    input  wire              fp_wb_flags_we,
+    input  wire  [FlagW-1:0] fp_wb_flags,
+    input  wire  [FlagW-1:0] vec_fflags,
+    output logic [  RmW-1:0] frm_q,
+    output logic             vstart_set
 );
+
+  if (XLEN != 32) begin : g_xlen
+    $error("csr implements RV32 only");
+  end
 
   logic [   XLEN-1:0] mstatus;
   logic [   XLEN-1:0] mtvec;
@@ -110,13 +119,15 @@ module csr
   logic               vtype_ill;
   logic [VstartW-1:0] vstart;
 
-  logic [        4:0] fflags;
-  logic [        2:0] frm;
+  logic [  FlagW-1:0] fflags;
+  logic [    RmW-1:0] frm;
 
   logic [   XLEN-1:0] mstatus_read;
   logic               vec_csr_addr;
   logic               fp_csr_addr;
   logic               exc_ro_write;
+  logic [ CsrRoW-1:0] csr_access_bits;
+  logic [   XLEN-1:0] mtvec_base;
   logic               exc_vs_off;
   logic               exc_fs_off;
   logic               illegal_any;
@@ -128,8 +139,10 @@ module csr
   logic               timer_ready;
   logic               ext_ready;
 
-  assign csr_wsrc  = (funct3[2]) ? {{(XLEN - 5) {1'b0}}, zimm} : rs1_data;
+  assign csr_wsrc = (funct3[2]) ? XLEN'(zimm) : rs1_data;
   assign csr_write = !funct3[1] || zimm != 0;
+  assign csr_access_bits = csr_addr[CsrAddrW-1-:CsrRoW];
+  assign mtvec_base = {mtvec[XLEN-1:MtvecModeW], MtvecModeW'(0)};
   always_comb begin
     case (funct3)
       Funct3Csrrw, Funct3Csrrwi: csr_wdata = csr_wsrc;
@@ -144,12 +157,12 @@ module csr
       exc_load_misaligned | exc_store_misaligned | timer_ready | ext_ready;
   // Reject if trap, or if set/clear with zero source
   assign csr_write_en = csr_access && !trap_taken && csr_write;
-  assign trap_vector = {mtvec[XLEN-1:2], 2'b00};  // Divide by 4 = remove last 2 bits
+  assign trap_vector = mtvec_base;
   assign mret_taken = is_mret;
   assign mepc_out = mepc;
 
   assign vl_q = vl;
-  assign vtype_q = vtype_ill ? {1'b1, {XLEN - 1{1'b0}}} : {{XLEN - 8{1'b0}}, vtype_bits};
+  assign vtype_q = vtype_ill ? {1'b1, {XLEN - 1{1'b0}}} : XLEN'(vtype_bits);
   assign frm_q = frm;
   assign vstart_set = vstart != '0;
   assign mstatus_read = mstatus | (XLEN'((mstatus[MstatusVsLo+1:MstatusVsLo] == VsDirty) ||
@@ -162,7 +175,7 @@ module csr
       ((csr_addr == VxsatAddr) || (csr_addr == VxrmAddr) || (csr_addr == VcsrAddr));
   assign vec_csr_waddr = csr_addr;
   assign vec_csr_wdata = csr_wdata;
-  assign exc_ro_write = csr_access && (csr_addr[11:10] == 2'b11) && csr_write;
+  assign exc_ro_write = csr_access && (csr_access_bits == CsrRoAccess) && csr_write;
   assign exc_vs_off = (is_vec_instr || (csr_access && vec_csr_addr)) &&
       (mstatus[MstatusVsLo+1:MstatusVsLo] == VsOff);
   assign exc_fs_off = (is_fp_instr || (csr_access && fp_csr_addr)) &&
@@ -192,15 +205,15 @@ module csr
       McyclehAddr: csr_rdata = mcycleh;
       MinstrethAddr: csr_rdata = minstreth;
       VlAddr: csr_rdata = {{XLEN - VlW{1'b0}}, vl};
-      VtypeAddr: csr_rdata = vtype_ill ? {1'b1, {XLEN - 1{1'b0}}} : {{XLEN - 8{1'b0}}, vtype_bits};
+      VtypeAddr: csr_rdata = vtype_q;
       VlenbAddr: csr_rdata = XLEN'(VLEN / 8);
       VstartAddr: csr_rdata = {{XLEN - VstartW{1'b0}}, vstart};
       VxsatAddr: csr_rdata = {{XLEN - 1{1'b0}}, vec_vxsat};
-      VxrmAddr: csr_rdata = {{XLEN - 2{1'b0}}, vec_vxrm};
-      VcsrAddr: csr_rdata = {{XLEN - 3{1'b0}}, vec_vxrm, vec_vxsat};
-      FflagsAddr: csr_rdata = {{XLEN - 5{1'b0}}, fflags};
-      FrmAddr: csr_rdata = {{XLEN - 3{1'b0}}, frm};
-      FcsrAddr: csr_rdata = {{XLEN - 8{1'b0}}, frm, fflags};
+      VxrmAddr: csr_rdata = XLEN'(vec_vxrm);
+      VcsrAddr: csr_rdata = XLEN'({vec_vxrm, vec_vxsat});
+      FflagsAddr: csr_rdata = XLEN'(fflags);
+      FrmAddr: csr_rdata = XLEN'(frm);
+      FcsrAddr: csr_rdata = XLEN'({frm, fflags});
       default: csr_rdata = '0;
     endcase
   end
@@ -235,7 +248,7 @@ module csr
       minstret   <= '0;
       minstreth  <= '0;
       vl         <= '0;
-      vtype_bits <= 8'b0;
+      vtype_bits <= '0;
       vtype_ill  <= 1'b1;
       vstart     <= '0;
       frm        <= '0;
@@ -279,9 +292,9 @@ module csr
           mstatus[MstatusMpie] <= 1'b1;
         end
         if (is_vset) begin  // store vec_config computation on config instr
-          vl <= vl_d;
-          vtype_bits <= vtype_d[7:0];
-          vtype_ill <= vtype_d[XLEN-1];
+          vl <= vl_next;
+          vtype_bits <= vtype_next[$bits(vtype_bits)-1:0];
+          vtype_ill <= vtype_next[XLEN-1];
         end
         if (is_vec_instr) begin
           vstart <= '0;  // Clear on vector finish
@@ -305,15 +318,15 @@ module csr
           MieAddr:       mie <= csr_wdata;
           MtvecAddr:     mtvec <= csr_wdata;
           MscratchAddr:  mscratch <= csr_wdata;
-          MepcAddr:      mepc <= {csr_wdata[XLEN-1:2], 2'b00};  // mepc word aligned
+          MepcAddr:      mepc <= {csr_wdata[XLEN-1:InstrLsb], InstrLsb'(0)};  // mepc word aligned
           McauseAddr:    mcause <= csr_wdata;
           MtvalAddr:     mtval <= csr_wdata;
           // Read only
           MipAddr:       mip <= csr_wdata & ~(XLEN'(1) << Mtip) & ~(XLEN'(1) << Meip);
           MinstretAddr:  minstret <= csr_wdata;
           MinstrethAddr: minstreth <= csr_wdata;
-          FrmAddr:       frm <= csr_wdata[2:0];
-          FcsrAddr:      frm <= csr_wdata[7:5];
+          FrmAddr:       frm <= csr_wdata[RmW-1:0];
+          FcsrAddr:      frm <= csr_wdata[FlagW+:RmW];
           default:       ;
         endcase
       end
@@ -322,15 +335,19 @@ module csr
     end
   end
 
+  logic [FlagW-1:0] fp_wb_flags_live;
+  logic [FlagW-1:0] fp_flags_live;
+  assign fp_wb_flags_live = fp_wb_flags & {FlagW{fp_wb_flags_we}};
+  assign fp_flags_live = fp_flags & {FlagW{core_en && !trap_taken && fp_flags_we}};
+
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       fflags <= '0;
     end else if (cycle_en) begin
       if (core_en && csr_write_en && ((csr_addr == FflagsAddr) || (csr_addr == FcsrAddr))) begin
-        fflags <= csr_wdata[4:0];
+        fflags <= csr_wdata[FlagW-1:0];
       end else begin
-        fflags <= fflags | (fp_wb_flags_we ? fp_wb_flags : '0) | vec_fflags |
-            ((core_en && !trap_taken && fp_flags_we) ? fp_flags : '0);
+        fflags <= fflags | fp_wb_flags_live | vec_fflags | fp_flags_live;
       end
     end
   end

@@ -1,0 +1,17 @@
+rtl/*                opcode          [6:0]    RISC-V opcode field
+rtl/*                *funct3*        [2:0]    RISC-V funct3 field
+rtl/*                *funct5*        [4:0]    RISC-V F-extension funct5 field
+rtl/*                *csr_waddr      [11:0]   CSR address, 12 bits by the privileged spec
+rtl/*                *vtype_bits*    [7:0]    vtype fields vma vta vsew vlmul, 8 bits by the vector spec
+rtl/*                *nf             [2:0]    vector memory nf field, 3 bits by the vector spec
+rtl/*                *simm*          [4:0]    vector simm5 immediate, 5 bits by the vector spec
+rtl/*                funct6          [5:0]    vector funct6 field, 6 bits by the vector spec
+rtl/*                ld_byte         [7:0]    LB and LBU load 8 bits
+rtl/*                ld_half         [15:0]   LH and LHU load 16 bits
+rtl/fp_misc.sv       fclass          [9:0]    fclass result mask, 10 bits by the F spec
+rtl/mem.sv           bmem            [7:0]    byte-lane memory, a byte is 8 bits by the RISC-V base spec
+rtl/fp_rec7.sv       *               [6:0]    vfrec7 and vfrsqrt7 tables are 7 bits wide by the vector spec
+rtl/fp_rec7.sv       *_tab           [128]    vfrec7 and vfrsqrt7 tables have 128 entries by the vector spec
+rtl/boards/nexys_video/* ddr3_addr   [14:0]   Nexys Video DDR3 address pins
+rtl/boards/nexys_video/* ddr3_ba     [2:0]    Nexys Video DDR3 bank pins
+rtl/boards/nexys_video/* ddr3_dq     [15:0]   Nexys Video DDR3 data pins

@@ -1,7 +1,9 @@
 `default_nettype none
 
 module uart_ctrl #(
-    parameter int XLEN = arch_pkg::XLEN
+    parameter  int XLEN      = arch_pkg::XLEN,
+    parameter  int DATA_BITS = arch_pkg::UartDataBits,
+    localparam int WordLsb   = $clog2(XLEN / 8)
 ) (
     input wire clk,
     input wire core_en,
@@ -16,39 +18,51 @@ module uart_ctrl #(
     output logic [  XLEN-1:0] rdata,
 
     // Receiver
-    input wire       rx_valid,
-    input wire [7:0] rx_data,
+    input wire                 rx_valid,
+    input wire [DATA_BITS-1:0] rx_data,
 
     // Transmitter
-    input  wire        tx_ready,
-    output logic       tx_valid,
-    output logic [7:0] tx_data,
+    input  wire                  tx_ready,
+    output logic                 tx_valid,
+    output logic [DATA_BITS-1:0] tx_data,
 
     // Core
     output logic irq
 );
 
-  localparam logic [1:0] TxDataOff = 2'd0;
-  localparam logic [1:0] StatusOff = 2'd1;
-  localparam logic [1:0] RxDataOff = 2'd2;
-  localparam logic [1:0] CtrlOff   = 2'd3;
+  localparam int OffW = 2;
+  localparam logic [OffW-1:0] TxDataOff = 2'd0;
+  localparam logic [OffW-1:0] StatusOff = 2'd1;
+  localparam logic [OffW-1:0] RxDataOff = 2'd2;
+  localparam logic [OffW-1:0] CtrlOff = 2'd3;
 
-  logic [1:0] off;
-  logic       wr_stb;
-  logic       rd_stb;
-  logic       rx_take;
+  if (DATA_BITS > XLEN) begin : g_data_bits
+    $error("DATA_BITS must not exceed XLEN");
+  end
 
-  logic [7:0] rx_byte;
-  logic       rx_full;
-  logic       rx_overrun;
-  logic       rx_ie;
+  if (DATA_BITS < XLEN) begin : g_wdata_high
+    logic unused_wdata_high;
+    assign unused_wdata_high = ^wdata[XLEN-1:DATA_BITS];
+  end
 
-  assign off      = addr[3:2];
-  assign wr_stb   = core_en && sel && |wstrb;
-  assign rd_stb   = core_en && sel && req && !(|wstrb);
+  logic [     OffW-1:0] off;
+  logic                 wr_stb;
+  logic                 rd_stb;
+  logic                 rx_take;
 
-  assign tx_valid = wr_stb && (off == TxDataOff);
-  assign tx_data  = wdata[7:0];
+  logic [DATA_BITS-1:0] rx_byte;
+  logic                 rx_full;
+  logic                 rx_overrun;
+  logic                 rx_ie;
+  logic                 unused_addr;
+
+  assign off         = addr[WordLsb+:OffW];
+  assign unused_addr = ^{addr[XLEN-1:WordLsb+OffW], addr[WordLsb-1:0]};
+  assign wr_stb      = core_en && sel && |wstrb;
+  assign rd_stb      = core_en && sel && req && !(|wstrb);
+
+  assign tx_valid    = wr_stb && (off == TxDataOff);
+  assign tx_data     = wdata[DATA_BITS-1:0];
 
   always_comb begin
     case (off)

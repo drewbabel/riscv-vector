@@ -2,14 +2,16 @@
 
 module vec_config
   import opcode_pkg::*;
+  import vec_pkg::vec_group_elems;
 #(
     parameter  int XLEN = arch_pkg::XLEN,
     parameter  int VLEN = arch_pkg::VLEN,
     parameter  int ELEN = arch_pkg::ELEN,
-    localparam int VlW  = $clog2(VLEN + 1)
+    localparam int VlW  = $clog2(VLEN + 1),
+    localparam int ILEN = arch_pkg::ILEN
 ) (
     // Setting Request
-    input  wire  [XLEN-1:0] instr,
+    input  wire  [ILEN-1:0] instr,
     input  wire  [XLEN-1:0] rs1_data,
     input  wire  [XLEN-1:0] rs2_data,
     // Current setting
@@ -17,9 +19,13 @@ module vec_config
     input  wire  [XLEN-1:0] vtype_q,
     // Next setting
     output logic            is_vset,
-    output logic [ VlW-1:0] vl_d,
-    output logic [XLEN-1:0] vtype_d
+    output logic [ VlW-1:0] vl_next,
+    output logic [XLEN-1:0] vtype_next
 );
+
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
+  end
 
   // Widest legal SEW
   localparam logic [2:0] VsewMax = 3'($clog2(ELEN / 8));
@@ -31,9 +37,9 @@ module vec_config
   logic            vill;  // Request is nonsense
   logic            is_keep_vl;  // Keep across instrs
 
-  function automatic logic [VlW-1:0] vlmax_of(input logic [5:0] vtype);
-    return vtype[2] ? VlW'((VLEN >> (3 + vtype[5:3])) >> (4 - vtype[1:0])) :
-                      VlW'((VLEN >> (3 + vtype[5:3])) << vtype[1:0]);
+  function automatic logic [VlW-1:0] vlmax_of(
+      input logic [vec_pkg::VsewW+vec_pkg::VlmulW-1:0] vtype);
+    return VlW'(vec_group_elems(VLEN >> (3 + vtype[5:3]), vtype[2:0]));
   endfunction
 
   always_comb begin
@@ -86,14 +92,14 @@ module vec_config
 
     // Answer
     if (!is_vset) begin
-      vtype_d = vtype_q;
-      vl_d    = vl_q;
+      vtype_next = vtype_q;
+      vl_next    = vl_q;
     end else if (vill) begin
-      vtype_d = {1'b1, {XLEN - 1{1'b0}}};
-      vl_d    = '0;
+      vtype_next = {1'b1, {XLEN - 1{1'b0}}};
+      vl_next    = '0;
     end else begin
-      vtype_d = {{XLEN - 8{1'b0}}, vtype_arg[7:0]};
-      vl_d    = (avl < {{XLEN - VlW{1'b0}}, vlmax}) ? avl[VlW-1:0] : vlmax;
+      vtype_next = {{XLEN - 8{1'b0}}, vtype_arg[7:0]};
+      vl_next    = (avl < {{XLEN - VlW{1'b0}}, vlmax}) ? avl[VlW-1:0] : vlmax;
     end
   end
 

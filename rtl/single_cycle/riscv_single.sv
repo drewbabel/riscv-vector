@@ -7,13 +7,15 @@ module riscv_single
 #(
     parameter  int XLEN     = arch_pkg::XLEN,
     localparam int StrbW    = XLEN / 8,
-    localparam int ByteOffW = $clog2(StrbW)
+    localparam int ByteOffW = $clog2(StrbW),
+    localparam int InstrLsb = arch_pkg::InstrLsb,
+    localparam int ILEN     = arch_pkg::ILEN
 ) (
     input  wire              clk,
     input  wire              core_en,
     input  wire              cycle_en,
     input  wire              rst_n,
-    input  wire  [ XLEN-1:0] instr,
+    input  wire  [ ILEN-1:0] instr,
     input  wire  [ XLEN-1:0] read_data,
     input  wire              timer_irq,
     output logic [ XLEN-1:0] pc,
@@ -24,20 +26,24 @@ module riscv_single
     output logic [ XLEN-1:0] store_data
 );
 
-  logic [2:0] funct3;
+  if (XLEN != 32) begin : g_xlen
+    $error("riscv_single implements RV32 only");
+  end
+
+  logic [Funct3W-1:0] funct3;
   assign funct3 = instr[14:12];
-  logic [11:0] funct12;
+  logic [CsrAddrW-1:0] funct12;
   assign funct12 = instr[31:20];
-  logic [6:0] opcode;
+  logic [OpcodeW-1:0] opcode;
   assign opcode = instr[6:0];
 
   logic mem_write_raw;
   logic reg_write;
   logic reg_write_gated;
-  logic [2:0] imm_src;
-  logic [1:0] alu_a_src;
+  logic [ImmSrcW-1:0] imm_src;
+  logic [SrcAW-1:0] alu_a_src;
   logic alu_src;
-  logic [1:0] result_src;
+  logic [ResSrcW-1:0] result_src;
   alu_pkg::alu_op_e alu_ctrl;
   logic pc_src;
   logic pc_target_src;
@@ -63,30 +69,47 @@ module riscv_single
   logic [XLEN-1:0] mepc_out;
   logic [7:0] ld_byte;
   logic [15:0] ld_half;
+  logic opcode_known;
+  logic is_ctrl;
+  logic load_misaligned;
+  logic store_misaligned;
 
-  assign csr_access = (opcode == OpcodeSystem) && (funct3 != Funct3Priv);
-  assign is_ecall = (opcode == OpcodeSystem) && (funct3 == Funct3Priv) && (funct12 == Funct12Ecall);
-  assign
-      is_ebreak = (opcode == OpcodeSystem) && (funct3 == Funct3Priv) && (funct12 == Funct12Ebreak);
-  assign is_mret = (opcode == OpcodeSystem) && (funct3 == Funct3Priv) && (funct12 == Funct12Mret);
-  assign exc_illegal =
-      !((opcode == OpcodeOp) || (opcode == OpcodeOpImm) || (opcode == OpcodeLoad) ||
-        (opcode == OpcodeStore) || (opcode == OpcodeBranch) || (opcode == OpcodeJal) ||
-        (opcode == OpcodeJalr) || (opcode == OpcodeLui) || (opcode == OpcodeAuipc) ||
-        (opcode == OpcodeMiscMem) || (opcode == OpcodeSystem));
-  assign exc_instr_misaligned = (opcode == OpcodeBranch || opcode == OpcodeJal || opcode ==
-                                 OpcodeJalr) && ((pc_src ? pc_target[1:0] : pc[1:0]) != 2'b00);
-  assign exc_load_misaligned = (opcode == OpcodeLoad) &&
-      ((funct3 == 3'b001 || funct3 == 3'b101) ?
-       alu_result[0] : (funct3 == 3'b010) ? |alu_result[1:0] : 1'b0);
-  assign exc_store_misaligned = (opcode == OpcodeStore) &&
-      ((funct3 == 3'b001) ? alu_result[0] : (funct3 == 3'b010) ? |alu_result[1:0] : 1'b0);
+  always_comb begin
+    case (opcode)
+      OpcodeOp, OpcodeOpImm, OpcodeLoad, OpcodeStore, OpcodeBranch, OpcodeJal, OpcodeJalr,
+          OpcodeLui, OpcodeAuipc, OpcodeMiscMem, OpcodeSystem:
+      opcode_known = 1'b1;
+      default: opcode_known = 1'b0;
+    endcase
+  end
 
+  always_comb begin
+    case (funct3)
+      Funct3Lh, Funct3Lhu: load_misaligned = alu_result[0];
+      Funct3Lw:            load_misaligned = |alu_result[1:0];
+      default:             load_misaligned = 1'b0;
+    endcase
+  end
+
+  always_comb begin
+    case (funct3)
+      Funct3Sh: store_misaligned = alu_result[0];
+      Funct3Sw: store_misaligned = |alu_result[1:0];
+      default:  store_misaligned = 1'b0;
+    endcase
+  end
+
+  assign exc_illegal = !opcode_known;
+  assign is_ctrl = (opcode == OpcodeBranch) || (opcode == OpcodeJal) || (opcode == OpcodeJalr);
+  assign exc_instr_misaligned = is_ctrl &&
+      ((pc_src ? pc_target[InstrLsb-1:0] : pc[InstrLsb-1:0]) != '0);
+  assign exc_load_misaligned = (opcode == OpcodeLoad) && load_misaligned;
+  assign exc_store_misaligned = (opcode == OpcodeStore) && store_misaligned;
 
   sc_control_unit control_unit_inst (
-      .op           (instr[6:0]),
+      .op           (opcode),
       .funct3       (funct3),
-      .funct12      (instr[31:20]),
+      .funct12      (funct12),
       .funct7b5     (instr[30]),
       .zero         (zero),
       .lt           (lt),
@@ -99,7 +122,11 @@ module riscv_single
       .mem_write    (mem_write_raw),
       .result_src   (result_src),
       .pc_src       (pc_src),
-      .alu_ctrl     (alu_ctrl)
+      .alu_ctrl     (alu_ctrl),
+      .csr_access   (csr_access),
+      .is_ecall     (is_ecall),
+      .is_ebreak    (is_ebreak),
+      .is_mret      (is_mret)
   );
 
   extend #(
@@ -177,11 +204,11 @@ module riscv_single
     ld_byte = read_data[{alu_result[ByteOffW-1:0], 3'b000}+:8];
     ld_half = read_data[{alu_result[ByteOffW-1:1], 4'b0000}+:16];
     case (funct3)
-      3'b000:  load_data = XLEN'($signed(ld_byte));  // lb
-      3'b100:  load_data = XLEN'(ld_byte);  // lbu
-      3'b001:  load_data = XLEN'($signed(ld_half));  // lh
-      3'b101:  load_data = XLEN'(ld_half);  // lhu
-      default: load_data = read_data;  // lw
+      Funct3Lb:  load_data = XLEN'($signed(ld_byte));
+      Funct3Lbu: load_data = XLEN'(ld_byte);
+      Funct3Lh:  load_data = XLEN'($signed(ld_half));
+      Funct3Lhu: load_data = XLEN'(ld_half);
+      default:   load_data = read_data;  // lw
     endcase
   end
 
@@ -190,15 +217,15 @@ module riscv_single
     store_wstrb = '0;
     if (mem_write) begin
       case (funct3)
-        3'b000: begin  // sb
+        Funct3Sb: begin  // sb
           store_data  = {StrbW{write_data[7:0]}};
           store_wstrb = StrbW'(1) << alu_result[ByteOffW-1:0];
         end
-        3'b001: begin  // sh
+        Funct3Sh: begin  // sh
           store_data  = {(StrbW / 2) {write_data[15:0]}};
           store_wstrb = StrbW'(3) << alu_result[ByteOffW-1:0];
         end
-        3'b010: begin  // sw
+        Funct3Sw: begin  // sw
           store_data  = write_data;
           store_wstrb = '1;
         end

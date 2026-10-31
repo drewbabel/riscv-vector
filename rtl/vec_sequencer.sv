@@ -14,20 +14,20 @@ module vec_sequencer
     localparam int OffW = $clog2(VLEN),
     localparam int CntW = $clog2(MaxElems + 1)
 ) (
-    input wire                clk,
-    input wire                rst_n,
-    input wire                core_en,
-    input wire                start,
-    input wire [  AWIDTH-1:0] vs1,
-    input wire [  AWIDTH-1:0] vs2,
-    input wire [  AWIDTH-1:0] vd,
-    input wire                reads_vd,
-    input wire [     VlW-1:0] vl,
-    input wire [         2:0] vsew,
-    input wire [         2:0] vlmul,
-    input wire                vm,
-    input wire [MaxElems-1:0] mask_bits,
-    input wire [    VLEN-1:0] v0_bits,
+    input wire                       clk,
+    input wire                       rst_n,
+    input wire                       core_en,
+    input wire                       start,
+    input wire [         AWIDTH-1:0] vs1,
+    input wire [         AWIDTH-1:0] vs2,
+    input wire [         AWIDTH-1:0] vd,
+    input wire                       reads_vd,
+    input wire [            VlW-1:0] vl,
+    input wire [ vec_pkg::VsewW-1:0] vsew,
+    input wire [vec_pkg::VlmulW-1:0] vlmul,
+    input wire                       vm,
+    input wire [       MaxElems-1:0] mask_bits,
+    input wire [           VLEN-1:0] v0_bits,
 
     // Element geometry
     input wire vec_rel_e d_rel,
@@ -62,6 +62,10 @@ module vec_sequencer
     output logic done
 );
 
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
+  end
+
   localparam int LnW   = $clog2(OffW + 1);
   localparam int MulLn = $clog2(MUL_LANES);
   localparam int ProdW = VlW + $clog2(ELEN);
@@ -74,14 +78,14 @@ module vec_sequencer
   end
 
   // Element widths
-  logic [    2:0] lsew;
-  logic [    2:0] ld;
-  logic [    2:0] ls1;
-  logic [    2:0] ls2;
-  logic [    2:0] lmax;
+  logic [vec_pkg::SewLog2W-1:0] lsew;
+  logic [vec_pkg::SewLog2W-1:0] ld;
+  logic [vec_pkg::SewLog2W-1:0] ls1;
+  logic [vec_pkg::SewLog2W-1:0] ls2;
+  logic [vec_pkg::SewLog2W-1:0] lmax;
   logic [LnW-1:0] ln;
 
-  assign lsew = vsew + 3'd3;
+  assign lsew = vsew + ByteLog2;
 
   assign ld   = vec_rel_log2(d_rel, lsew);
   assign ls1  = vec_rel_log2(s1_rel, lsew);
@@ -119,8 +123,10 @@ module vec_sequencer
   logic [VlW-1:0] total_elems;
 
   assign reg_elems = VlW'(VlW'(1) << (LnW'(OffW) - LnW'(lsew)));
-  assign total_elems = mask_whole ? VlW'(1) :
-      (vlmul[2] ? (reg_elems >> (3'd0 - vlmul)) : (reg_elems << vlmul[1:0]));
+  always_comb begin
+    if (mask_whole) total_elems = VlW'(1);
+    else total_elems = VlW'(vec_group_elems(int'(reg_elems), vlmul));
+  end
 
   // Element counter
   logic [VlW-1:0] elem_q;
@@ -134,25 +140,35 @@ module vec_sequencer
   logic [ProdW-1:0] prod1;
   logic [ProdW-1:0] prod2;
   logic [ProdW-1:0] prodd;
+  logic [ProdW-1:0] prodd_next;
 
-  assign prod1  = (single_write || mask_src) ? '0 : (ProdW'(elem_base) << ls1);
-  assign prod2  = mask_src ? '0 : (ProdW'(elem_base) << ls2);
-  assign prodd  = single_write ? '0 : (mask_dest ? ProdW'(elem_base) : (ProdW'(elem_base) << ld));
+  assign prod1 = (single_write || mask_src) ? '0 : (ProdW'(elem_base) << ls1);
+  assign prod2 = mask_src ? '0 : (ProdW'(elem_base) << ls2);
+
+  always_comb begin
+    if (single_write) begin
+      prodd      = '0;
+      prodd_next = '0;
+    end else if (mask_dest) begin
+      prodd      = ProdW'(elem_base);
+      prodd_next = ProdW'(elem_next);
+    end else begin
+      prodd      = ProdW'(elem_base) << ld;
+      prodd_next = ProdW'(elem_next) << ld;
+    end
+  end
 
   assign s1_off = prod1[OffW-1:0];
   assign s2_off = prod2[OffW-1:0];
-  assign d_off  = prodd[OffW-1:0];
+  assign d_off = prodd[OffW-1:0];
 
   assign raddr1 = vs1 + AWIDTH'(prod1[ProdW-1:OffW]);
   assign raddr2 = vs2 + AWIDTH'(prod2[ProdW-1:OffW]);
   assign raddr3 = reads_vd ? (vd + AWIDTH'(prodd[ProdW-1:OffW])) : '0;
-  assign waddr  = vd + AWIDTH'(prodd[ProdW-1:OffW]);
+  assign waddr = vd + AWIDTH'(prodd[ProdW-1:OffW]);
 
   // Register finished
-  logic [ProdW-1:0] prodd_next;
-  assign
-      prodd_next = single_write ? '0 : (mask_dest ? ProdW'(elem_next) : (ProdW'(elem_next) << ld));
-  assign reg_done = busy && (last || (prodd_next[ProdW-1:OffW] != prodd[ProdW-1:OffW]));
+  assign reg_done = busy && (last || ((prodd_next >> OffW) != (prodd >> OffW)));
   assign wen = busy && (wstrb != '0);
 
   // Destination bits
@@ -181,13 +197,13 @@ module vec_sequencer
   logic [SelW-1:0] dsel;
 
   for (genvar g = 0; g < Widths; g++) begin : g_w
-    localparam int W = 8 << g;
-    for (genvar e = 0; e < VLEN / W; e++) begin : g_e
-      assign spread_w[g][e*W+:W] = {W{elem_active[e]}};
+    localparam int ElemW = 8 << g;
+    for (genvar e = 0; e < VLEN / ElemW; e++) begin : g_e
+      assign spread_w[g][e*ElemW+:ElemW] = {ElemW{elem_active[e]}};
     end
   end
 
-  assign dsel = (ld >= 3'd3 && 32'(ld - 3'd3) < Widths) ? SelW'(ld - 3'd3) : SelW'(Widths - 1);
+  assign dsel = SelW'(vec_sew_index(ld - ByteLog2, Widths));
   always_comb begin
     spread = mask_dest ? VLEN'(elem_active) : '0;
     for (int g = 0; g < Widths; g++) begin

@@ -1,0 +1,21 @@
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+prove: depth 12
+cover: mode cover
+cover: depth 20
+
+[engines]
+prove: smtbmc z3
+prove: abc pdr
+cover: smtbmc z3
+
+[script]
+read -formal vec_write_slots_formal.v
+prep -top vec_write_slots_formal
+
+[files]
+build/vec_write_slots_formal.v

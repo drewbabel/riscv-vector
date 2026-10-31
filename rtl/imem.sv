@@ -2,7 +2,7 @@
 
 module imem #(
     parameter int XLEN = arch_pkg::XLEN,
-    parameter int DEPTH = 64,
+    parameter int DEPTH = arch_pkg::SimMemWords,
     localparam int AddrWidth = $clog2(DEPTH),
     localparam int WordLsb = $clog2(XLEN / 8)
 ) (
@@ -14,7 +14,15 @@ module imem #(
     output logic [XLEN-1:0] instr
 );
 
-  logic [XLEN-1:0] mem[DEPTH];
+  logic [XLEN-1:0] mem         [DEPTH];
+  logic            unused_addr;
+
+  assign unused_addr = ^{
+    waddr[XLEN-1:AddrWidth+WordLsb],
+    waddr[WordLsb-1:0],
+    addr[XLEN-1:AddrWidth+WordLsb],
+    addr[WordLsb-1:0]
+  };
 
 `ifdef IMEM_INIT
   initial $readmemh(`IMEM_INIT, mem);

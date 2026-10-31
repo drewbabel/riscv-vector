@@ -2,15 +2,19 @@
 
 module vec_issue
   import vec_pkg::*;
+  import csr_pkg::VxrmW, fp_pkg::RmW;
 #(
     parameter  int XLEN   = arch_pkg::XLEN,
     parameter  int AWIDTH = arch_pkg::RegAddrW,
     parameter  int VLEN   = arch_pkg::VLEN,
     localparam int VlW    = $clog2(VLEN + 1)
 ) (
-    input wire clk,
-    input wire rst_n,
-    input wire core_en,
+`ifdef RISCV_FORMAL
+    output logic dbg_accept,
+`endif
+    input  wire  clk,
+    input  wire  rst_n,
+    input  wire  core_en,
 
     // Execute stage
     input wire                        instr_valid,
@@ -42,10 +46,10 @@ module vec_issue
 
     // Live configuration
     input wire [VlW-1:0] vl,
-    input wire [2:0] vsew,
-    input wire [2:0] vlmul,
-    input wire [1:0] vxrm,
-    input wire [2:0] frm,
+    input wire [vec_pkg::VsewW-1:0] vsew,
+    input wire [vec_pkg::VlmulW-1:0] vlmul,
+    input wire [VxrmW-1:0] vxrm,
+    input wire [RmW-1:0] frm,
 
     // Sequencer status
     input wire seq_busy,
@@ -54,24 +58,24 @@ module vec_issue
     input wire x_done,
 
     // Sequencer command
-    output logic                  seq_start,
-    output vec_op_e               seq_op,
-    output vec_src_e              seq_src,
-    output vec_eew_e              seq_eew,
-    output logic     [AWIDTH-1:0] seq_vs1,
-    output logic     [AWIDTH-1:0] seq_vs2,
-    output logic     [AWIDTH-1:0] seq_vd,
-    output logic                  seq_vm,
-    output logic                  seq_reads_vd,
-    output logic     [       4:0] seq_simm,
-    output logic     [  XLEN-1:0] seq_xdata,
-    output logic     [  XLEN-1:0] seq_xstride,
-    output logic     [   VlW-1:0] seq_vl,
-    output logic     [       2:0] seq_vsew,
-    output logic     [       2:0] seq_vlmul,
-    output logic     [       1:0] seq_vxrm,
-    output vec_fop_e              seq_fop,
-    output logic     [       2:0] seq_frm,
+    output logic                           seq_start,
+    output vec_op_e                        seq_op,
+    output vec_src_e                       seq_src,
+    output vec_eew_e                       seq_eew,
+    output logic     [         AWIDTH-1:0] seq_vs1,
+    output logic     [         AWIDTH-1:0] seq_vs2,
+    output logic     [         AWIDTH-1:0] seq_vd,
+    output logic                           seq_vm,
+    output logic                           seq_reads_vd,
+    output logic     [                4:0] seq_simm,
+    output logic     [           XLEN-1:0] seq_xdata,
+    output logic     [           XLEN-1:0] seq_xstride,
+    output logic     [            VlW-1:0] seq_vl,
+    output logic     [ vec_pkg::VsewW-1:0] seq_vsew,
+    output logic     [vec_pkg::VlmulW-1:0] seq_vlmul,
+    output logic     [          VxrmW-1:0] seq_vxrm,
+    output vec_fop_e                       seq_fop,
+    output logic     [            RmW-1:0] seq_frm,
 
     // Pipeline handshake
     output logic vec_hold,
@@ -81,43 +85,43 @@ module vec_issue
 );
 
   // Queue slot
-  logic                  q_valid;
-  vec_op_e               q_op;
-  vec_src_e              q_src;
-  vec_eew_e              q_eew;
-  logic                  q_xreg;
-  logic     [AWIDTH-1:0] q_vs1;
-  logic     [AWIDTH-1:0] q_vs2;
-  logic     [AWIDTH-1:0] q_vd;
-  logic                  q_vm;
-  logic                  q_reads_vd;
-  logic     [       4:0] q_simm;
-  logic     [  XLEN-1:0] q_xdata;
-  logic     [  XLEN-1:0] q_xstride;
-  logic     [   VlW-1:0] q_vl;
-  logic     [       2:0] q_vsew;
-  logic     [       2:0] q_vlmul;
-  logic     [       1:0] q_vxrm;
-  vec_fop_e              q_fop;
-  logic     [       2:0] q_frm;
-  logic     [  AWIDTH:0] q_wr_regs;
-  logic     [AWIDTH-1:0] q_rd1;
-  logic     [  AWIDTH:0] q_rd1_regs;
-  logic     [  AWIDTH:0] q_rd2_regs;
+  logic                           q_valid;
+  vec_op_e                        q_op;
+  vec_src_e                       q_src;
+  vec_eew_e                       q_eew;
+  logic                           q_xreg;
+  logic     [         AWIDTH-1:0] q_vs1;
+  logic     [         AWIDTH-1:0] q_vs2;
+  logic     [         AWIDTH-1:0] q_vd;
+  logic                           q_vm;
+  logic                           q_reads_vd;
+  logic     [                4:0] q_simm;
+  logic     [           XLEN-1:0] q_xdata;
+  logic     [           XLEN-1:0] q_xstride;
+  logic     [            VlW-1:0] q_vl;
+  logic     [ vec_pkg::VsewW-1:0] q_vsew;
+  logic     [vec_pkg::VlmulW-1:0] q_vlmul;
+  logic     [          VxrmW-1:0] q_vxrm;
+  vec_fop_e                       q_fop;
+  logic     [            RmW-1:0] q_frm;
+  logic     [           AWIDTH:0] q_wr_regs;
+  logic     [         AWIDTH-1:0] q_rd1;
+  logic     [           AWIDTH:0] q_rd1_regs;
+  logic     [           AWIDTH:0] q_rd2_regs;
 
   // Executing slot
-  logic                  e_valid;
-  logic                  e_load;
-  logic                  e_store;
-  logic                  x_pend;
-  logic                  regs_busy;
+  logic                           e_valid;
+  logic                           e_load;
+  logic                           e_store;
+  logic                           x_pend;
+  logic                           regs_busy;
 
-  logic                  accept;
-  logic                  launch;
-  logic                  x_wait;
-  logic                  x_spent;
-  logic                  x_hold;
-  logic                  regs_ready;
+  logic                           accept;
+  logic                           launch;
+  logic                           x_wait;
+  logic                           x_spent;
+  logic                           x_hold;
+  logic                           regs_ready;
 
   vec_busy_bits #(
       .NREGS(1 << AWIDTH)
@@ -147,6 +151,9 @@ module vec_issue
   assign launch = q_valid && !e_valid && regs_ready && !(q_port && pipe_busy);
   assign x_wait = (q_valid && q_xreg) || x_pend;
   assign accept = instr_valid && !cancel && !x_wait && !x_spent && (!q_valid || launch);
+`ifdef RISCV_FORMAL
+  assign dbg_accept = accept;
+`endif
   assign x_hold = instr_valid && (x_wait || writes_xreg) && !x_spent;
   assign vec_hold = x_hold || (instr_valid && q_valid && !launch);
   assign vec_idle = !q_valid && !e_valid && !seq_busy && !regs_busy;

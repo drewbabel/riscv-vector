@@ -20,22 +20,22 @@ module vec_config_formal ();
   logic [ VlW-1:0] vl_q;
   logic [XLEN-1:0] vtype_q;
   logic            is_vset;
-  logic [ VlW-1:0] vl_d;
-  logic [XLEN-1:0] vtype_d;
+  logic [ VlW-1:0] vl_next;
+  logic [XLEN-1:0] vtype_next;
 
   vec_config #(
       .XLEN(XLEN),
       .VLEN(VLEN),
       .ELEN(ELEN)
   ) dut (
-      .instr   (instr),
-      .rs1_data(rs1_data),
-      .rs2_data(rs2_data),
-      .vl_q    (vl_q),
-      .vtype_q (vtype_q),
-      .is_vset (is_vset),
-      .vl_d    (vl_d),
-      .vtype_d (vtype_d)
+      .instr     (instr),
+      .rs1_data  (rs1_data),
+      .rs2_data  (rs2_data),
+      .vl_q      (vl_q),
+      .vtype_q   (vtype_q),
+      .is_vset   (is_vset),
+      .vl_next   (vl_next),
+      .vtype_next(vtype_next)
   );
 
   function automatic logic is_opcfg(input logic [31:0] i);
@@ -135,30 +135,36 @@ module vec_config_formal ();
     )));
 
     if (!is_vset) begin
-      assert (vl_d == vl_q);
-      assert (vtype_d == vtype_q);
+      assert (vl_next == vl_q);
+      assert (vtype_next == vtype_q);
     end
 
     // Answer domain
     if (is_vset) begin
-      assert (vtype_d == Poison || vtype_d[XLEN-1:8] == '0);
-      assert (vl_d <= VlW'(VLEN));
-      assert ((vtype_d == Poison) == req_bad(instr, rs2_data, vtype_q));
+      assert (vtype_next == Poison || vtype_next[XLEN-1:8] == '0);
+      assert (vl_next <= VlW'(VLEN));
+      assert ((vtype_next == Poison) == req_bad(instr, rs2_data, vtype_q));
     end
 
-    if (is_vset && vtype_d == Poison) begin
-      assert (vl_d == '0);
+    if (is_vset && vtype_next == Poison) begin
+      assert (vl_next == '0);
     end
 
     // Legal answer
-    if (is_vset && vtype_d != Poison) begin
-      assert (vtype_d == {{XLEN - 8{1'b0}}, want_vtype[7:0]});
-      assert (32'(vl_d) <= want_vmax);
-      assert (32'(vl_d) * sew_of(want_vtype) * lmul_den(want_vtype) <= lmul_num(want_vtype) * VLEN);
+    if (is_vset && vtype_next != Poison) begin
+      assert (vtype_next == {{XLEN - 8{1'b0}}, want_vtype[7:0]});
+      assert (32'(vl_next) <= want_vmax);
+      assert (32'(vl_next) * sew_of(
+          want_vtype
+      ) * lmul_den(
+          want_vtype
+      ) <= lmul_num(
+          want_vtype
+      ) * VLEN);
       if (want_avl >= XLEN'(want_vmax)) begin
-        assert (32'(vl_d) == want_vmax);
+        assert (32'(vl_next) == want_vmax);
       end else begin
-        assert (XLEN'(vl_d) == want_avl);
+        assert (XLEN'(vl_next) == want_avl);
       end
     end
 
@@ -168,15 +174,15 @@ module vec_config_formal ();
     cover (is_vsetivli(instr));
     cover (is_vsetvl(instr));
     cover (is_opcfg(instr) && !is_cfg(instr));
-    cover (is_vset && vtype_d == Poison);
-    cover (is_vset && vtype_d != Poison);
+    cover (is_vset && vtype_next == Poison);
+    cover (is_vset && vtype_next != Poison);
     cover (is_keep(instr) && vtype_q[XLEN-1]);
-    cover (is_keep(instr) && !vtype_q[XLEN-1] && vtype_d == Poison);
-    cover (is_keep(instr) && vtype_d != Poison);
-    cover (is_vset && vtype_d != Poison && vl_d == '0);
-    cover (is_vset && vtype_d != Poison && vl_d == VlW'(VLEN));
-    cover (is_vset && vtype_d != Poison && XLEN'(vl_d) == want_avl);
-    cover (is_vset && vtype_d != Poison && XLEN'(vl_d) < want_avl);
+    cover (is_keep(instr) && !vtype_q[XLEN-1] && vtype_next == Poison);
+    cover (is_keep(instr) && vtype_next != Poison);
+    cover (is_vset && vtype_next != Poison && vl_next == '0);
+    cover (is_vset && vtype_next != Poison && vl_next == VlW'(VLEN));
+    cover (is_vset && vtype_next != Poison && XLEN'(vl_next) == want_avl);
+    cover (is_vset && vtype_next != Poison && XLEN'(vl_next) < want_avl);
     cover (is_vsetvli(instr) && instr[19:15] == 5'b0 && instr[11:7] != 5'b0);
   end
 

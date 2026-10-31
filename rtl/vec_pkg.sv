@@ -182,6 +182,17 @@ package vec_pkg;
     VEC_FREDUSUM
   } vec_fop_e;
 
+  localparam int VsewW = 3;
+  localparam logic [VsewW-1:0] Sew8 = VsewW'(0);
+  localparam logic [VsewW-1:0] FpSew = VsewW'($clog2(fp_pkg::FLEN / 8));
+  localparam logic [VsewW-1:0] FpHalfSew = VsewW'($clog2(fp_pkg::FLEN / 16));
+  localparam int VlmulW = 3;
+  localparam int EmulW = VlmulW + 1;
+  localparam int GroupW = VlmulW + 1;
+  localparam int SewLog2W = $clog2($clog2(2 * arch_pkg::ELEN) + 1);
+  localparam int VecTagW = 8;
+  localparam logic [SewLog2W-1:0] ByteLog2 = SewLog2W'($clog2(8));
+
   localparam int VecFpUnitLatency = fp_pkg::FpMaxLatency;
   localparam int VecFpLatency = VecFpUnitLatency + 2;
 
@@ -218,7 +229,8 @@ package vec_pkg;
     logic     mask_src;
   } vec_geom_t;
 
-  function automatic logic [2:0] vec_rel_log2(input vec_rel_e rel, input logic [2:0] base);
+  function automatic logic [SewLog2W-1:0] vec_rel_log2(input vec_rel_e rel,
+                                                       input logic [SewLog2W-1:0] base);
     case (rel)
       VEC_REL_WIDE:    vec_rel_log2 = base + 3'd1;
       VEC_REL_HALF:    vec_rel_log2 = base - 3'd1;
@@ -227,13 +239,29 @@ package vec_pkg;
     endcase
   endfunction
 
-  function automatic logic [4:0] vec_rel_regs(input vec_rel_e rel, input logic [3:0] base);
+  function automatic logic [GroupW:0] vec_rel_regs(input vec_rel_e rel,
+                                                   input logic [GroupW-1:0] base);
     case (rel)
       VEC_REL_WIDE:    vec_rel_regs = 5'(base) << 1;
       VEC_REL_HALF:    vec_rel_regs = (base > 4'd1) ? 5'(base >> 1) : 5'd1;
       VEC_REL_QUARTER: vec_rel_regs = (base > 4'd3) ? 5'(base >> 2) : 5'd1;
       default:         vec_rel_regs = 5'(base);
     endcase
+  endfunction
+
+  function automatic int vec_group_regs(input logic signed [EmulW-1:0] emul);
+    if (emul <= 4'sd0) vec_group_regs = 1;
+    else vec_group_regs = 1 << emul[2:0];
+  endfunction
+
+  function automatic int vec_group_elems(input int reg_elems, input logic [VlmulW-1:0] vlmul);
+    if (vlmul[2]) vec_group_elems = reg_elems >> (3'd0 - vlmul);
+    else vec_group_elems = reg_elems << vlmul[1:0];
+  endfunction
+
+  function automatic int vec_sew_index(input logic [VsewW-1:0] sew, input int widths);
+    if (int'(sew) < widths) vec_sew_index = int'(sew);
+    else vec_sew_index = widths - 1;
   endfunction
 
   function automatic vec_cls_e vec_class(input vec_op_e op);
@@ -349,9 +377,9 @@ package vec_pkg;
     vec_src_e src;
     vec_eew_e eew;
     logic vm;
-    logic [4:0] vs1;
-    logic [4:0] vs2;
-    logic [4:0] vd;
+    logic [arch_pkg::RegAddrW-1:0] vs1;
+    logic [arch_pkg::RegAddrW-1:0] vs2;
+    logic [arch_pkg::RegAddrW-1:0] vd;
     logic [4:0] simm;
     logic reads_vd;
     logic reads_xreg;
@@ -366,6 +394,12 @@ package vec_pkg;
     logic mem_mask;
     logic mem_strided;
   } vec_dec_t;
+
+  function automatic logic vec_is_fp(input vec_op_e op, input logic reads_freg,
+                                     input logic writes_freg);
+    vec_is_fp = (op == VEC_FARITH) || (op == VEC_FCMP) || (op == VEC_FRED) || reads_freg ||
+        writes_freg;
+  endfunction
 
 endpackage
 

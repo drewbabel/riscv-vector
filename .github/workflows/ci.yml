@@ -5,6 +5,9 @@ env:
   SV2V: 'v0.0.13'
   RISCV_FORMAL_SHA: '2bd7410'
   SPIKE_SHA: '55b4658dbf574ba0b714083ec436ce2cb5be1998'
+  VERIBLE: 'v0.0-4283-ga1b0580b'
+  GO: '1.22.12'
+  RVV_TESTS_SHA: 'f76bff121dce91b6b23e1d37be77a5e44af914c3'
 
 on:
   push:
@@ -16,6 +19,7 @@ concurrency:
 jobs:
   testbench-list:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       groups: ${{ steps.list.outputs.groups }}
     steps:
@@ -29,6 +33,7 @@ jobs:
   testbenches:
     needs: testbench-list
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -49,39 +54,64 @@ jobs:
 
   formal-list:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
-      groups: ${{ steps.list.outputs.groups }}
+      proofs: ${{ steps.list.outputs.proofs }}
     steps:
       - uses: actions/checkout@v7
-      - name: Split formal tasks into groups
+      - name: List one job per formal task
         id: list
         run: |
-          groups=$(python3 - <<'PY'
+          proofs=$(python3 - <<'PY'
           import glob, json, os, re
+          minutes = {
+              'clint:prove': 15, 'clint:cover': 15,
+              'dmem_arb:prove': 15, 'dmem_arb:cover': 15,
+              'fp_regfile:prove': 15, 'fp_regfile:cover': 15,
+              'hazard_unit:prove': 15, 'hazard_unit:cover': 15,
+              'irq:prove': 15, 'irq:cover': 15,
+              'mem_arb:prove': 15, 'mem_arb:bmc': 39, 'mem_arb:cover': 15,
+              'mem_delay:prove': 19, 'mem_delay:cover': 15,
+              'mem_order:bmc': 217, 'mem_order:cover': 300,
+              'mem_word_if:prove': 15, 'mem_word_if:cover': 15,
+              'muldiv:prove': 15, 'muldiv:divide': 15, 'muldiv:cover': 15,
+              'regfile:prove': 15, 'regfile:cover': 15,
+              'rr_arbiter:prove': 15, 'rr_arbiter:cover': 15,
+              'synchronizer:prove': 15, 'synchronizer:cover': 15,
+              'tick_gen:prove': 15, 'tick_gen:prove_baud': 15, 'tick_gen:cover': 15,
+              'uart:prove': 233, 'uart:cover': 61,
+              'vec_busy_bits:prove': 15, 'vec_busy_bits:cover': 15,
+              'vec_config:prove': 15, 'vec_config:bmc': 15, 'vec_config:cover': 15,
+              'vec_mem:prove': 15, 'vec_mem:cover': 15,
+              'vec_regfile:prove': 17, 'vec_regfile:cover': 15,
+              'vec_sat:prove': 23, 'vec_sat:cover': 15,
+              'vec_seq:prove': 15, 'vec_seq:cover': 15,
+              'vec_write_slots:prove': 15, 'vec_write_slots:cover': 15,
+          }
           items = []
           for f in sorted(glob.glob('formal/*.sby')):
               mod = os.path.basename(f)[:-4]
               block = re.search(r'^\[tasks\]\s*\n(.*?)(?=^\[|\Z)', open(f).read(), re.S | re.M)
               tasks = [l.split()[0] for l in block.group(1).splitlines()
                        if l.strip() and not l.lstrip().startswith('#')] if block else ['']
-              items += ['%s:%s' % (mod, t) for t in tasks]
-          n = min(len(items), 16)
-          g = [[] for _ in range(n)]
-          for i, x in enumerate(items):
-              g[i % n].append(x)
-          print(json.dumps([' '.join(x) for x in g if x]))
+              for t in tasks:
+                  key = '%s:%s' % (mod, t)
+                  items.append({'mod': mod, 'task': t, 'minutes': minutes.get(key, 30)})
+          print(json.dumps(items))
           PY
           )
-          echo "$groups"
-          echo "groups=$groups" >> "$GITHUB_OUTPUT"
+          echo "$proofs"
+          echo "proofs=$proofs" >> "$GITHUB_OUTPUT"
 
   formal:
     needs: formal-list
+    name: formal ${{ matrix.proof.mod }} ${{ matrix.proof.task }}
     runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.proof.minutes }}
     strategy:
       fail-fast: false
       matrix:
-        group: ${{ fromJSON(needs.formal-list.outputs.groups) }}
+        proof: ${{ fromJSON(needs.formal-list.outputs.proofs) }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -93,17 +123,12 @@ jobs:
           curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://github.com/zachjs/sv2v/releases/download/$SV2V/sv2v-Linux.zip -o sv2v.zip
           unzip -j sv2v.zip -d "$HOME/.local/bin"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Prove the group
-        run: |
-          for item in ${{ matrix.group }}; do
-            mod=${item%%:*}
-            task=${item#*:}
-            echo "== $mod $task =="
-            make formal MOD="$mod" TASK="$task"
-          done
+      - name: Prove the task
+        run: make formal MOD="${{ matrix.proof.mod }}" TASK="${{ matrix.proof.task }}"
 
   core-formal-list:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       groups: ${{ steps.list.outputs.groups }}
     steps:
@@ -123,12 +148,13 @@ jobs:
         env:
           RISCV_FORMAL_DIR: ${{ github.workspace }}/riscv-formal
         run: |
-          groups=$(bash formal/rvfi/run.sh --list | python3 -c "import sys, json; n=[l.strip() for l in sys.stdin if l.strip()]; g=[[] for _ in range(8)]; [g[i % 8].append(x) for i, x in enumerate(n)]; print(json.dumps([' '.join(x) for x in g if x]))")
+          groups=$(bash formal/rvfi/run.sh --list | python3 -c "import sys, json; n=[l.strip() for l in sys.stdin if l.strip()]; solo=[x for x in n if x == 'reg_ch0']; n=[x for x in n if x not in solo]; g=[[] for _ in range(8)]; [g[i % 8].append(x) for i, x in enumerate(n)]; print(json.dumps(solo + [' '.join(x) for x in g if x]))")
           echo "groups=$groups" >> "$GITHUB_OUTPUT"
 
   core-formal:
     needs: core-formal-list
     runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.group == 'reg_ch0' && 255 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -155,6 +181,7 @@ jobs:
 
   coremark:
     runs-on: ubuntu-24.04
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -168,6 +195,7 @@ jobs:
 
   embench:
     runs-on: ubuntu-24.04
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -181,6 +209,7 @@ jobs:
 
   freertos:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -198,6 +227,7 @@ jobs:
 
   cosim:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -206,93 +236,17 @@ jobs:
       - uses: ./.github/actions/riscv-toolchain
         with:
           extra-packages: device-tree-compiler libfdt-dev
-      - name: Cache Spike
-        id: spike-cache
-        uses: actions/cache@v6
+      - uses: ./.github/actions/spike
         with:
-          path: /opt/spike
-          key: spike-${{ env.SPIKE_SHA }}
-      - name: Build Spike
-        if: steps.spike-cache.outputs.cache-hit != 'true'
+          sha: ${{ env.SPIKE_SHA }}
+      - name: Directed co-sims
         run: |
-          git clone https://github.com/riscv-software-src/riscv-isa-sim.git
-          git -C riscv-isa-sim checkout "$SPIKE_SHA"
-          cd riscv-isa-sim && mkdir build && cd build
-          ../configure --prefix=/opt/spike
-          make -j"$(nproc)"
-          make install
-      - name: Add Spike to environment
-        run: |
-          echo "/opt/spike/bin" >> "$GITHUB_PATH"
-          echo "LD_LIBRARY_PATH=/opt/spike/lib" >> "$GITHUB_ENV"
-      - name: Directed rv32im co-sim
-        run: python3 tests/cosim.py cosim_m
-      - name: Directed vector configuration co-sim
-        run: python3 tests/cosim.py --vec vecconf
-      - name: Directed vector memory co-sim
-        run: python3 tests/cosim.py --vec vecmem
-      - name: Vector trap co-sim
-        run: python3 tests/cosim.py --vec vectrap
-      - name: Vector memcpy co-sim
-        run: python3 tests/cosim.py --vec vecmemcpy
-      - name: Vector mixed width co-sim
-        run: python3 tests/cosim.py --vec vecmix
-      - name: Vector mask co-sim
-        run: python3 tests/cosim.py --vec vecmask
-      - name: Vector ALU co-sim
-        run: python3 tests/cosim.py --vec vecalu
-      - name: Vector multiply co-sim
-        run: python3 tests/cosim.py --vec vecmul
-      - name: Vector fixed-point co-sim
-        run: python3 tests/cosim.py --vec vecsat
-      - name: Vector divide co-sim
-        run: python3 tests/cosim.py --vec vecdiv
-      - name: Vector scalar-return co-sim
-        run: python3 tests/cosim.py --vec vecxres
-      - name: Scalar float co-sim
-        run: python3 tests/cosim.py --fp cosim_f
-      - name: Vector float co-sim
-        run: python3 tests/cosim.py --vec --fp vecfp
-      - name: Vector float move co-sim
-        run: python3 tests/cosim.py --vec --fp vecfmv
-      - name: Vector float move behind divide co-sim
-        run: python3 tests/cosim.py --vec --fp vecfmvdiv
-      - name: Vector float reduction co-sim
-        run: python3 tests/cosim.py --vec --fp vecfred
-      - name: Vector float sum co-sim
-        run: python3 tests/cosim.py --vec --fp vecfsum
-      - name: Vector float unary co-sim
-        run: python3 tests/cosim.py --vec --fp vecfunary
-      - name: Vector slide co-sim
-        run: python3 tests/cosim.py --vec --fp vecslide
-      - name: Vector float divide co-sim
-        run: python3 tests/cosim.py --vec --fp vecfdiv
-      - name: Vector float convert co-sim
-        run: python3 tests/cosim.py --vec --fp vecfcvt
-      - name: Vector float widen and narrow co-sim
-        run: python3 tests/cosim.py --vec --fp vecfcvtw
-      - name: Float load and store co-sim
-        run: python3 tests/cosim.py --fp --vec cosim_fls
-      - name: Fractional group co-sim
-        run: python3 tests/cosim.py --vec --fp vecfrac
-      - name: Vector float arithmetic co-sim
-        run: python3 tests/cosim.py --vec --fp vecfarith
-      - name: Vector float min, max, sign and compare co-sim
-        run: python3 tests/cosim.py --vec --fp vecfminmax
-      - name: Vector float fused multiply-add co-sim
-        run: python3 tests/cosim.py --vec --fp vecffma
-      - name: Vector float reduction forms co-sim
-        run: python3 tests/cosim.py --vec --fp vecfredall
-      - name: Vector float move and merge co-sim
-        run: python3 tests/cosim.py --vec --fp vecfmove
-      - name: Vector float rounding mode co-sim
-        run: python3 tests/cosim.py --vec --fp vecfround
-      - name: Vector float invalid frm and flags co-sim
-        run: python3 tests/cosim.py --vec --fp vecffrm
-      - name: Vector float widening trap co-sim
-        run: python3 tests/cosim.py --vec --fp vecfwtrap
-      - name: Vector SEW 64 vill co-sim
-        run: python3 tests/cosim.py --vec --fp vecve64
+          rc=0
+          while read -r args; do
+            echo "== $args =="
+            python3 tests/cosim.py $args || rc=1
+          done < tests/cosim_directed.txt
+          exit $rc
       - name: Draw the random co-sim seed
         run: |
           seed=$(( $(od -An -N4 -tu4 /dev/urandom) % 1000000000 ))
@@ -318,6 +272,7 @@ jobs:
 
   gate-check:
     runs-on: ubuntu-24.04
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -335,6 +290,7 @@ jobs:
 
   float-widths:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
@@ -343,10 +299,260 @@ jobs:
       - name: Check the float width guard
         run: bash tests/fp_width.sh
 
+  rules:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - name: Install Verible
+        run: |
+          curl -fsSL "https://github.com/chipsalliance/verible/releases/download/$VERIBLE/verible-$VERIBLE-linux-static-x86_64.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/verible-$VERIBLE/bin" >> "$GITHUB_PATH"
+      - name: Check the repo rules
+        run: |
+          base=$(git merge-base origin/main HEAD)
+          if [ "$base" = "$(git rev-parse HEAD)" ]; then base=HEAD^1; fi
+          python3 tests/rules/check.py --base "$base"
+
+  sweep-list:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      groups: ${{ steps.list.outputs.groups }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Split the parameter sweep into groups
+        id: list
+        run: |
+          groups=$(python3 tests/rules/sweep.py --list 16 | python3 -c "import sys, json; g=json.load(sys.stdin); h=[x for x in g if chr(35) in x]; l=[x for x in g if chr(35) not in x]; b=[h[i::8] for i in range(8)]; print(json.dumps(l + [' '.join(x) for x in b if x]))")
+          echo "$groups"
+          echo "groups=$groups" >> "$GITHUB_OUTPUT"
+
+  sweep:
+    needs: sweep-list
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.sweep-list.outputs.groups) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - uses: ./.github/actions/riscv-toolchain
+        with:
+          extra-packages: device-tree-compiler libfdt-dev
+      - uses: ./.github/actions/spike
+        with:
+          sha: ${{ env.SPIKE_SHA }}
+      - name: Install sv2v
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://github.com/zachjs/sv2v/releases/download/$SV2V/sv2v-Linux.zip -o sv2v.zip
+          unzip -j sv2v.zip -d "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Generate the TestFloat reference files
+        run: make testfloat
+      - name: Sweep the group
+        run: python3 tests/rules/sweep.py ${{ matrix.group }}
+
+  full-suite-list:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      shards: ${{ steps.list.outputs.shards }}
+      sizes: ${{ steps.list.outputs.sizes }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: List the whole-core sizes
+        id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import datetime, json, math, os, sys, urllib.request
+          sys.path.insert(0, "tests/rules")
+          import check
+          keys = {"arch_pkg::VLEN", "arch_pkg::MulLanes"}
+          sizes = []
+          for r in check.sweep_rows():
+              s = r["sets"]
+              if r["module"] == "riscv_pipelined" and s and not r["guard"] and set(s) <= keys:
+                  sizes.append(",".join(f"{k}={v}" for k, v in sorted(s.items())))
+          per_vlen = {"64": 4, "128": 7, "256": 11}
+          # Grow from last timing
+          target = 75
+          grow = {}
+          api = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions"
+          def get(url):
+              req = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}"})
+              return json.load(urllib.request.urlopen(req, timeout=30))
+          def stamp(t):
+              return datetime.datetime.fromisoformat(t.replace("Z", "+00:00"))
+          try:
+              runs = get(f"{api}/workflows/ci.yml/runs?status=success&per_page=1")["workflow_runs"]
+              page = 1
+              while runs:
+                  jobs = get(f"{api}/runs/{runs[0]['id']}/jobs?per_page=100&page={page}")["jobs"]
+                  for j in jobs:
+                      if j["name"].startswith("full-suite (") and j["conclusion"] == "success":
+                          size, _, of = j["name"][len("full-suite ("):-1].rsplit(", ", 2)
+                          mins = (stamp(j["completed_at"]) - stamp(j["started_at"])).total_seconds() / 60
+                          grow[size] = max(grow.get(size, 0), math.ceil(int(of) * mins / target))
+                  if len(jobs) < 100:
+                      break
+                  page += 1
+          except Exception as e:
+              print(f"no shard timing: {e}", file=sys.stderr)
+          shards = []
+          for size in ["defaults"] + sizes:
+              vlen = dict(x.split("=") for x in size.split(",") if "=" in x).get("arch_pkg::VLEN", "128")
+              n = max(per_vlen[vlen], grow.get(size, 0))
+              shards += [{"size": size, "shard": k, "of": n} for k in range(n)]
+          print("shards=" + json.dumps(shards))
+          print("sizes=" + json.dumps(sizes))
+          PY
+          cat "$GITHUB_OUTPUT"
+
+  full-suite:
+    needs: full-suite-list
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.full-suite-list.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - uses: ./.github/actions/riscv-toolchain
+        with:
+          extra-packages: device-tree-compiler libfdt-dev
+      - uses: ./.github/actions/spike
+        with:
+          sha: ${{ env.SPIKE_SHA }}
+      - name: Install Go
+        run: |
+          curl -fsSL "https://go.dev/dl/go$GO.linux-amd64.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/core-size
+        with:
+          size: ${{ matrix.size }}
+      - name: Generate the shard at this VLEN
+        run: |
+          g=build/rvv-gen
+          git clone -q https://github.com/chipsalliance/riscv-vector-tests.git $g
+          git -C $g checkout -q "$RVV_TESTS_SHA"
+          git -C $g submodule -q update --init env/riscv-test-env
+          vlen=$(sed -nE 's/.*parameter int VLEN = ([0-9]+);.*/\1/p' rtl/arch_pkg.sv)
+          march=rv32gcv
+          if [ "$vlen" -lt 128 ]; then march=rv32gc_zve32f; fi
+          opts="VLEN=$vlen XLEN=32 MODE=machine INTEGER=1 MARCH=$march SPIKE_INSTALL=/opt/spike"
+          make -C $g build-patcher-spike $opts
+          make -C $g generate-stage1 $opts
+          out=$g/out/v${vlen}x32machine
+          mkdir -p $out/bin/stage1 $out/patches/stage2 $g/shard/s1
+          tests=$(ls $out/tests/stage1 | sed 's/\.S$//' | awk -v k=${{ matrix.shard }} -v n=${{ matrix.of }} 'NR % n == k')
+          make -C $g -j"$(nproc)" $opts $tests
+          make -C $g -j"$(nproc)" $opts $(printf '%s.patch ' $tests)
+          for t in $tests; do cp $out/tests/stage1/$t.S $g/shard/s1/; done
+          $g/build/merger -stage1output $g/shard/s1 -stage2output $g/shard/s2 -stage2patch $out/patches/stage2
+          ls $g/shard/s2 | wc -l
+      - name: Run the shard against Spike
+        run: |
+          python3 tests/rvv_sweep.py prep build/rvv-gen/shard/s2
+          python3 tests/rvv_sweep.py run
+          echo "${{ matrix.size }}" > build/rvv/size
+      - uses: actions/upload-artifact@v7
+        with:
+          name: full-suite-${{ strategy.job-index }}
+          path: |
+            build/rvv/results.csv
+            build/rvv/size
+
+  full-suite-check:
+    needs: full-suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: full-suite-*
+          path: results
+      - name: Compare every size with the default
+        run: |
+          python3 - <<'PY'
+          import collections, csv, glob, os, sys
+          got = collections.defaultdict(dict)
+          for f in glob.glob("results/*/results.csv"):
+              with open(os.path.join(os.path.dirname(f), "size")) as h:
+                  size = h.read().strip()
+              with open(f) as h:
+                  for r in csv.DictReader(h):
+                      got[size][r["test"]] = r["result"]
+          base = got["defaults"]
+          passes = {t for t, v in base.items() if v == "PASS"}
+          bad = 0
+          for size in sorted(got, key=lambda s: (s != "defaults", s)):
+              res = got[size]
+              lost = sorted(t for t in passes if res.get(t) != "PASS")
+              missing = sorted(set(base) - set(res))
+              counts = dict(sorted(collections.Counter(res.values()).items()))
+              print(f"{size}: {len(res)} tests {counts}, {len(lost)} default passes lost, {len(missing)} missing")
+              for t in lost:
+                  print(f"  lost {t} {res.get(t, 'MISSING')}")
+              bad += len(lost) + len(missing)
+          sys.exit(1 if bad or not base else 0)
+          PY
+
+  full-bench:
+    needs: full-suite-list
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        size: ${{ fromJSON(needs.full-suite-list.outputs.sizes) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - uses: ./.github/actions/riscv-toolchain
+      - uses: ./.github/actions/core-size
+        with:
+          size: ${{ matrix.size }}
+      - name: Build the benchmark images
+        run: |
+          git clone https://github.com/FreeRTOS/FreeRTOS-Kernel.git sw/FreeRTOS-Kernel
+          git -C sw/FreeRTOS-Kernel checkout 9db704cd3bbe4963f9bd3de1f1161ea2cf90768b
+          make -C sw/coremark all
+          make -C sw/embench all
+          make -C sw/freertos all
+      - name: Boot CoreMark through the caches
+        run: make vsim MOD=coremark_boot
+      - name: Boot the crc32 benchmark
+        run: make vsim MOD=embench_boot PLUSARGS=+HEX=sw/embench/crc32.hex
+      - name: Run FreeRTOS queue demo testbench
+        run: make vsim MOD=freertos_boot
+
   ci-gate:
     if: always()
-    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths]
+    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths, rules, sweep-list, sweep, full-suite-list, full-suite, full-suite-check, full-bench]
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Verify all CI jobs succeeded
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}

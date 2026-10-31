@@ -13,6 +13,10 @@ module pmu #(
     input wire [XLEN-1:0] dc_misses
 );
 
+  if (XLEN != 32) begin : g_xlen
+    $error("pmu implements RV32 only");
+  end
+
   localparam logic [XLEN-1:0] ClkHz = XLEN'(CLK_FREQ_HZ);
 
   always_comb begin

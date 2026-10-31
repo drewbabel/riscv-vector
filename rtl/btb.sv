@@ -3,8 +3,9 @@
 module btb
   import bp_pkg::*;
 #(
-    parameter  int XLEN   = arch_pkg::XLEN,
-    localparam int TagLen = XLEN - 2 - BtbIdxLen
+    parameter  int XLEN     = arch_pkg::XLEN,
+    localparam int InstrLsb = arch_pkg::InstrLsb,
+    localparam int TagLen   = XLEN - InstrLsb - BtbIdxLen
 ) (
     input wire clk,
     input wire core_en,
@@ -23,26 +24,34 @@ module btb
     input wire            update_is_cond
 );
 
-  logic              valid[BtbDepth];
-  logic [TagLen-1:0] tag  [BtbDepth];
-  logic [  XLEN-1:0] targ [BtbDepth];
-  logic              cond [BtbDepth];
+  logic                 valid         [BtbDepth];
+  logic [   TagLen-1:0] tag           [BtbDepth];
+  logic [     XLEN-1:0] targ          [BtbDepth];
+  logic                 cond          [BtbDepth];
 
-  assign hit = (valid[lookup_pc[2+:BtbIdxLen]] &&
-                tag[lookup_pc[2+:BtbIdxLen]] == lookup_pc[BtbIdxLen+2+:TagLen]);
+  logic [BtbIdxLen-1:0] lookup_idx;
+  logic [BtbIdxLen-1:0] update_idx;
+  logic                 unused_pc_lsb;
 
-  assign target = targ[lookup_pc[2+:BtbIdxLen]];
-  assign is_cond = cond[lookup_pc[2+:BtbIdxLen]];
+  assign unused_pc_lsb = ^{lookup_pc[InstrLsb-1:0], update_pc[InstrLsb-1:0]};
+
+  assign lookup_idx = lookup_pc[InstrLsb+:BtbIdxLen];
+  assign update_idx = update_pc[InstrLsb+:BtbIdxLen];
+
+  assign hit = (valid[lookup_idx] && tag[lookup_idx] == lookup_pc[BtbIdxLen+InstrLsb+:TagLen]);
+
+  assign target = targ[lookup_idx];
+  assign is_cond = cond[lookup_idx];
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       for (int i = 0; i < BtbDepth; i++) valid[i] <= 1'b0;
     end else if (core_en) begin
       if (update_valid) begin
-        valid[update_pc[2+:BtbIdxLen]] <= 1'b1;
-        tag[update_pc[2+:BtbIdxLen]]   <= update_pc[BtbIdxLen+2+:TagLen];
-        targ[update_pc[2+:BtbIdxLen]]  <= update_target;
-        cond[update_pc[2+:BtbIdxLen]]  <= update_is_cond;
+        valid[update_idx] <= 1'b1;
+        tag[update_idx]   <= update_pc[BtbIdxLen+InstrLsb+:TagLen];
+        targ[update_idx]  <= update_target;
+        cond[update_idx]  <= update_is_cond;
       end
     end
   end

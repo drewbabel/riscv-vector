@@ -5,33 +5,39 @@ module vec_div_lane
 #(
     parameter int ELEN = arch_pkg::ELEN
 ) (
-    input  wire                     clk,
-    input  wire                     rst_n,
-    input  wire                     core_en,
-    input  wire                     start,
-    input  wire vec_op_e            op,
-    input  wire          [     2:0] vsew,
-    input  wire          [ELEN-1:0] a,
-    input  wire          [ELEN-1:0] b,
-    output logic         [ELEN-1:0] result,
-    output logic                    busy,
-    output logic                    done
+    input  wire                               clk,
+    input  wire                               rst_n,
+    input  wire                               core_en,
+    input  wire                               start,
+    input  wire vec_op_e                      op,
+    input  wire          [vec_pkg::VsewW-1:0] vsew,
+    input  wire          [          ELEN-1:0] a,
+    input  wire          [          ELEN-1:0] b,
+    output logic         [          ELEN-1:0] result,
+    output logic                              busy,
+    output logic                              done
 );
+
+  localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
+
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
+  end
 
   logic is_signed;
   muldiv_op_e md_op;
   logic [ELEN-1:0] a_ext;
   logic [ELEN-1:0] b_ext;
   logic [ELEN-1:0] md_result;
-  logic [2:0] sew_q;
+  logic [vec_pkg::VsewW-1:0] sew_q;
 
-  function automatic logic [ELEN-1:0] extend(input logic [ELEN-1:0] x, input logic [2:0] sew,
-                                             input logic sgn);
-    case (sew)
-      3'd0: extend = sgn ? ELEN'($signed(x[7:0])) : ELEN'(x[7:0]);
-      3'd1: extend = sgn ? ELEN'($signed(x[15:0])) : ELEN'(x[15:0]);
-      default: extend = x;
-    endcase
+  function automatic logic [ELEN-1:0] extend(input logic [ELEN-1:0] x,
+                                             input logic [vec_pkg::VsewW-1:0] sew, input logic sgn);
+    logic [ELEN-1:0] keep;
+    keep = {ELEN{1'b1}} >> (ELEN - (8 << sew));
+    if (sew >= SewTop) extend = x;
+    else if (sgn && x[(8<<sew)-1]) extend = x | ~keep;
+    else extend = x & keep;
   endfunction
 
   assign is_signed = (op == VEC_DIV) || (op == VEC_REM);

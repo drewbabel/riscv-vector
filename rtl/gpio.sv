@@ -1,8 +1,9 @@
 `default_nettype none
 
 module gpio #(
-    parameter int XLEN  = arch_pkg::XLEN,
-    parameter int WIDTH = 16
+    parameter  int XLEN    = arch_pkg::XLEN,
+    parameter  int WIDTH   = 16,
+    localparam int WordLsb = $clog2(XLEN / 8)
 ) (
     input wire clk,
     input wire core_en,
@@ -18,14 +19,26 @@ module gpio #(
     output logic [WIDTH-1:0] led
 );
 
+  if (WIDTH > XLEN) begin : g_width
+    $error("WIDTH must not exceed XLEN");
+  end
+
   logic [WIDTH-1:0] led_reg;
+  logic             sw_sel;
+
+  assign sw_sel = addr[WordLsb];
+
+  if (WIDTH < XLEN) begin : g_wdata_high
+    logic unused_wdata_high;
+    assign unused_wdata_high = ^wdata[XLEN-1:WIDTH];
+  end
 
   always_ff @(posedge clk) begin
     if (!rst_n) led_reg <= '0;
-    else if (core_en && sel && !addr[2] && |wstrb) led_reg <= wdata[WIDTH-1:0];
+    else if (core_en && sel && !sw_sel && |wstrb) led_reg <= wdata[WIDTH-1:0];
   end
 
-  assign rdata = addr[2] ? {{(XLEN - WIDTH) {1'b0}}, sw} : {{(XLEN - WIDTH) {1'b0}}, led_reg};
+  assign rdata = sw_sel ? XLEN'(sw) : XLEN'(led_reg);
   assign led   = led_reg;
 
 endmodule

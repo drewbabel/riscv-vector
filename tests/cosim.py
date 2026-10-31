@@ -41,21 +41,20 @@ RTL = [os.path.join(ROOT, "rtl", p) for p in PKGS] + [
 RVGCC = "riscv64-elf-gcc"
 SIM = os.path.join(BUILD, "cosim_sim")
 
-SCALAR_MARCH = "rv32im"
-VECTOR_MARCH = "rv32im_zve32x_zvl128b"  # Zvl128b or VLEN reads 32
+SCALAR_MARCH = "rv32im_zicsr"
+VECTOR_MARCH = "rv32im_zve32x_zvl{vlen}b"
 VECTOR = False
 FP_MARCH = "rv32imf_zicsr"
 FP = False
-VECTOR_FP_MARCH = "rv32imf_zicsr_zve32f_zvl128b"
+VECTOR_FP_MARCH = "rv32imf_zicsr_zve32f_zvl{vlen}b"
 
 VL_ADDR, VTYPE_ADDR, VSTART_ADDR = 0xC20, 0xC21, 0x008
 VTYPE_RESET = 0x8000_0000  # vill set out of reset
 
-GEN_MARCH = "rv32im_zicsr_zve32x_zvl128b"
+GEN_MARCH = "rv32im_zicsr_zve32x_zvl{vlen}b"
 ENV_DIR = os.path.join(ROOT, "tests", "rvv_env")
 GEN_OUT = os.path.join(BUILD, "rvv")
 GEN_CAP = 2_000_000
-GEN_DEPTH = 131072
 SPAN = None
 
 STALL = False
@@ -72,14 +71,54 @@ MIP_MEIP, MIP_MTIP = 1 << 11, 1 << 7
 MEPC_ADDR = 0x341
 
 
+def package_value(name):
+    with open(os.path.join(ROOT, "rtl", "arch_pkg.sv")) as f:
+        m = re.search(rf"\b{name}\s*=\s*(\d+)\s*;", f.read())
+    return int(m.group(1))
+
+
+def sv_depth(top):
+    pat = rf"module {top} \(\);\s+cosim_bench #\(\.Depth\((\d+)\)\)"
+    with open(os.path.join(ROOT, "tb", "cosim.sv")) as f:
+        found = re.findall(pat, f.read())
+    if len(found) != 1:
+        sys.exit(f"cannot find one {top} Depth in tb/cosim.sv")
+    return int(found[0])
+
+
+VLEN = package_value("VLEN")
+GEN_DEPTH = sv_depth("cosim_gen")
+TOP = None
+
+
+def take_top(args):
+    global TOP
+    if "--top" in args:
+        k = args.index("--top")
+        TOP = args[k + 1]
+        del args[k : k + 2]
+
+
+def take_vlen(args):
+    global VLEN
+    if "--vlen" in args:
+        k = args.index("--vlen")
+        VLEN = int(args[k + 1])
+        del args[k : k + 2]
+
+
+def gen_march():
+    return GEN_MARCH.format(vlen=VLEN)
+
+
 def march():
     if FP and VECTOR:
-        return VECTOR_FP_MARCH
+        return VECTOR_FP_MARCH.format(vlen=VLEN)
     if FP:
         return FP_MARCH
     if VECTOR:
-        return VECTOR_MARCH
-    return SCALAR_MARCH + ("_zicsr" if IRQ else "")
+        return VECTOR_MARCH.format(vlen=VLEN)
+    return SCALAR_MARCH
 
 
 def gcc_common():
@@ -97,6 +136,23 @@ def sh(cmd):
 
 
 # Compile the monitor
+def package_files():
+    if VLEN == package_value("VLEN"):
+        return RTL
+    src = os.path.join(ROOT, "rtl", "arch_pkg.sv")
+    dst = os.path.join(BUILD, f"arch_pkg_vlen{VLEN}.sv")
+    with open(src) as f:
+        text = f.read()
+    text, n = re.subn(
+        r"(parameter\s+int\s+VLEN\s*=\s*)\d+;", rf"\g<1>{VLEN};", text
+    )
+    if n != 1:
+        sys.exit("cannot set VLEN in arch_pkg.sv")
+    with open(dst, "w") as f:
+        f.write(text)
+    return [dst if f == src else f for f in RTL]
+
+
 def compile_monitor():
     os.makedirs(BUILD, exist_ok=True)
     r = subprocess.run(
@@ -104,12 +160,11 @@ def compile_monitor():
             "iverilog",
             "-g2012",
             "-DRISCV_FORMAL",
-            f"-DCOSIM_DEPTH={DEPTH}",
             "-s",
-            "cosim",
+            TOP or ("cosim_gen" if DEPTH == GEN_DEPTH else "cosim"),
             "-o",
             SIM,
-            *RTL,
+            *package_files(),
             os.path.join("tb", "cosim.sv"),
         ],
         cwd=ROOT,
@@ -189,8 +244,8 @@ COMMIT_RE = re.compile(
 
 # dut commit trace
 TRACE_RE = re.compile(r"TRACE (\d+) ([0-9a-f]+) ([0-9a-f]+)")
-VCOMMIT_RE = re.compile(r"VCOMMIT (\d+) (\d+) ([0-9a-f]+)")
-VMEM_RE = re.compile(r"VMEM ([0-9a-f]+) ([0-9a-f]{4}) ([0-9a-f]+)")
+VCOMMIT_RE = re.compile(r"VCOMMIT (\d+) (\d+) ([0-9a-fxz]+)")
+VMEM_RE = re.compile(r"VMEM ([0-9a-f]+) ([0-9a-f]+) ([0-9a-f]+)")
 FCOMMIT_RE = re.compile(r"FCOMMIT (\d+) ([0-9a-f]+)")
 FCSR_RE = re.compile(r"FCSR ([0-9a-f]+)")
 STALLS_RE = re.compile(r"STALLS (\d+) (\d+)")
@@ -219,7 +274,7 @@ VEC_WIDTH = {0: 1, 5: 2, 6: 4}  # width field to byte count
 
 
 def run_dut(
-    dut_hex, vcd=False, n=8000, gen=False, stall_seed=None, irq_seed=None
+    dut_hex, vcd=False, n=32000, gen=False, stall_seed=None, irq_seed=None
 ):
     if stall_seed is not None:
         n *= STALL_SLOW
@@ -239,16 +294,15 @@ def run_dut(
     out = subprocess.run(
         args, cwd=ROOT, capture_output=True, text=True, check=False
     ).stdout
+    fails = [ln[5:] for ln in out.splitlines() if ln.startswith("FAIL ")]
     FAULTS.clear()
     FAULTS.extend(
-        l
-        for l in out.splitlines()
-        if l.startswith(("FENCE BUSY", "VEC REISSUE"))
+        ln for ln in fails if ln.startswith(("FENCE BUSY", "VEC REISSUE"))
     )
     HUNG.clear()
-    HUNG.extend(l for l in out.splitlines() if l.startswith("HUNG"))
+    HUNG.extend(ln for ln in fails if ln.startswith("HUNG"))
     IRQ_LOST.clear()
-    IRQ_LOST.extend(l for l in out.splitlines() if l.startswith("IRQ LOST"))
+    IRQ_LOST.extend(ln for ln in fails if ln.startswith("IRQ LOST"))
     DUT_IRQ.clear()
     trace = []
     TRACE.clear()
@@ -298,7 +352,7 @@ def run_dut(
                 int(vm.group(2), 16),
                 int(vm.group(3), 16),
             )
-            for k in range(16):
+            for k in range(VLEN // 8):
                 if ws & (1 << k):
                     DUT_VMEM.append(
                         ((addr + k) & (DEPTH * 4 - 1), (wd >> (8 * k)) & 0xFF)
@@ -306,9 +360,11 @@ def run_dut(
             continue
         v = VCOMMIT_RE.match(line)
         if v:
-            DUT_VWR.append(
-                (int(v.group(1)), int(v.group(2)), int(v.group(3), 16))
-            )
+            tag, reg, val = int(v.group(1)), int(v.group(2)), v.group(3)
+            if re.search("[xz]", val):
+                FAULTS.append(f"VEC UNKNOWN v{reg} at tag {tag}")
+                val = "0"
+            DUT_VWR.append((tag, reg, int(val, 16)))
             continue
         t = TRACE_RE.match(line)
         if t:
@@ -354,7 +410,7 @@ VCSR_RE = re.compile(
 )  # a control register Spike changed
 
 SPIKE_V_RE = re.compile(
-    r"\bv(\d+)\s+0x([0-9a-f]{32})"
+    r"\bv(\d+)\s+0x([0-9a-f]+)"
 )  # a vector register Spike wrote
 
 
@@ -837,7 +893,7 @@ def gen_vec(seed):
         nonlocal sew, vl
         sew = rng.choice([8, 16, 32])
         avl = rng.choice([0, 1, 2, 3, 5, 8, 8])
-        vl = min(avl, 128 // sew)
+        vl = min(avl, VLEN // sew)
         body.append(f"li x10, {avl}")
         body.append(f"vsetvli x5, x10, e{sew}, m1, tu, mu")
         if vl:  # element 0 always live
@@ -1258,7 +1314,7 @@ def gen_root(src):
 def gen_build(src, out):
     root = gen_root(src)
     flags = [
-        f"-march={GEN_MARCH}",
+        f"-march={gen_march()}",
         "-mabi=ilp32",
         "-static",
         "-mcmodel=medany",
@@ -1315,7 +1371,7 @@ def gen_probe_build(src, out):
     sh(
         [
             RVGCC,
-            f"-march={GEN_MARCH}",
+            f"-march={gen_march()}",
             "-mabi=ilp32",
             "-static",
             "-mcmodel=medany",
@@ -1429,7 +1485,7 @@ def gen_spike(src, out):
     name = os.path.splitext(os.path.basename(src))[0]
     gen_build(src, out)
     elf = os.path.join(out, "spike.elf")
-    trace = run_spike(elf, GEN_CAP, isa=GEN_MARCH, park=True)
+    trace = run_spike(elf, GEN_CAP, isa=gen_march(), park=True)
     parks = gen_parks(elf)
     end = next(
         (k for k, pc in parks.items() if trace and trace[-1][0] == pc), "cap"
@@ -1445,6 +1501,15 @@ def first_elem(dut, spk, key):
     return None
 
 
+def changed(writes):
+    last, keep = {}, []
+    for k, (_, reg, val) in enumerate(writes):
+        if last.get(reg) != val:
+            last[reg] = val
+            keep.append(k)
+    return keep
+
+
 # Compare one test
 def gen_verdict(dut, spike, data):
     marks = []
@@ -1454,14 +1519,18 @@ def gen_verdict(dut, spike, data):
         marks.append(
             (i, f"instr {i}{insn} DUT {fmt(dut[i])} | Spike {fmt(spike[i])}")
         )
-    j = first_elem(DUT_VWR, SPK_VWR, lambda e: e[1:])
+    dvw = [DUT_VWR[k] for k in changed(DUT_VWR)]
+    sk = changed(SPK_VWR)
+    svw = [SPK_VWR[k] for k in sk]
+    svw_at = [SPK_VWR_AT[k] for k in sk]
+    j = first_elem(dvw, svw, lambda e: e[1:])
     if j is not None:
-        (_, dr, dv), (_, sr, sv) = DUT_VWR[j], SPK_VWR[j]
+        (_, dr, dv), (_, sr, sv) = dvw[j], svw[j]
         marks.append(
             (
-                SPK_VWR_AT[j],
+                svw_at[j],
                 (
-                    f"vector write {j} at instr {SPK_VWR_AT[j]} "
+                    f"vector write {j} at instr {svw_at[j]} "
                     f"DUT v{dr}={dv:032x} | Spike v{sr}={sv:032x}"
                 ),
             )
@@ -1494,7 +1563,7 @@ def gen_verdict(dut, spike, data):
         return "HUNG", f"{HUNG[0][5:]} at instr {len(dut)} of {len(spike)}"
     for what, a, b in (
         ("length", len(dut), len(spike)),
-        ("vector write count", len(DUT_VWR), len(SPK_VWR)),
+        ("vector write count", len(dvw), len(svw)),
         ("vector store byte count", len(DUT_VMEM), len(SPK_VMEM)),
     ):
         if a != b:
@@ -1572,6 +1641,8 @@ def gen_main(mode, args):
 
 def main():
     global VECTOR, FP, STALL, IRQ
+    take_vlen(sys.argv)
+    take_top(sys.argv)
     if len(sys.argv) >= 2 and sys.argv[1] in (
         "--gen",
         "--gen-spike",
@@ -1618,6 +1689,7 @@ def main():
                     f.write(asm)
                 flags = (
                     ("--vec " if VECTOR else "")
+                    + ("--fp " if FP else "")
                     + ("--stall " if STALL else "")
                     + ("--irq " if IRQ else "")
                 )

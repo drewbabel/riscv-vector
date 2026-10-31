@@ -4,7 +4,7 @@ module dmem
   import cache_pkg::*;
 #(
     parameter  int XLEN     = arch_pkg::XLEN,
-    parameter  int DEPTH    = 64,
+    parameter  int DEPTH    = arch_pkg::SimMemWords,
     localparam int Lines    = DEPTH / LineWords,
     localparam int LineIdxW = $clog2(Lines)
 ) (
@@ -15,7 +15,10 @@ module dmem
     output logic [ LineBits-1:0] rdata
 );
 
-  logic [LineBits-1:0] mem[Lines];
+  logic [LineBits-1:0] mem         [Lines];
+  logic                unused_addr;
+
+  assign unused_addr = ^{addr[XLEN-1:IdxLsb+LineIdxW], addr[IdxLsb-1:0]};
 
   assign rdata = mem[addr[IdxLsb+:LineIdxW]];
 

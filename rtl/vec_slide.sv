@@ -13,16 +13,16 @@ module vec_slide
     input wire core_en,
 
     // Issued instruction
-    input wire                       start,
-    input wire vec_op_e              op,
-    input wire                       vm,
-    input wire          [AWIDTH-1:0] vs2,
-    input wire          [AWIDTH-1:0] vd,
-    input wire          [   VlW-1:0] vl,
-    input wire          [       2:0] vsew,
-    input wire          [       2:0] vlmul,
-    input wire          [  XLEN-1:0] offset,
-    input wire          [  XLEN-1:0] scalar,
+    input wire                                start,
+    input wire vec_op_e                       op,
+    input wire                                vm,
+    input wire          [         AWIDTH-1:0] vs2,
+    input wire          [         AWIDTH-1:0] vd,
+    input wire          [            VlW-1:0] vl,
+    input wire          [ vec_pkg::VsewW-1:0] vsew,
+    input wire          [vec_pkg::VlmulW-1:0] vlmul,
+    input wire          [           XLEN-1:0] offset,
+    input wire          [           XLEN-1:0] scalar,
 
     // Register file
     input  wire  [  VLEN-1:0] v0,
@@ -69,9 +69,8 @@ module vec_slide
   assign m = OffW'(amount << vsew);
 
   // Group geometry
-  assign vlmax = vlmul[2] ? (SumW'(Bytes >> vsew) >> (3'd0 - vlmul)) :
-      (SumW'(Bytes >> vsew) << vlmul);
-  assign last_reg = vlmul[2] ? '0 : AWIDTH'((1 << vlmul[1:0]) - 1);
+  assign vlmax = SumW'(vec_group_elems(Bytes >> vsew, vlmul));
+  assign last_reg = AWIDTH'(vec_group_regs(4'($signed(vlmul))) - 1);
   assign base = SumW'(r) << elem_log2;
 
   // Source registers
@@ -122,7 +121,7 @@ module vec_slide
   assign wen   = busy && (|wstrb);
   assign waddr = vd + r;
 
-  // Walk the registers
+  // Walk registers
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       r    <= '0;

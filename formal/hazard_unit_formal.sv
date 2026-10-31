@@ -2,84 +2,71 @@
 
 module hazard_unit_formal ();
 
-  localparam int XLEN = arch_pkg::XLEN;
+  localparam int RegAddrW = arch_pkg::RegAddrW;
 
   localparam logic [1:0] FwdNone = 2'b00;
   localparam logic [1:0] FwdMem = 2'b01;
   localparam logic [1:0] FwdWb = 2'b10;
   localparam logic [1:0] ResMem = 2'd1;
 
-  logic       clk;
-  logic       core_en;
-  logic       rst_n;
-  logic [4:0] rs1_id;
-  logic [4:0] rs2_id;
-  logic [4:0] rs1_ex;
-  logic [4:0] rs2_ex;
-  logic [4:0] rd_id;
-  logic [4:0] rd_ex;
-  logic [4:0] rd_mem;
-  logic [4:0] rd_wb;
-  logic       reg_write_ex;
-  logic       reg_write_mem;
-  logic       reg_write_wb;
-  logic       mem_write_ex;
-  logic [1:0] result_src_ex;
-  logic [1:0] result_src_mem;
-  logic [1:0] result_src_wb;
-  logic       stall;
-  logic [1:0] forward_a;
-  logic [1:0] forward_b;
+  logic                clk;
+  logic [RegAddrW-1:0] rs1_id;
+  logic [RegAddrW-1:0] rs2_id;
+  logic [RegAddrW-1:0] rs1_ex;
+  logic [RegAddrW-1:0] rs2_ex;
+  logic [RegAddrW-1:0] rd_id;
+  logic [RegAddrW-1:0] rd_ex;
+  logic [RegAddrW-1:0] rd_mem;
+  logic [RegAddrW-1:0] rd_wb;
+  logic                reg_write_ex;
+  logic                reg_write_mem;
+  logic                reg_write_wb;
+  logic [         1:0] result_src_ex;
+  logic                stall;
+  logic [         1:0] forward_a;
+  logic [         1:0] forward_b;
 
   localparam int FpRegs = arch_pkg::NumRegs;
 
-  logic              fp_op_id;
-  logic              frs1_read_id;
-  logic              frs2_read_id;
-  logic              frs3_read_id;
-  logic              frd_write_id;
-  logic [       4:0] rs3_id;
-  logic [FpRegs-1:0] fp_busy;
-  logic              frd_write_ex;
-  logic              frd_write_mem;
-  logic              frm_write_ex;
-  logic              load_use;
-  logic              fp_dep;
+  logic                fp_op_id;
+  logic                frs1_read_id;
+  logic                frs2_read_id;
+  logic                frs3_read_id;
+  logic                frd_write_id;
+  logic [RegAddrW-1:0] rs3_id;
+  logic [  FpRegs-1:0] fp_busy;
+  logic                frd_write_ex;
+  logic                frd_write_mem;
+  logic                frm_write_ex;
+  logic                load_use;
+  logic                fp_dep;
 
-  hazard_unit #(
-      .XLEN(XLEN)
-  ) dut (
-      .clk           (clk),
-      .core_en       (core_en),
-      .rst_n         (rst_n),
-      .rs1_id        (rs1_id),
-      .rs2_id        (rs2_id),
-      .rs1_ex        (rs1_ex),
-      .rs2_ex        (rs2_ex),
-      .rd_id         (rd_id),
-      .rd_ex         (rd_ex),
-      .rd_mem        (rd_mem),
-      .rd_wb         (rd_wb),
-      .reg_write_ex  (reg_write_ex),
-      .reg_write_mem (reg_write_mem),
-      .reg_write_wb  (reg_write_wb),
-      .mem_write_ex  (mem_write_ex),
-      .result_src_ex (result_src_ex),
-      .result_src_mem(result_src_mem),
-      .result_src_wb (result_src_wb),
-      .fp_op_id      (fp_op_id),
-      .frs1_read_id  (frs1_read_id),
-      .frs2_read_id  (frs2_read_id),
-      .frs3_read_id  (frs3_read_id),
-      .frd_write_id  (frd_write_id),
-      .rs3_id        (rs3_id),
-      .fp_busy       (fp_busy),
-      .frd_write_ex  (frd_write_ex),
-      .frd_write_mem (frd_write_mem),
-      .frm_write_ex  (frm_write_ex),
-      .stall         (stall),
-      .forward_a     (forward_a),
-      .forward_b     (forward_b)
+  hazard_unit dut (
+      .rs1_id       (rs1_id),
+      .rs2_id       (rs2_id),
+      .rs1_ex       (rs1_ex),
+      .rs2_ex       (rs2_ex),
+      .rd_id        (rd_id),
+      .rd_ex        (rd_ex),
+      .rd_mem       (rd_mem),
+      .rd_wb        (rd_wb),
+      .reg_write_ex (reg_write_ex),
+      .reg_write_mem(reg_write_mem),
+      .reg_write_wb (reg_write_wb),
+      .result_src_ex(result_src_ex),
+      .fp_op_id     (fp_op_id),
+      .frs1_read_id (frs1_read_id),
+      .frs2_read_id (frs2_read_id),
+      .frs3_read_id (frs3_read_id),
+      .frd_write_id (frd_write_id),
+      .rs3_id       (rs3_id),
+      .fp_busy      (fp_busy),
+      .frd_write_ex (frd_write_ex),
+      .frd_write_mem(frd_write_mem),
+      .frm_write_ex (frm_write_ex),
+      .stall        (stall),
+      .forward_a    (forward_a),
+      .forward_b    (forward_b)
   );
 
   always @(posedge clk) begin
@@ -107,6 +94,18 @@ module hazard_unit_formal ();
     end else begin
       assert (!stall);
     end
+  end
+
+  // Covers
+  always @(posedge clk) begin
+    cover (forward_a == FwdMem && reg_write_wb && rd_wb == rs1_ex);
+    cover (forward_a == FwdWb);
+    cover (forward_b == FwdMem);
+    cover (forward_b == FwdWb);
+    cover (stall && load_use && !fp_dep);
+    cover (stall && fp_dep && !load_use && !frm_write_ex);
+    cover (stall && frm_write_ex && fp_op_id && !load_use);
+    cover (!stall && fp_op_id && frs1_read_id && frs2_read_id && frs3_read_id && frd_write_id);
   end
 
   assign load_use = (result_src_ex == ResMem) && reg_write_ex && (rd_ex != 0) &&

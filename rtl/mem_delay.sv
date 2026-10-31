@@ -4,7 +4,7 @@ module mem_delay
   import cache_pkg::*;
 #(
     parameter int XLEN = arch_pkg::XLEN,
-    parameter int DEPTH = 16384,
+    parameter int DEPTH = arch_pkg::MemWords,
     parameter int Latency = arch_pkg::MemLatency,
     localparam int Lines = DEPTH / LineWords,
     localparam int LineIdxLen = $clog2(Lines),
@@ -28,10 +28,13 @@ module mem_delay
     input wire [XLEN-1:0] boot_wdata
 );
 
+  if (Latency < 2) begin : g_latency
+    $error("Latency must be at least 2");
+  end
+
   logic [LineIdxLen-1:0] line_idx;
   logic [LineIdxLen-1:0] boot_idx;
   logic [LineIdxLen-1:0] wr_idx;
-  logic [ BlkOffLen-1:0] boot_word;
 
   logic [  CntWidth-1:0] cnt;
   logic                  busy;
@@ -46,12 +49,18 @@ module mem_delay
   logic [LineBits-1:0] wr_data;
   logic [   Lanes-1:0] wr_lane;
   logic                wr_en;
+  logic                unused_addr;
 
   assign line_idx = req_addr_q[IdxLsb+:LineIdxLen];
   assign boot_idx = boot_addr[IdxLsb+:LineIdxLen];
-  assign boot_word = boot_addr[WordLsb+:BlkOffLen];
+  assign unused_addr = ^{
+    boot_addr[XLEN-1:IdxLsb+LineIdxLen],
+    boot_addr[WordLsb-1:0],
+    req_addr_q[XLEN-1:IdxLsb+LineIdxLen],
+    req_addr_q[IdxLsb-1:0]
+  };
 
-  assign done = busy && (cnt >= CntWidth'(Latency - 1));
+  assign done = busy && (int'(cnt) >= Latency - 1);
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -85,10 +94,16 @@ module mem_delay
   assign wr_data = boot_we ? {LineWords{boot_wdata}} : req_wdata_q;  // Boot word every slot
 
   // Strobe the boot word
-  always_comb begin
-    for (int b = 0; b < Lanes; b++) begin
-      wr_lane[b] = !boot_we || (boot_word == BlkOffLen'(b / WordBytes));
+  if (BlkOffLen > 0) begin : g_boot_word
+    logic [BlkOffLen-1:0] boot_word;
+    assign boot_word = boot_addr[WordLsb+:BlkOffLen];
+    always_comb begin
+      for (int b = 0; b < Lanes; b++) begin
+        wr_lane[b] = !boot_we || (boot_word == BlkOffLen'(b / WordBytes));
+      end
     end
+  end else begin : g_line_word
+    assign wr_lane = '1;
   end
 
   bram_sdp #(

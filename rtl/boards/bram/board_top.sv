@@ -3,22 +3,40 @@
 module board_top
   import cache_pkg::*;
 #(
-    parameter int XLEN = arch_pkg::XLEN,
-    parameter int DEPTH = 16384,
-    parameter int ClkDiv = arch_pkg::ClkDiv,
-    parameter int BoardClkHz = arch_pkg::BoardClkHz,
-    parameter int MemLatency = arch_pkg::MemLatency
+    parameter  int XLEN       = arch_pkg::XLEN,
+    parameter  int VLEN       = arch_pkg::VLEN,
+    parameter  int ELEN       = arch_pkg::ELEN,
+    parameter  int MUL_LANES  = arch_pkg::MulLanes,
+    parameter  int DEPTH      = arch_pkg::MemWords,
+    parameter  int ClkDiv     = arch_pkg::ClkDiv,
+    parameter  int BoardClkHz = arch_pkg::BoardClkHz,
+    parameter  int MemLatency = arch_pkg::MemLatency,
+    localparam int GpioW      = 16,
+    localparam int ILEN       = arch_pkg::ILEN
 ) (
-    input  wire         clk,
-    input  wire         rst,
-    input  wire  [15:0] sw,
-    output logic [15:0] led,
-    input  wire         uart_rx,
-    output logic        uart_tx
+`ifdef SIM_BACKDOOR
+    output logic                              sim_branch,
+    output logic                              sim_branch_taken,
+    output logic                              sim_mispredict,
+    output logic                              sim_muldiv_hold,
+    output logic                              sim_tx_valid,
+    output logic [arch_pkg::UartDataBits-1:0] sim_tx_data,
+`endif
+    input  wire                               clk,
+    input  wire                               rst,
+    input  wire  [                 GpioW-1:0] sw,
+    output logic [                 GpioW-1:0] led,
+    input  wire                               uart_rx,
+    output logic                              uart_tx
 );
 
+  localparam int DataBits = arch_pkg::UartDataBits;
+  localparam int TagW = arch_pkg::PeriphTagW;
+  localparam int PorW = arch_pkg::PorW;
+  localparam logic [GpioW-1:0] LoadPattern = {(GpioW / 2) {2'b01}};
+
   logic                 rst_n;
-  logic [     XLEN-1:0] instr;
+  logic [     ILEN-1:0] instr;
   logic [     XLEN-1:0] pc;
   logic [     XLEN-1:0] mem_addr;
   logic [   XLEN/8-1:0] store_wstrb;
@@ -35,15 +53,15 @@ module board_top
   logic                 timer_irq;
   logic                 ext_irq;
   logic                 tx_valid;
-  logic [          7:0] tx_byte;
-  logic [         15:0] led_raw;
+  logic [ DataBits-1:0] tx_byte;
+  logic [    GpioW-1:0] led_raw;
 
   logic                 core_rst_n;
   logic                 loading;
   logic                 boot_we;
   logic [     XLEN-1:0] boot_waddr;
   logic [     XLEN-1:0] boot_wdata;
-  logic [          7:0] rx_byte;
+  logic [ DataBits-1:0] rx_byte;
   logic                 rx_valid_w;
 
 
@@ -74,12 +92,13 @@ module board_top
   logic [ LineBits-1:0] dc_mem_rdata;
   logic                 dc_mem_ready;
 
-  logic [         31:0] ic_hits;
-  logic [         31:0] ic_misses;
-  logic [         31:0] dc_hits;
-  logic [         31:0] dc_misses;
+  logic [     XLEN-1:0] ic_hits;
+  logic [     XLEN-1:0] ic_misses;
+  logic [     XLEN-1:0] dc_hits;
+  logic [     XLEN-1:0] dc_misses;
 
   localparam int CoreClkHz = BoardClkHz / ClkDiv;
+  logic [TagW-1:0] periph_tag;
   logic core_en;
 
   tick_gen #(
@@ -92,19 +111,35 @@ module board_top
       .tick   (core_en)
   );
 
+  logic            rx_error;
+  logic            core_mem_write;
+  logic [XLEN-1:0] core_alu_result;
+  logic [XLEN-1:0] core_write_data;
+  logic            unused_core;
+  assign unused_core = ^{rx_error, core_mem_write, core_alu_result, core_write_data};
+
   // Power on reset
-  logic [3:0] por = '0;
-  always_ff @(posedge clk) if (core_en && !por[3]) por <= por + 1'b1;
-  assign rst_n      = por[3] & ~rst;
+  logic [PorW-1:0] por;
+  initial por = '0;
+  always @(posedge clk) if (core_en && !por[PorW-1]) por <= por + 1'b1;
+  assign rst_n = por[PorW-1] & ~rst;
 
   // Load holds reset
-  assign core_rst_n = rst_n & ~loading;
+  logic boot_hold;
+`ifdef SIM_BACKDOOR
+  logic bd_skip_boot = 1'b0;
+  assign boot_hold = loading && !bd_skip_boot;
+`else
+  assign boot_hold = loading;
+`endif
+  assign core_rst_n = rst_n & ~boot_hold;
 
   // Decode on mem_addr
-  assign clint_sel  = mem_addr[XLEN-1:XLEN-8] == arch_pkg::ClintTag;
-  assign gpio_sel   = mem_addr[XLEN-1:XLEN-8] == arch_pkg::GpioTag;
-  assign uart_sel   = mem_addr[XLEN-1:XLEN-8] == arch_pkg::UartTag;
-  assign pmu_sel    = mem_addr[XLEN-1:XLEN-8] == arch_pkg::PmuTag;
+  assign periph_tag = mem_addr[XLEN-1-:TagW];
+  assign clint_sel  = periph_tag == arch_pkg::ClintTag;
+  assign gpio_sel   = periph_tag == arch_pkg::GpioTag;
+  assign uart_sel   = periph_tag == arch_pkg::UartTag;
+  assign pmu_sel    = periph_tag == arch_pkg::PmuTag;
   assign periph_sel = clint_sel || gpio_sel || uart_sel || pmu_sel;
 
   // Peripheral read mux
@@ -118,7 +153,7 @@ module board_top
 
   assign dmem_ready = periph_sel ? 1'b1 : dc_ready;
 
-  assign led = loading ? 16'h5555 : led_raw;
+  assign led = boot_hold ? LoadPattern : led_raw;
 
   pmu #(
       .XLEN(XLEN),
@@ -134,7 +169,7 @@ module board_top
 
   gpio #(
       .XLEN (XLEN),
-      .WIDTH(16)
+      .WIDTH(GpioW)
   ) gpio_inst (
       .clk    (clk),
       .core_en(core_en),
@@ -150,7 +185,8 @@ module board_top
 
   uart_rx #(
       .CLK_FREQ_HZ(CoreClkHz),
-      .BAUD_RATE  (arch_pkg::BaudRate)
+      .BAUD_RATE  (arch_pkg::BaudRate),
+      .DATA_BITS  (DataBits)
   ) uart_rx_inst (
       .clk      (clk),
       .core_en  (core_en),
@@ -158,12 +194,13 @@ module board_top
       .rx_serial(uart_rx),
       .rx_data  (rx_byte),
       .rx_valid (rx_valid_w),
-      .rx_error ()
+      .rx_error (rx_error)
   );
 
   uart_tx #(
       .CLK_FREQ_HZ(CoreClkHz),
-      .BAUD_RATE  (arch_pkg::BaudRate)
+      .BAUD_RATE  (arch_pkg::BaudRate),
+      .DATA_BITS  (DataBits)
   ) uart_tx_inst (
       .clk      (clk),
       .core_en  (core_en),
@@ -175,7 +212,8 @@ module board_top
   );
 
   uart_ctrl #(
-      .XLEN(XLEN)
+      .XLEN     (XLEN),
+      .DATA_BITS(DataBits)
   ) uart_ctrl_inst (
       .clk     (clk),
       .core_en (core_en),
@@ -195,8 +233,9 @@ module board_top
   );
 
   boot_loader #(
-      .XLEN (XLEN),
-      .DEPTH(DEPTH)
+      .XLEN     (XLEN),
+      .DEPTH    (DEPTH),
+      .DATA_BITS(DataBits)
   ) boot_loader_inst (
       .clk     (clk),
       .core_en (core_en),
@@ -210,66 +249,75 @@ module board_top
   );
 
   riscv_pipelined #(
-      .XLEN(XLEN)
+      .XLEN     (XLEN),
+      .VLEN     (VLEN),
+      .ELEN     (ELEN),
+      .MUL_LANES(MUL_LANES)
   ) riscv_pipelined_inst (
-`ifdef RISCV_FORMAL
-      .dbg_valid     (),
-      .dbg_insn      (),
-      .dbg_pc_rdata  (),
-      .dbg_pc_wdata  (),
-      .dbg_rs1_rdata (),
-      .dbg_rs2_rdata (),
-      .dbg_rd_wdata  (),
-      .dbg_reg_write (),
-      .dbg_mem_addr  (),
-      .dbg_mem_wmask (),
-      .dbg_mem_wdata (),
-      .dbg_mem_rdata (),
-      .dbg_trap      (),
-      .dbg_csr_wdata (),
-      .dbg_mscratch  (),
-      .dbg_mstatus   (),
-      .dbg_mtvec     (),
-      .dbg_mepc      (),
-      .dbg_mcause    (),
-      .dbg_mtval     (),
-      .dbg_mie       (),
-      .dbg_mip       (),
-      .dbg_mcycle    (),
-      .dbg_minstret  (),
-      .dbg_mcycleh   (),
-      .dbg_minstreth (),
-      .dbg_fflags    (),
-      .dbg_vl        (),
-      .dbg_vtype_bits(),
-      .dbg_vtype_ill (),
-      .dbg_vstart    (),
-      .dbg_vec_tag   (),
-      .dbg_vec_retire(),
-      .dbg_vec_wregs (),
-      .dbg_vec_idle  (),
-      .dbg_ex_commit (),
-      .dbg_ex_insn   (),
-      .dbg_s_take    (),
-      .dbg_v_take    (),
+`ifdef SIM_BACKDOOR
+      .sim_branch      (sim_branch),
+      .sim_branch_taken(sim_branch_taken),
+      .sim_mispredict  (sim_mispredict),
+      .sim_muldiv_hold (sim_muldiv_hold),
 `endif
-      .clk           (clk),
-      .core_en       (core_en),
-      .rst_n         (core_rst_n),
-      .instr         (instr),
-      .read_data     (core_rdata),
-      .timer_irq     (timer_irq),
-      .ext_irq       (ext_irq),
-      .imem_ready    (imem_ready),
-      .dmem_ready    (dmem_ready),
-      .dmem_req      (dmem_req),
-      .pc            (pc),
-      .mem_write     (),
-      .alu_result    (),
-      .write_data    (),
-      .store_wstrb   (dc_wstrb),
-      .store_data    (dc_wdata),
-      .mem_addr      (mem_addr)
+`ifdef RISCV_FORMAL
+      .dbg_valid       (),
+      .dbg_insn        (),
+      .dbg_pc_rdata    (),
+      .dbg_pc_wdata    (),
+      .dbg_rs1_rdata   (),
+      .dbg_rs2_rdata   (),
+      .dbg_rd_wdata    (),
+      .dbg_reg_write   (),
+      .dbg_mem_addr    (),
+      .dbg_mem_wmask   (),
+      .dbg_mem_wdata   (),
+      .dbg_mem_rdata   (),
+      .dbg_trap        (),
+      .dbg_csr_wdata   (),
+      .dbg_mscratch    (),
+      .dbg_mstatus     (),
+      .dbg_mtvec       (),
+      .dbg_mepc        (),
+      .dbg_mcause      (),
+      .dbg_mtval       (),
+      .dbg_mie         (),
+      .dbg_mip         (),
+      .dbg_mcycle      (),
+      .dbg_minstret    (),
+      .dbg_mcycleh     (),
+      .dbg_minstreth   (),
+      .dbg_fflags      (),
+      .dbg_vl          (),
+      .dbg_vtype_bits  (),
+      .dbg_vtype_ill   (),
+      .dbg_vstart      (),
+      .dbg_vec_tag     (),
+      .dbg_vec_retire  (),
+      .dbg_vec_wregs   (),
+      .dbg_vec_idle    (),
+      .dbg_ex_commit   (),
+      .dbg_ex_insn     (),
+      .dbg_s_take      (),
+      .dbg_v_take      (),
+`endif
+      .clk             (clk),
+      .core_en         (core_en),
+      .rst_n           (core_rst_n),
+      .instr           (instr),
+      .read_data       (core_rdata),
+      .timer_irq       (timer_irq),
+      .ext_irq         (ext_irq),
+      .imem_ready      (imem_ready),
+      .dmem_ready      (dmem_ready),
+      .dmem_req        (dmem_req),
+      .pc              (pc),
+      .mem_write       (core_mem_write),
+      .alu_result      (core_alu_result),
+      .write_data      (core_write_data),
+      .store_wstrb     (dc_wstrb),
+      .store_data      (dc_wdata),
+      .mem_addr        (mem_addr)
   );
 
   icache #(
@@ -370,6 +418,12 @@ module board_top
       .rdata    (clint_rdata),
       .timer_irq(timer_irq)
   );
+
+
+`ifdef SIM_BACKDOOR
+  assign sim_tx_valid = tx_valid;
+  assign sim_tx_data  = tx_byte;
+`endif
 
 endmodule
 
