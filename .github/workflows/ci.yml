@@ -1,11 +1,7 @@
 name: CI
 
 env:
-  OSS_CAD_SUITE: '2026-07-24'
-  SV2V: 'v0.0.13'
-  RISCV_FORMAL_SHA: '2bd7410'
   SPIKE_SHA: '55b4658dbf574ba0b714083ec436ce2cb5be1998'
-  VERIBLE: 'v0.0-4283-ga1b0580b'
   GO: '1.22.12'
   RVV_TESTS_SHA: 'f76bff121dce91b6b23e1d37be77a5e44af914c3'
 
@@ -41,8 +37,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
       - name: Generate the TestFloat reference files
         run: make testfloat
       - name: Run the testbench group
@@ -115,14 +109,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
-      - name: Install sv2v
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://github.com/zachjs/sv2v/releases/download/$SV2V/sv2v-Linux.zip -o sv2v.zip
-          unzip -j sv2v.zip -d "$HOME/.local/bin"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/sv2v
       - name: Prove the task
         run: make formal MOD="${{ matrix.proof.mod }}" TASK="${{ matrix.proof.task }}"
 
@@ -133,20 +120,10 @@ jobs:
       groups: ${{ steps.list.outputs.groups }}
     steps:
       - uses: actions/checkout@v7
-      - name: Install sv2v
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://github.com/zachjs/sv2v/releases/download/$SV2V/sv2v-Linux.zip -o sv2v.zip
-          unzip -j sv2v.zip -d "$HOME/.local/bin"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Clone riscv-formal
-        run: |
-          git clone https://github.com/YosysHQ/riscv-formal.git
-          git -C riscv-formal checkout "$RISCV_FORMAL_SHA"
+      - uses: ./.github/actions/sv2v
+      - uses: ./.github/actions/riscv-formal
       - name: Split checks into groups
         id: list
-        env:
-          RISCV_FORMAL_DIR: ${{ github.workspace }}/riscv-formal
         run: |
           groups=$(bash formal/rvfi/run.sh --list | python3 -c "import sys, json; n=[l.strip() for l in sys.stdin if l.strip()]; solo=[x for x in n if x == 'reg_ch0']; n=[x for x in n if x not in solo]; g=[[] for _ in range(8)]; [g[i % 8].append(x) for i, x in enumerate(n)]; print(json.dumps(solo + [' '.join(x) for x in g if x]))")
           echo "groups=$groups" >> "$GITHUB_OUTPUT"
@@ -162,21 +139,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
-      - name: Install sv2v
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://github.com/zachjs/sv2v/releases/download/$SV2V/sv2v-Linux.zip -o sv2v.zip
-          unzip -j sv2v.zip -d "$HOME/.local/bin"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Clone riscv-formal
-        run: |
-          git clone https://github.com/YosysHQ/riscv-formal.git
-          git -C riscv-formal checkout "$RISCV_FORMAL_SHA"
+      - uses: ./.github/actions/sv2v
+      - uses: ./.github/actions/riscv-formal
       - name: Prove the group
-        env:
-          RISCV_FORMAL_DIR: ${{ github.workspace }}/riscv-formal
         run: bash formal/rvfi/run.sh ${{ matrix.group }}
 
   coremark:
@@ -185,8 +150,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
       - uses: ./.github/actions/riscv-toolchain
       - name: Build CoreMark image
         run: make -C sw/coremark all
@@ -199,8 +162,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
       - uses: ./.github/actions/riscv-toolchain
       - name: Build the Embench images
         run: make -C sw/embench all
@@ -213,13 +174,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
       - uses: ./.github/actions/riscv-toolchain
       - name: Clone FreeRTOS-Kernel
         run: |
-          git clone https://github.com/FreeRTOS/FreeRTOS-Kernel.git sw/FreeRTOS-Kernel
-          git -C sw/FreeRTOS-Kernel checkout 9db704cd3bbe4963f9bd3de1f1161ea2cf90768b
+          ./fetch.sh git https://github.com/FreeRTOS/FreeRTOS-Kernel.git sw/FreeRTOS-Kernel 9db704cd3bbe4963f9bd3de1f1161ea2cf90768b
       - name: Build FreeRTOS demo image
         run: make -C sw/freertos all
       - name: Run FreeRTOS queue demo testbench
@@ -231,8 +189,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
       - uses: ./.github/actions/riscv-toolchain
         with:
           extra-packages: device-tree-compiler libfdt-dev
@@ -258,9 +214,8 @@ jobs:
         run: python3 tests/cosim.py --stall --irq --rand 500 "$RAND_SEED"
       - name: Generated RVV test sweep
         run: |
-          git clone -q https://github.com/chipsalliance/riscv-vector-tests.git build/rvv-gen
-          git -C build/rvv-gen checkout -q f76bff121dce91b6b23e1d37be77a5e44af914c3
-          git -C build/rvv-gen submodule -q update --init env/riscv-test-env
+          ./fetch.sh git https://github.com/chipsalliance/riscv-vector-tests.git build/rvv-gen f76bff121dce91b6b23e1d37be77a5e44af914c3
+          ./fetch.sh run git -C build/rvv-gen submodule -q update --init env/riscv-test-env
           mkdir -p build/rvv-gen/fixture
           cp tests/rvv_env/fixture/*.S build/rvv-gen/fixture/
           python3 tests/rvv_sweep.py prep build/rvv-gen/fixture
@@ -276,14 +231,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
-      - name: Install sv2v
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://github.com/zachjs/sv2v/releases/download/$SV2V/sv2v-Linux.zip -o sv2v.zip
-          unzip -j sv2v.zip -d "$HOME/.local/bin"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/sv2v
       - uses: ./.github/actions/riscv-toolchain
       - name: Prove the pc_plus4 keep holds
         run: bash gate_check.sh
@@ -294,8 +242,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
       - name: Check the float width guard
         run: bash tests/fp_width.sh
 
@@ -307,12 +253,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
-      - name: Install Verible
-        run: |
-          curl -fsSL "https://github.com/chipsalliance/verible/releases/download/$VERIBLE/verible-$VERIBLE-linux-static-x86_64.tar.gz" | tar -xz -C "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/verible-$VERIBLE/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/verible
       - name: Check the repo rules
         run: |
           base=$(git merge-base origin/main HEAD)
@@ -344,20 +285,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
       - uses: ./.github/actions/riscv-toolchain
         with:
           extra-packages: device-tree-compiler libfdt-dev
       - uses: ./.github/actions/spike
         with:
           sha: ${{ env.SPIKE_SHA }}
-      - name: Install sv2v
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://github.com/zachjs/sv2v/releases/download/$SV2V/sv2v-Linux.zip -o sv2v.zip
-          unzip -j sv2v.zip -d "$HOME/.local/bin"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/sv2v
       - name: Generate the TestFloat reference files
         run: make testfloat
       - name: Sweep the group
@@ -435,8 +369,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
       - uses: ./.github/actions/riscv-toolchain
         with:
           extra-packages: device-tree-compiler libfdt-dev
@@ -445,7 +377,8 @@ jobs:
           sha: ${{ env.SPIKE_SHA }}
       - name: Install Go
         run: |
-          curl -fsSL "https://go.dev/dl/go$GO.linux-amd64.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          ./fetch.sh url "https://go.dev/dl/go$GO.linux-amd64.tar.gz" "$RUNNER_TEMP/go.tar.gz"
+          tar -xzf "$RUNNER_TEMP/go.tar.gz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
       - uses: ./.github/actions/core-size
         with:
@@ -453,9 +386,8 @@ jobs:
       - name: Generate the shard at this VLEN
         run: |
           g=build/rvv-gen
-          git clone -q https://github.com/chipsalliance/riscv-vector-tests.git $g
-          git -C $g checkout -q "$RVV_TESTS_SHA"
-          git -C $g submodule -q update --init env/riscv-test-env
+          ./fetch.sh git https://github.com/chipsalliance/riscv-vector-tests.git $g "$RVV_TESTS_SHA"
+          ./fetch.sh run git -C $g submodule -q update --init env/riscv-test-env
           vlen=$(sed -nE 's/.*parameter int VLEN = ([0-9]+);.*/\1/p' rtl/arch_pkg.sv)
           march=rv32gcv
           if [ "$vlen" -lt 128 ]; then march=rv32gc_zve32f; fi
@@ -528,16 +460,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/oss-cad-suite
-        with:
-          version: ${{ env.OSS_CAD_SUITE }}
       - uses: ./.github/actions/riscv-toolchain
       - uses: ./.github/actions/core-size
         with:
           size: ${{ matrix.size }}
       - name: Build the benchmark images
         run: |
-          git clone https://github.com/FreeRTOS/FreeRTOS-Kernel.git sw/FreeRTOS-Kernel
-          git -C sw/FreeRTOS-Kernel checkout 9db704cd3bbe4963f9bd3de1f1161ea2cf90768b
+          ./fetch.sh git https://github.com/FreeRTOS/FreeRTOS-Kernel.git sw/FreeRTOS-Kernel 9db704cd3bbe4963f9bd3de1f1161ea2cf90768b
           make -C sw/coremark all
           make -C sw/embench all
           make -C sw/freertos all
