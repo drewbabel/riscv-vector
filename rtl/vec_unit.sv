@@ -639,7 +639,7 @@ module vec_unit
 
   // Nonzero vstart traps
   logic vstart_legal;
-  assign vstart_legal = !vstart_set || dec_mem;
+  assign vstart_legal = !vstart_set;
 
   // Mask set overlap
   logic mset_legal;
