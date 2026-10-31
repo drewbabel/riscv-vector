@@ -548,9 +548,81 @@ jobs:
       - name: Run FreeRTOS queue demo testbench
         run: make vsim MOD=freertos_boot
 
+  mutation-list:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      shards: ${{ steps.list.outputs.shards }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: List one job per mutation shard
+        id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shards=$(python3 tests/mutation/mutate.py list)
+          echo "$shards"
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+
+  mutation:
+    needs: mutation-list
+    name: mutation ${{ matrix.mod }} ${{ matrix.shard }} of ${{ matrix.of }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.mutation-list.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/oss-cad-suite
+        with:
+          version: ${{ env.OSS_CAD_SUITE }}
+      - name: Install sv2v
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://github.com/zachjs/sv2v/releases/download/$SV2V/sv2v-Linux.zip -o sv2v.zip
+          unzip -j sv2v.zip -d "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/riscv-toolchain
+        if: matrix.cosim
+        with:
+          extra-packages: device-tree-compiler libfdt-dev
+      - uses: ./.github/actions/spike
+        if: matrix.cosim
+        with:
+          sha: ${{ env.SPIKE_SHA }}
+      - name: Generate the TestFloat reference files
+        if: matrix.testfloat
+        run: make testfloat
+      - name: Mutate the shard
+        run: python3 tests/mutation/mutate.py run ${{ matrix.mod }} ${{ matrix.shard }} ${{ matrix.of }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mutation-${{ matrix.mod }}-${{ matrix.shard }}
+          path: build/mutation/${{ matrix.mod }}-${{ matrix.shard }}.json
+
+  mutation-report:
+    needs: mutation
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: mutation-*
+          path: build/mutation-results
+      - name: Check every module against the floor
+        run: python3 tests/mutation/mutate.py report build/mutation-results
+
   ci-gate:
     if: always()
-    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths, rules, sweep-list, sweep, full-suite-list, full-suite, full-suite-check, full-bench]
+    needs: [testbench-list, testbenches, formal-list, formal, core-formal-list, core-formal, coremark, embench, freertos, cosim, gate-check, float-widths, rules, sweep-list, sweep, full-suite-list, full-suite, full-suite-check, full-bench, mutation-list, mutation, mutation-report]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
