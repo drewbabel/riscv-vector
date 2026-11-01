@@ -169,6 +169,31 @@ module dmem_bench #(
     end
   endtask  // Automatic
 
+  task automatic march_line(input logic [XLEN-1:0] a, input logic [LineBits-1:0] data);
+    write_line(a, data);
+    for (int w = 0; w < LineWords; w++) check_read(a + XLEN'(w * WordBytes));
+  endtask  // Automatic
+
+  task automatic lane_line(input logic [XLEN-1:0] a);
+    for (int b = 0; b < LineBytes; b++) begin
+      addr  = a;
+      wdata = ~'0;
+      wstrb = LineBytes'(1) << b;
+      @(negedge clk);
+      wstrb = '0;
+      for (int w = 0; w < LineWords; w++) check_read(a + XLEN'(w * WordBytes));
+    end
+  endtask  // Automatic
+
+  task automatic march_all();
+    for (int l = 0; l < DEPTH / LineWords; l++) begin
+      march_line(XLEN'(l * LineBytes), '1);
+      march_line(XLEN'(l * LineBytes), '0);
+      lane_line(XLEN'(l * LineBytes));
+      march_line(XLEN'(l * LineBytes), '0);
+    end
+  endtask  // Automatic
+
   task automatic finish();
     @(negedge clk);
     done = 1'b1;
@@ -183,6 +208,7 @@ module dmem_bench #(
     test_words();
     test_line();
     random_sweep(1000);
+    march_all();
 
     finish();
   end
