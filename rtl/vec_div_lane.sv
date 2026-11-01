@@ -5,20 +5,25 @@ module vec_div_lane
 #(
     parameter int ELEN = arch_pkg::ELEN
 ) (
-    input  wire                     clk,
-    input  wire                     rst_n,
-    input  wire                     core_en,
-    input  wire                     start,
-    input  wire vec_op_e            op,
-    input  wire          [     2:0] vsew,
-    input  wire          [ELEN-1:0] a,        // vs2
-    input  wire          [ELEN-1:0] b,        // vs1
-    output logic         [ELEN-1:0] result,
-    output logic                    busy,
-    output logic                    done
+    input  wire                               clk,
+    input  wire                               rst_n,
+    input  wire                               core_en,
+    input  wire                               start,
+    input  wire vec_op_e                      op,
+    input  wire          [vec_pkg::VsewW-1:0] vsew,
+    input  wire          [          ELEN-1:0] a,
+    input  wire          [          ELEN-1:0] b,
+    output logic         [          ELEN-1:0] result,
+    output logic                              busy,
+    output logic                              done
 );
 
   localparam int CountW = $clog2(ELEN + 1);
+  localparam logic [vec_pkg::VsewW-1:0] SewTop = vec_pkg::VsewW'($clog2(ELEN / 8));
+
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
+  end
 
   typedef enum logic [1:0] {
     IDLE,
@@ -26,53 +31,49 @@ module vec_div_lane
     DONE
   } state_t;
 
-  state_t               state;
-  state_t               next_state;
-  logic    [CountW-1:0] cycle_count;
-  logic    [CountW-1:0] target_iters;
-  logic                 op_complete;
+  state_t                       state;
+  state_t                       next_state;
+  logic    [        CountW-1:0] cycle_count;
+  logic    [        CountW-1:0] target_iters;
+  logic                         op_complete;
 
-  // Operand preparation and captured operation.
-  logic                 op_signed;
-  logic    [  ELEN-1:0] a_ext;
-  logic    [  ELEN-1:0] b_ext;
-  logic    [  ELEN-1:0] a_mag;
-  logic    [  ELEN-1:0] b_mag;
-  logic    [  ELEN-1:0] stored_a;
-  logic    [  ELEN-1:0] stored_b;
-  vec_op_e              stored_op;
-  logic    [       2:0] sew_q;
-  logic                 is_div;
-  logic    [  ELEN-1:0] min_signed;
-  logic                 overflow;
+  // Operand preparation
+  logic                         op_signed;
+  logic    [          ELEN-1:0] a_ext;
+  logic    [          ELEN-1:0] b_ext;
+  logic    [          ELEN-1:0] a_mag;
+  logic    [          ELEN-1:0] b_mag;
+  logic    [          ELEN-1:0] stored_a;
+  logic    [          ELEN-1:0] stored_b;
+  vec_op_e                      stored_op;
+  logic    [vec_pkg::VsewW-1:0] sew_q;
+  logic                         is_div;
+  logic    [          ELEN-1:0] min_signed;
+  logic                         overflow;
 
-  // Restoring divider: dividend shifts from the MSB; divisor stays unshifted.
-  logic    [  ELEN-1:0] div_n;
-  logic    [  ELEN-1:0] div_d;
-  logic    [  ELEN-1:0] quotient;
-  logic    [  ELEN-1:0] remainder;
-  logic                 quot_neg;
-  logic                 rem_neg;
-  logic    [  ELEN-1:0] trial_rem;
-  logic    [  ELEN-1:0] step_remainder;
-  logic    [  ELEN-1:0] step_quotient;
-  logic    [  ELEN-1:0] div_result;
+  // Division state
+  logic    [          ELEN-1:0] div_n;
+  logic    [          ELEN-1:0] div_d;
+  logic    [          ELEN-1:0] quotient;
+  logic    [          ELEN-1:0] remainder;
+  logic                         quot_neg;
+  logic                         rem_neg;
+  logic    [          ELEN-1:0] trial_rem;
+  logic    [          ELEN-1:0] step_remainder;
+  logic    [          ELEN-1:0] step_quotient;
+  logic    [          ELEN-1:0] div_result;
 
-  function automatic logic [ELEN-1:0] extend(input logic [ELEN-1:0] x, input logic [2:0] sew,
-                                             input logic sgn);
-    case (sew)
-      3'd0: extend = sgn ? ELEN'($signed(x[7:0])) : ELEN'(x[7:0]);
-      3'd1: extend = sgn ? ELEN'($signed(x[15:0])) : ELEN'(x[15:0]);
-      default: extend = x;
-    endcase
+  function automatic logic [ELEN-1:0] extend(input logic [ELEN-1:0] x,
+                                             input logic [vec_pkg::VsewW-1:0] sew, input logic sgn);
+    logic [ELEN-1:0] keep;
+    keep = {ELEN{1'b1}} >> (ELEN - (8 << sew));
+    if (sew >= SewTop) extend = x;
+    else if (sgn && x[(8<<sew)-1]) extend = x | ~keep;
+    else extend = x & keep;
   endfunction
 
-  function automatic logic [CountW-1:0] sew_iters(input logic [2:0] sew);
-    case (sew)
-      3'd0: sew_iters = CountW'(8);
-      3'd1: sew_iters = CountW'(16);
-      default: sew_iters = CountW'(32);
-    endcase
+  function automatic logic [CountW-1:0] sew_iters(input logic [vec_pkg::VsewW-1:0] sew);
+    sew_iters = (sew >= SewTop) ? CountW'(ELEN) : CountW'(8 << sew);
   endfunction
 
   assign op_signed = (op == VEC_DIV) || (op == VEC_REM);
@@ -82,11 +83,11 @@ module vec_div_lane
 
   always_comb begin
     a_mag = (op_signed && a_ext[ELEN-1]) ? -a_ext : a_ext;
-    // Feed only the selected element's bits through the divider.
+    // Left aligned dividend
     a_mag = a_mag << (ELEN - int'(sew_iters(vsew)));
   end
 
-  // Decode the captured width, never live vsew, during execution.
+  // Captured element width
   assign target_iters = sew_iters(sew_q);
   assign is_div       = (stored_op != VEC_REM) && (stored_op != VEC_REMU);
 
@@ -102,7 +103,7 @@ module vec_div_lane
                     (stored_a == min_signed) && (&stored_b);
   assign op_complete = (stored_b == '0) || overflow || (cycle_count == target_iters);
 
-  // One combinational restoring step. The partial dividend fits in ELEN bits.
+  // Restoring iteration
   assign trial_rem = {remainder[ELEN-2:0], div_n[ELEN-1]};
   always_comb begin
     step_remainder = trial_rem;
@@ -131,7 +132,7 @@ module vec_div_lane
     endcase
   end
 
-  // Synchronous reset takes priority; core_en freezes all state and outputs.
+  // Reset and enable
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       state       <= IDLE;
@@ -171,7 +172,7 @@ module vec_div_lane
           end
         end
         EXEC: begin
-          // Complete one enabled cycle after the final arithmetic iteration.
+          // Completion cycle
           if (op_complete) begin
             result <= div_result;
             busy   <= 1'b0;
