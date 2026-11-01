@@ -33,3 +33,5 @@ cosim_m
 --vec --fp vecfwtrap
 --vec --fp vecve64
 systrap
+--irq --stall cosim_csr
+--vec --fp --stall cosim_vx

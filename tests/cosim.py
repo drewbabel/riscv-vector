@@ -266,6 +266,8 @@ DUT_VMEM = []  # Vector store bytes
 FAULTS = []  # Monitor faults
 HUNG = []  # Never reached the end
 SPK_VMEM = []  # Vector store bytes
+DUT_VHI = []  # Vector store pages
+SPK_VHI = []
 SPK_VWR_AT = []
 SPK_VMEM_AT = []
 DUT_TRAP = []
@@ -296,9 +298,7 @@ def run_dut(
     ).stdout
     fails = [ln[5:] for ln in out.splitlines() if ln.startswith("FAIL ")]
     FAULTS.clear()
-    FAULTS.extend(
-        ln for ln in fails if ln.startswith(("FENCE BUSY", "VEC REISSUE"))
-    )
+    FAULTS.extend(ln for ln in fails if not ln.startswith(("HUNG", "IRQ LOST")))
     HUNG.clear()
     HUNG.extend(ln for ln in fails if ln.startswith("HUNG"))
     IRQ_LOST.clear()
@@ -308,6 +308,7 @@ def run_dut(
     TRACE.clear()
     DUT_VWR.clear()
     DUT_VMEM.clear()
+    DUT_VHI.clear()
     DUT_TRAP.clear()
     DUT_FWR.clear()
     FCSR["dut"] = None
@@ -357,6 +358,7 @@ def run_dut(
                     DUT_VMEM.append(
                         ((addr + k) & (DEPTH * 4 - 1), (wd >> (8 * k)) & 0xFF)
                     )
+                    DUT_VHI.append((addr + k) & ~(DEPTH * 4 - 1) & MASK32)
             continue
         v = VCOMMIT_RE.match(line)
         if v:
@@ -434,6 +436,7 @@ def run_spike(spike_elf, n, isa=None, park=False):
     cmd = [
         "spike",
         f"--isa={isa or march()}",
+        "--priv=M",
         f"--pc={hex(BASE)}",
         "-l",
         "--log-commits",
@@ -448,6 +451,7 @@ def run_spike(spike_elf, n, isa=None, park=False):
         cmd = [
             "spike",
             f"--isa={isa or march()}",
+            "--priv=M",
             f"--pc={hex(BASE)}",
             "--log-commits",
             f"--instructions={GEN_CAP}",
@@ -487,6 +491,7 @@ def run_spike(spike_elf, n, isa=None, park=False):
     SPK_IRQ_MISS.extend(l for l in lines if l.startswith("IRQ MISSED"))
     SPK_VWR.clear()
     SPK_VMEM.clear()
+    SPK_VHI.clear()
     SPK_VWR_AT.clear()
     SPK_VMEM_AT.clear()
     SPK_FWR.clear()
@@ -510,7 +515,7 @@ def run_spike(spike_elf, n, isa=None, park=False):
             if opcode in ABS_PC_OPS and rd != 0:
                 val = (val - BASE) & MASK32  # to dut space
             if IRQ and opcode == 0x73 and insn >> 20 == MEPC_ADDR:
-                val = (val - BASE) & MASK32
+                val = (val - BASE) & MASK32 if val >> 16 == BASE >> 16 else val
         for freg, fhex in SPIKE_F_RE.findall(tail):
             SPK_FWR.append((int(freg), int(fhex, 16) & MASK32))
         for caddr, chex in SPIKE_FCSR_RE.findall(tail):
@@ -551,6 +556,9 @@ def run_spike(spike_elf, n, isa=None, park=False):
                         )
                     )
                     SPK_VMEM_AT.append(len(trace))
+                    SPK_VHI.append(
+                        (int(eaddr, 16) + k) & ~(DEPTH * 4 - 1) & MASK32
+                    )
         store = None
         sm = re.search(r"mem\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)", tail)
         if sm and (opcode == 0x23 or fsw):
@@ -721,6 +729,12 @@ def compare_vmem():
             False,
             f"vector store byte count DUT {len(DUT_VMEM)} Spike {len(SPK_VMEM)}",
         )
+    for i, (d, s) in enumerate(zip(DUT_VHI, SPK_VHI)):
+        if d != s:
+            return (
+                False,
+                f"vector store byte {i} page DUT {d:08x} Spike {s:08x}",
+            )
     return True, n
 
 
@@ -768,6 +782,24 @@ MUL_OPS = ["mul", "mulh", "mulhsu", "mulhu"]
 DIV_OPS = ["div", "divu", "rem", "remu"]
 BASE_REG = 3  # data pointer
 DSTS = [r for r in range(1, 32) if r != BASE_REG]
+CSR_OPS = [
+    "csrrw x{rd}, mscratch, x{rs}",
+    "csrrs x{rd}, mtval, x{rs}",
+    "csrrc x{rd}, mcause, x{rs}",
+    "csrrwi x{rd}, mtval, {z}",
+    "csrrsi x{rd}, mie, 8",
+    "csrrci x{rd}, mie, 8",
+    "csrrw x{rd}, mcycleh, x{rs}",
+    "csrwi mcycle, {z}",
+    "csrr x{rd}, minstret",
+]
+IRQ_CSR_OPS = ["csrr x{rd}, mip"]
+
+
+# Trap and counter access
+def csr_insn(rng, rd, rs):
+    ops = CSR_OPS + (IRQ_CSR_OPS if IRQ else [])
+    return rng.choice(ops).format(rd=rd, rs=rs, z=rng.randint(0, 31))
 
 
 # Program for one seed
@@ -790,7 +822,7 @@ def gen(seed):
         mem_ld = ["ldb", "ldh"] if written else []
         if mode == "linear":
             pool = (
-                ["r", "i", "sh", "lui", "mul", "div", "sw"]
+                ["r", "i", "sh", "lui", "mul", "div", "sw", "csr"]
                 + (["lw"] if written else [])
                 + mem_st
                 + mem_ld
@@ -806,6 +838,7 @@ def gen(seed):
                 "sw",
                 "branch",
                 "jal",
+                "csr",
             ] + mem_st
         kind = rng.choice(pool)
 
@@ -859,6 +892,8 @@ def gen(seed):
             case "jal":
                 tgt = rng.choice([f"L{k}" for k in range(i + 1, n)] + ["Ldone"])
                 body.append(f"jal x0, {tgt}")
+            case "csr":
+                body.append(csr_insn(rng, rd(), rs()))
 
     # Base 0x80008000 clears the code in Spike
     lines = [
@@ -936,6 +971,7 @@ def gen_vec(seed):
                 "miota",
                 "mpop",
                 "vlm",
+                "csr",
             ]
         )
         mask = ", v0.t" if rng.random() < 0.3 else ""
@@ -1113,6 +1149,10 @@ def gen_vec(seed):
                 op = rng.choice(["vcpop", "vfirst"])
                 body.append(
                     f"{op}.m x{rng.choice([12, 13, 14])}, v{rng.randint(1, 15)}{mask}"
+                )
+            case "csr":
+                body.append(
+                    csr_insn(rng, rng.choice([12, 13, 14]), rng.randint(1, 31))
                 )
             case "vlm":
                 body.append(
@@ -1713,14 +1753,12 @@ def main():
         )
         return
 
-    if IRQ:
-        sys.exit("--irq needs --rand, directed programs carry no handler")
     want_trace = "--trace" in sys.argv
     if want_trace:
         sys.argv.remove("--trace")
     if len(sys.argv) != 2:
         sys.exit(
-            "usage: python3 tests/cosim.py [--vec] [--fp] [--stall] [--trace] <prog>"
+            "usage: python3 tests/cosim.py [--vec] [--fp] [--stall] [--irq] [--trace] <prog>"
             " | --rand [count] [seed0]"
         )
     prog = sys.argv[1]  # single program, assembly or C

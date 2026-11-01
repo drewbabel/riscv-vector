@@ -40,6 +40,14 @@ module cosim_bench #(
   localparam int LineWords = cache_pkg::LineWords;
   localparam int DrainCycles = 2000;
   localparam int MinChecks = 10;
+  localparam logic [Xlen-1:0] LiveBits = Xlen'(1) << (Xlen - 1);
+  localparam logic [Xlen-1:0] IrqBits = (Xlen'(1) << Mtip) | (Xlen'(1) << Meip);
+  localparam int CsrSlots = 12;
+  localparam int SnapW = (CsrSlots + 3) * Xlen;
+  localparam int WdataSlot = CsrSlots;
+  localparam int AluSlot = CsrSlots + 1;
+  localparam int InsnSlot = CsrSlots + 2;
+  localparam logic [Xlen-1:0] WordMask = Xlen'(3);
 
   int                                checks = 0;
   int                                errors = 0;
@@ -167,6 +175,24 @@ module cosim_bench #(
   logic   [                Vlen-1:0] vpeek             [Vregs];
 
   logic                              v_accepted = 1'b0;
+
+  // Retire reference state
+  logic   [                Xlen-1:0] x_shadow          [   32];
+  logic   [                Xlen-1:0] next_pc;
+  logic                              have_next = 1'b0;
+  logic   [               SnapW-1:0] csr_queue         [    $];
+  logic   [                    63:0] cycle_q;
+  logic   [                    63:0] instret_q;
+  logic                              ctr_live = 1'b0;
+  logic   [                    63:0] instret_q2;
+  logic   [                    63:0] retired_n;
+  logic   [                    63:0] retired_q;
+  logic   [                    63:0] cycles_n;
+  logic   [                    63:0] cycles_q;
+  logic                              ctr_ok = 1'b0;
+  logic                              ctr_set = 1'b0;
+  logic   [                     7:0] vtag_n = '0;
+  logic   [                2*Xlen:0] s_queue           [    $];
 
   logic                              r_fwe;
   logic   [               AddrW-1:0] r_frd;
@@ -320,6 +346,186 @@ module cosim_bench #(
     end
   endtask  // Automatic
 
+  task automatic check_word(input string name, input logic [Xlen-1:0] got,
+                            input logic [Xlen-1:0] exp);
+    if (got !== exp) $display("DETAIL %s: got %h, expected %h", name, got, exp);
+    check(name, got === exp, 1'b1);
+  endtask  // Automatic
+
+  function automatic logic uses_rs1(input logic [6:0] op, input logic [2:0] f3);
+    case (op)
+      7'b0110011, 7'b0010011, 7'b0000011, 7'b0100011, 7'b1100011, 7'b1100111: return 1'b1;
+      7'b1110011: return f3 != 3'b000 && !f3[2];
+      default: return 1'b0;
+    endcase
+  endfunction
+
+  function automatic logic uses_rs2(input logic [6:0] op);
+    return op == 7'b0110011 || op == 7'b0100011 || op == 7'b1100011;
+  endfunction
+
+  function automatic logic [Xlen-1:0] load_val(input logic [2:0] f3, input logic [Xlen-1:0] w,
+                                               input logic [1:0] off);
+    logic [Xlen-1:0] s;
+    s = w >> (8 * off);
+    case (f3)
+      3'b000:  return Xlen'($signed(s[7:0]));
+      3'b100:  return Xlen'(s[7:0]);
+      3'b001:  return Xlen'($signed(s[15:0]));
+      3'b101:  return Xlen'(s[15:0]);
+      default: return w;
+    endcase
+  endfunction
+
+  function automatic int csr_slot(input logic [11:0] a);
+    case (a)
+      12'h300: return 0;
+      12'h304: return 1;
+      12'h305: return 2;
+      12'h340: return 3;
+      12'h341: return 4;
+      12'h342: return 5;
+      12'h343: return 6;
+      12'h344: return 7;
+      12'hB00: return 8;
+      12'hB02: return 9;
+      12'hB80: return 10;
+      12'hB82: return 11;
+      default: return -1;
+    endcase
+  endfunction
+
+  function automatic logic [SnapW-1:0] pack_csrs();
+    return {
+      dbg_ex_insn,
+      alu_result,
+      dbg_csr_wdata,
+      dbg_minstreth,
+      dbg_mcycleh,
+      dbg_minstret,
+      dbg_mcycle,
+      dbg_mip,
+      dbg_mtval,
+      dbg_mcause,
+      dbg_mepc,
+      dbg_mscratch,
+      dbg_mtvec,
+      dbg_mie,
+      dbg_mstatus
+    };
+  endfunction
+
+  function automatic logic alu_writes(input logic [Xlen-1:0] insn);
+    case (insn[6:0])
+      7'b0010011, 7'b0110111, 7'b0010111, 7'b0000011, 7'b0100011: return 1'b1;
+      7'b0110011: return insn[31:25] != 7'b0000001;
+      default: return 1'b0;
+    endcase
+  endfunction
+
+  function automatic logic [Xlen-1:0] csr_new(input logic [2:0] f3, input logic [Xlen-1:0] old,
+                                              input logic [Xlen-1:0] src);
+    case (f3[1:0])
+      2'b01:   return src;
+      2'b10:   return old | src;
+      2'b11:   return old & ~src;
+      default: return old;
+    endcase
+  endfunction
+
+  function automatic logic ctr_write(input logic [Xlen-1:0] insn);
+    return insn[6:0] == 7'b1110011 && insn[13:12] != 2'b00 &&
+        (!insn[13] || insn[19:15] != '0) && insn[31:28] == 4'hB && insn[26:22] == '0 &&
+        !insn[20];
+  endfunction
+
+  function automatic logic is_access(input logic [6:0] op, input logic [2:0] f3);
+    return op == 7'b0000011 || op == 7'b0100011 || (op[4:0] == 5'b00111 && f3 == 3'b010);
+  endfunction
+
+  // Scalar access order
+  task automatic check_access(input logic [6:0] op, input logic [2:0] f3, input logic [4:0] rs2,
+                              output logic [1:0] off);
+    logic [2*Xlen:0] e;
+    logic [2*Xlen:0] nxt;
+    int              hit;
+    off = '0;
+    if (!is_access(op, f3)) return;
+    check("ACCESS taken before retire", s_queue.size() != 0, 1'b1);
+    if (s_queue.size() == 0) return;
+    hit = -1;
+    for (int i = 0; i < s_queue.size() && i < 3 && hit < 0; i++) begin
+      nxt = s_queue[i];
+      if (nxt[2*Xlen] == op[5] && (nxt[2*Xlen-1:Xlen] & ~WordMask) == (r_maddr & ~WordMask))
+        hit = i;
+    end
+    check($sformatf("ACCESS match at %h", r_pc), hit >= 0, 1'b1);
+    if (hit < 0) hit = 0;
+    for (int i = 0; i < hit; i++) void'(s_queue.pop_front());
+    e   = s_queue.pop_front();
+    off = e[Xlen+1:Xlen];
+    check($sformatf("ACCESS kind at %h", r_pc), e[2*Xlen], op[5]);
+    check_word("access addr", e[2*Xlen-1:Xlen] & ~WordMask, r_maddr & ~WordMask);
+    if (op == 7'b0100011) check_word("store write_data", e[Xlen-1:0], x_shadow[rs2]);
+  endtask  // Automatic
+
+  // Interrupted access dropped
+  task automatic drop_access();
+    logic [     6:0] op;
+    logic [2*Xlen:0] e;
+    op = r_insn[6:0];
+    if (!is_access(op, r_insn[14:12])) return;
+    if (s_queue.size() == 0) return;
+    e = s_queue[0];
+    if (e[2*Xlen] == op[5] && (e[2*Xlen-1:Xlen] & ~WordMask) == (r_maddr & ~WordMask))
+      void'(s_queue.pop_front());
+  endtask  // Automatic
+
+  // Retire against reference
+  task automatic check_retire();
+    logic [      6:0] op;
+    logic [      4:0] rd;
+    logic [      2:0] f3;
+    int               slot;
+    logic [      1:0] off;
+    logic [ Xlen-1:0] live;
+    logic [ Xlen-1:0] src;
+    logic [SnapW-1:0] snap;
+    op = r_insn[6:0];
+    rd = r_insn[11:7];
+    f3 = r_insn[14:12];
+    check_word("insn fetched", r_insn, g_dut.imem_inst.mem[(r_pc/4)%Depth]);
+    if (have_next) check_word("pc chain", r_pc, next_pc);
+    if (uses_rs1(op, f3)) check_word("rs1 data", dbg_rs1_rdata, x_shadow[r_insn[19:15]]);
+    if (uses_rs2(op)) check_word("rs2 data", dbg_rs2_rdata, x_shadow[r_insn[24:20]]);
+    check_access(op, f3, r_insn[24:20], off);
+    if (op == 7'b0000011 && r_rw && rd != 0)
+      check_word("load data", r_wdata, load_val(f3, dbg_mem_rdata, off));
+    check("CSR snapshot missing", csr_queue.size() != 0, 1'b1);
+    snap = (csr_queue.size() != 0) ? csr_queue.pop_front() : '0;
+    check_word("ex insn", snap[Xlen*InsnSlot+:Xlen], r_insn);
+    if (alu_writes(r_insn)) check_word("alu result", snap[Xlen*AluSlot+:Xlen], r_maddr);
+    slot = csr_slot(r_insn[31:20]);
+    case (slot)
+      0:       live = LiveBits;
+      7:       live = IrqBits;
+      default: live = '0;
+    endcase
+    if (op == 7'b1110011 && f3 != 3'b000 && r_rw && rd != 0 && slot >= 0)
+      check_word($sformatf("csr %h", r_insn[31:20]), snap[Xlen*slot+:Xlen] & ~live,
+                 r_wdata & ~live);
+    src = f3[2] ? Xlen'(r_insn[19:15]) : x_shadow[r_insn[19:15]];
+    if (op == 7'b1110011 && f3[1:0] != 2'b00 && r_rw && rd != 0)
+      check_word("csr wdata", snap[Xlen*WdataSlot+:Xlen], csr_new(f3, r_wdata, src));
+    if (r_rw && rd != 0) x_shadow[rd] = r_wdata;
+    next_pc   = dbg_pc_wdata;
+    have_next = 1'b1;
+  endtask  // Automatic
+
+  task automatic init_shadow();
+    for (int r = 0; r < 32; r++) x_shadow[r] = '0;
+  endtask  // Automatic
+
   task automatic read_args();
     if (!$value$plusargs("hex=%s", hexfile)) $fatal(1, "cosim needs +hex");
     if (!$value$plusargs("n=%d", max_commits)) max_commits = 4000;
@@ -377,6 +583,8 @@ module cosim_bench #(
 
   // Vector group written
   task automatic emit_vcommit();
+    check_word("vec tag", Xlen'(r_vtag), Xlen'(vtag_n));
+    vtag_n++;
     for (int g = 0; g < Vregs; g++)
       if (r_vwregs[g]) $display("VCOMMIT %0d %0d %032x", r_vtag, g, vpeek[g]);
   endtask  // Automatic
@@ -385,6 +593,10 @@ module cosim_bench #(
   task automatic retire_trap();
     logic [1:0] lines;
     if (log_traps != 0) $display("DTRAP %0t %08x %08x", $time, r_pc, r_insn);
+    check_word("trap insn fetched", r_insn, g_dut.imem_inst.mem[(r_pc/4)%Depth]);
+    if (have_next) check_word("trap pc chain", r_pc, next_pc);
+    next_pc   = dbg_pc_wdata;
+    have_next = 1'b1;
     if (dbg_mcause[Xlen-1]) begin
       check("HUNG interrupt retired without a take", irq_lines.size() != 0, 1'b1);
       if (irq_lines.size() != 0) begin
@@ -403,10 +615,14 @@ module cosim_bench #(
       @(negedge clk);
       if (r_vretire) emit_vcommit();
       emit_fcommit();
-      if (r_valid && r_trap) retire_trap();
+      if (r_valid && r_trap) begin
+        retire_trap();
+        drop_access();
+      end
       if (r_valid && !r_trap) begin
         if (have_last && r_pc === last_pc) parked = 1'b1;
         else begin
+          check_retire();
           emit_commit();
           last_pc   = r_pc;
           have_last = 1'b1;
@@ -473,6 +689,7 @@ module cosim_bench #(
     read_args();
     open_dump();
     load_image();
+    init_shadow();
     do_reset();
     run_commits(max_commits);
     drain_units(DrainCycles);
@@ -542,6 +759,49 @@ module cosim_bench #(
     if (rst_n && dbg_ex_commit) check_irq();
     if (rst_n && dbg_ex_commit && is_fence(dbg_ex_insn)) check_fence();
     if (rst_n && dbg_vec_accept) check_accept();
+  end
+
+  // Scalar access record
+  always @(negedge clk) begin
+    if (rst_n && dbg_s_take) s_queue.push_back({mem_write, mem_addr, write_data});
+  end
+
+  // CSRs before commit
+  always @(negedge clk) begin
+    if (rst_n && dbg_ex_commit) csr_queue.push_back(pack_csrs());
+  end
+
+  // Counters and fetch
+  always @(negedge clk) begin
+    if (!rst_n) begin
+      ctr_live <= 1'b0;
+      ctr_ok <= 1'b0;
+      ctr_set <= 1'b0;
+      retired_n <= '0;
+      cycles_n <= '0;
+    end else begin
+      if (ctr_ok) begin
+        check_word("mcycle step", dbg_mcycle, Xlen'(cycle_q + 1));
+        check_word("mcycleh step", dbg_mcycleh, Xlen'((cycle_q + 1) >> Xlen));
+        check_word("minstret step", Xlen'(instret_q - instret_q2 > 1), '0);
+      end
+      if (ctr_ok && !ctr_set) begin
+        check_word("minstret count", Xlen'(instret_q - retired_q + 4 > 8), '0);
+        check_word("mcycle count", Xlen'(cycle_q - cycles_q + 4 > 8), '0);
+      end
+      if (dbg_fetch_en) check_word("fetch window", pc / (4 * Depth), '0);
+      if (dbg_fetch_en) check("FETCH not ready", imem_ready, 1'b1);
+      cycle_q   <= {dbg_mcycleh, dbg_mcycle};
+      instret_q <= {dbg_minstreth, dbg_minstret};
+      instret_q2 <= instret_q;
+      retired_q  <= retired_n;
+      retired_n  <= retired_n + 64'(r_valid && !r_trap);
+      cycles_q   <= cycles_n;
+      cycles_n   <= cycles_n + 1;
+      ctr_live  <= !(dbg_ex_commit && ctr_write(dbg_ex_insn));
+      ctr_ok    <= ctr_live && !(dbg_ex_commit && ctr_write(dbg_ex_insn));
+      if (dbg_ex_commit && ctr_write(dbg_ex_insn)) ctr_set <= 1'b1;
+    end
   end
 
   // Vector store beats

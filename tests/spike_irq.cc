@@ -72,6 +72,7 @@ int main(int argc, char** argv) {
   }
   cfg_t cfg;
   cfg.isa = argv[1];
+  cfg.priv = "M";
   cfg.hartids = {0};
   cfg.start_pc.set_global(kBase);
   std::vector<std::pair<reg_t, abstract_mem_t*>> mems;
