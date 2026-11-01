@@ -26,6 +26,8 @@ module vec_mem_tb ();
   int enable_pct = 100;
   int beats = 0;
   int dones = 0;
+  int m_elem = 0;
+  int reg_dones = 0;
 
   logic clk = 1'b0;
   logic rst_n;
@@ -52,6 +54,7 @@ module vec_mem_tb ();
   logic [XLEN-1:0] mem_addr;
   logic [VLEN-1:0] mem_wdata;
   logic [LineB-1:0] mem_wstrb;
+  logic reg_done;
   logic busy;
   logic done;
 
@@ -98,7 +101,7 @@ module vec_mem_tb ();
       .mem_addr(mem_addr),
       .mem_wdata(mem_wdata),
       .mem_wstrb(mem_wstrb),
-      .reg_done(),
+      .reg_done(reg_done),
       .busy(busy),
       .done(done)
   );
@@ -165,6 +168,8 @@ module vec_mem_tb ();
   task automatic run_one(input logic l, input logic [1:0] w, input int n, input int b, input int s,
                          input logic m, input int d);
     int want;
+    int per;
+    int regs;
     load = l;
     width = w;
     count = VlW'(n);
@@ -176,6 +181,8 @@ module vec_mem_tb ();
     apply_golden();
     beats = 0;
     dones = 0;
+    m_elem = 0;
+    reg_dones = 0;
     @(negedge clk);
     start = 1'b1;
     @(posedge clk);
@@ -186,10 +193,14 @@ module vec_mem_tb ();
     while (done) @(negedge clk);
     check("beat count", VLEN'(beats), VLEN'(want));
     check("done pulses", VLEN'(dones), VLEN'(1));
+    per  = LineB >> w;
+    regs = l ? (n + per - 1) / per : 0;
+    check("registers finished", VLEN'(reg_dones), VLEN'(regs));
     check_state();
   endtask  // Automatic
 
   function automatic logic [XLEN-1:0] aligned(input logic [1:0] w);
+    if (1'($urandom)) return XLEN'($urandom) & ~((XLEN'(1) << w) - XLEN'(1));
     return XLEN'($urandom_range(Bytes - 1)) & ~((XLEN'(1) << w) - XLEN'(1));
   endfunction
 
@@ -202,7 +213,9 @@ module vec_mem_tb ();
     w = 2'($urandom_range(Eew32));
     n = whole ? VlW'(VLEN >> (3 + w)) : VlW'($urandom_range(LineB >> w));
     if ($urandom_range(7) == 0 && !whole) n = VlW'($urandom_range(VLEN >> (3 + w)));
+    if ($urandom_range(5) == 0) n = VlW'($urandom_range(VLEN >> w));
     s = strided ? XLEN'($signed($urandom_range(12)) - 6) << w : XLEN'(1) << w;
+    if (strided && ($urandom_range(3) == 0)) s = XLEN'($urandom) << w;
     m = whole ? 1'b1 : 1'($urandom);
     d = (!m && l) ? AWIDTH'($urandom_range(Regs > 23 ? 23 : Regs - 1, 1)) : AWIDTH'($urandom);
     if (!m && !l && 1'($urandom)) d = '0;
@@ -308,6 +321,23 @@ module vec_mem_tb ();
     return n;
   endfunction
 
+  function automatic int ref_beat();
+    int n, fit;
+    if (stride != (XLEN'(1) << width)) return 1;
+    n   = int'(count) - m_elem;
+    fit = (LineB - int'(mem_addr % LineB)) >> width;
+    if (fit < n) n = fit;
+    fit = (LineB - ((m_elem << width) % LineB)) >> width;
+    if (fit < n) n = fit;
+    return n;
+  endfunction
+
+  function automatic logic ref_reg_done();
+    int last;
+    last = m_elem + ref_beat();
+    return (last == int'(count)) || ((last / (LineB >> width)) != (m_elem / (LineB >> width)));
+  endfunction
+
   // Pace and models
   always @(posedge clk) drive_pace();
 
@@ -320,7 +350,12 @@ module vec_mem_tb ();
   always @(posedge clk) begin
     if (rst_n && core_en) begin
       if (wen) regs[raddr] <= (regs[raddr] & ~wstrb) | (wdata & wstrb);
+      check("register done", VLEN'(reg_done),
+            VLEN'(mem_req && mem_ready && load && ref_reg_done()));
+      if (reg_done) reg_dones++;
       if (mem_req && mem_ready) begin
+        check("beat address", VLEN'(mem_addr), VLEN'(XLEN'(base + XLEN'(m_elem) * stride)));
+        m_elem = m_elem + ref_beat();
         beats++;
         for (int k = 0; k < LineB; k++)
         if (mem_wstrb[k]) mem[(line_base+XLEN'(k))%Bytes] <= mem_wdata[k*8+:8];
