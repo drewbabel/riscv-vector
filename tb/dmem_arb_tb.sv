@@ -196,7 +196,7 @@ module dmem_arb_bench #(
   endtask  // Automatic
 
   function automatic logic [XLEN-1:0] rand_addr();
-    return XLEN'($urandom_range(Words - 1) << WordLsb);
+    return XLEN'($urandom);
   endfunction
 
   function automatic logic [DATA_W-1:0] rand_data();
@@ -376,6 +376,9 @@ module dmem_arb_bench #(
       check("scalar ready unasked", DATA_W'(s_ready && !s_req), '0);
       check("vector ready unasked", DATA_W'(v_ready && !v_req), '0);
       if (s_req && s_ready) begin
+        check("scalar addr", DATA_W'(addr), DATA_W'(s_addr));
+        check("scalar wdata", wdata, s_wdata);
+        check("scalar wstrb", DATA_W'(wstrb), DATA_W'(s_wstrb));
         if (s_wstrb == '0) check("scalar read", rdata, golden[s_addr[WordHi:WordLsb]]);
         golden[s_addr[WordHi:WordLsb]] = apply(golden[s_addr[WordHi:WordLsb]], s_wdata, s_wstrb);
         if (v_req) v_passed++;
@@ -384,6 +387,9 @@ module dmem_arb_bench #(
         check("vector wait bound", DATA_W'(v_passed > 1), '0);
       end
       if (v_req && v_ready) begin
+        check("vector addr", DATA_W'(addr), DATA_W'(v_addr));
+        check("vector wdata", wdata, v_wdata);
+        check("vector wstrb", DATA_W'(wstrb), DATA_W'(v_wstrb));
         if (v_wstrb == '0) check("vector read", rdata, golden[v_addr[WordHi:WordLsb]]);
         golden[v_addr[WordHi:WordLsb]] = apply(golden[v_addr[WordHi:WordLsb]], v_wdata, v_wstrb);
         if (s_req) s_passed++;
