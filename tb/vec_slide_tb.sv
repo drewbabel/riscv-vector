@@ -347,6 +347,25 @@ module vec_slide_tb
     end
   endtask  // Automatic
 
+  function automatic logic [VLEN-1:0] ref_strb(input int r);
+    logic [VLEN-1:0] out;
+    logic up, one;
+    logic [XLEN-1:0] amt;
+    int bits, epr, i;
+    bits = 8 << vsew;
+    epr  = VLEN / bits;
+    up   = (op == VEC_SLIDEUP) || (op == VEC_SLIDE1UP);
+    one  = (op == VEC_SLIDE1UP) || (op == VEC_SLIDE1DOWN);
+    amt  = one ? XLEN'(1) : offset;
+    out  = '0;
+    for (int e = 0; e < epr; e++) begin
+      i = r * epr + e;
+      if ((i < int'(vl)) && (vm || regs[0][i]) && !(up && !(one && (i == 0)) && (XLEN'(i) < amt)))
+        for (int k = 0; k < bits; k++) out[e*bits+k] = 1'b1;
+    end
+    return out;
+  endfunction
+
   // Pace and models
   always @(negedge clk) core_en = ($urandom_range(99) < enable_pct);
 
@@ -369,7 +388,11 @@ module vec_slide_tb
     if (rst_n) begin
       check("write while idle", VLEN'(wen && !busy), VLEN'(0));
       check("write needs a strobe", VLEN'(busy && (wen != (wstrb != '0))), VLEN'(0));
-      if (busy) check("write order", VLEN'(waddr), VLEN'(next_waddr));
+      if (busy) begin
+        check("write order", VLEN'(waddr), VLEN'(next_waddr));
+        check("write strobe", wstrb, ref_strb(int'(AWIDTH'(next_waddr - vd))));
+        check("write data", wdata & wstrb, golden_regs[waddr] & wstrb);
+      end
     end
   end
 
