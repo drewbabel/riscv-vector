@@ -2,7 +2,7 @@
 
 module clint_tb;
 
-  localparam int MinChecks = 10;
+  localparam int MinChecks = 8000;
   localparam int Xlen = arch_pkg::XLEN;
   localparam int StrbW = Xlen / 8;
   localparam int TagW = $bits(arch_pkg::ClintTag);
@@ -13,6 +13,8 @@ module clint_tb;
   localparam logic [Xlen-1:0] MtimeHi = Base | Xlen'('hBFFC);
   localparam int Compare = 50;
   localparam int Boundary = 200;
+  localparam int SoakOps = 4000;
+  localparam int TimeWords = 64 / Xlen;
 
   int checks = 0;
   int errors = 0;
@@ -26,6 +28,9 @@ module clint_tb;
   logic [Xlen-1:0] wdata;
   logic [Xlen-1:0] rdata;
   logic timer_irq;
+  logic core_en = 1'b1;
+  logic [63:0] m_time;
+  logic [63:0] m_cmp;
 
   always #5 clk = ~clk;
 
@@ -33,7 +38,7 @@ module clint_tb;
       .XLEN(Xlen)
   ) dut (
       .clk      (clk),
-      .core_en  (1'b1),
+      .core_en  (core_en),
       .rst_n    (rst_n),
       .sel      (sel),
       .wstrb    (wstrb),
@@ -124,6 +129,68 @@ module clint_tb;
     check_irq("irq_at_boundary", 1'b1);
   endtask  // Automatic
 
+  function automatic logic [Xlen-1:0] reg_addr(input int r);
+    logic [Xlen-1:0] hi;
+    hi = Xlen'($urandom) & ~Xlen'('hFFFF);
+    case (r)
+      0: return hi | Xlen'('h4000);
+      1: return hi | Xlen'('h4000 + 4 * (TimeWords - 1));
+      2: return hi | Xlen'('hBFF8);
+      3: return hi | Xlen'('hBFF8 + 4 * (TimeWords - 1));
+      default: return hi | Xlen'(16'($urandom));
+    endcase
+  endfunction
+
+  function automatic logic [Xlen-1:0] ref_read();
+    logic [15:0] off;
+    off = addr[15:0];
+    if (!sel) return '0;
+    for (int w = 0; w < TimeWords; w++) begin
+      if (off == 16'('h4000 + 4 * w)) return m_cmp[w*Xlen+:Xlen];
+      if (off == 16'('hBFF8 + 4 * w)) return m_time[w*Xlen+:Xlen];
+    end
+    return '0;
+  endfunction
+
+  task automatic ref_edge();
+    logic [63:0] t;
+    logic [15:0] off;
+    if (!core_en) return;
+    t   = m_time + 64'd1;
+    off = addr[15:0];
+    if (sel)
+      for (int w = 0; w < TimeWords; w++)
+        for (int b = 0; b < StrbW; b++)
+          if (wstrb[b]) begin
+            if (off == 16'('h4000 + 4 * w)) m_cmp[w*Xlen+8*b+:8] = wdata[8*b+:8];
+            if (off == 16'('hBFF8 + 4 * w)) t[w*Xlen+8*b+:8] = wdata[8*b+:8];
+          end
+    m_time = t;
+  endtask  // Automatic
+
+  task automatic soak(input int n);
+    do_reset();
+    m_time = '0;
+    m_cmp  = '1;
+    repeat (n) begin
+      core_en = $urandom_range(3) != 0;
+      sel     = 1'($urandom);
+      addr    = reg_addr(int'($urandom_range(5)));
+      wstrb   = ($urandom_range(2) == 0) ? '0 : StrbW'($urandom);
+      wdata   = Xlen'($urandom);
+      if ($urandom_range(7) == 0) wdata = '1 - Xlen'($urandom_range(3));
+      #1;
+      check("soak rdata", rdata, ref_read());
+      check("soak irq", Xlen'(timer_irq), Xlen'(m_time >= m_cmp));
+      @(posedge clk);
+      ref_edge();
+      @(negedge clk);
+    end
+    core_en = 1'b1;
+    sel     = 1'b0;
+    wstrb   = '0;
+  endtask  // Automatic
+
   task automatic do_verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
@@ -143,6 +210,7 @@ module clint_tb;
     test_byte_write();
     test_mtime_write();
     test_boundary();
+    soak(SoakOps);
 
     do_verdict();
   end
