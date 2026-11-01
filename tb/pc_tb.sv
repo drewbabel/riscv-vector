@@ -66,6 +66,8 @@ module pc_bench #(
   logic rst_n;
   logic [Xlen-1:0] pc_next;
   logic [Xlen-1:0] pc_q;
+  logic core_en = 1'b1;
+  logic [Xlen-1:0] m_pc;
 
   always #5 clk = ~clk;
 
@@ -74,7 +76,7 @@ module pc_bench #(
       .RESET_ADDR(ResetAddr)
   ) dut (
       .clk(clk),
-      .core_en(1'b1),
+      .core_en(core_en),
       .rst_n(rst_n),
       .pc_next(pc_next),
       .pc_q(pc_q)
@@ -116,9 +118,29 @@ module pc_bench #(
     for (int i = 0; i < n; i++) pc_suite(1'((i % ResetEvery) != 0), Xlen'($urandom), 1'($urandom));
   endtask  // Automatic
 
+  task automatic soak_enable(input int n);
+    m_pc = ResetAddr;
+    for (int i = 0; i < n; i++) begin
+      @(negedge clk);
+      rst_n   = i != 0 && $urandom_range(7) != 0;
+      core_en = $urandom_range(2) != 0;
+      pc_next = Xlen'($urandom);
+      @(posedge clk);
+      if (!rst_n) m_pc = ResetAddr;
+      else if (core_en) m_pc = pc_next;
+      #1;
+      check("pc_q with core_en", pc_q, m_pc);
+    end
+    @(negedge clk);
+    rst_n   = 1'b1;
+    core_en = 1'b1;
+  endtask  // Automatic
+
   initial begin
     do_reset();
     soak(1000);
+    do_reset();
+    soak_enable(3000);
     finish();
   end
 
