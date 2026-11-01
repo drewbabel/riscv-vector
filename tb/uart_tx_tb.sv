@@ -62,8 +62,10 @@ module uart_tx_bench #(
   localparam int ClkFreqHz = arch_pkg::BoardClkHz / ClkDiv;
   localparam int BaudRate = arch_pkg::BaudRate;
   localparam int DataBits = DATA_BITS;
-  localparam int BitFast = ((ClkFreqHz + BaudRate / 2) / BaudRate) * ClkDiv;
-  localparam int TimeoutCycles = 8 * (DataBits + 2) * BitFast;
+  localparam int BitEn = (ClkFreqHz + BaudRate / 2) / BaudRate;
+  localparam int BitFast = BitEn * ClkDiv;
+  localparam int RandomBytes = 24;
+  localparam int TimeoutCycles = 2 * (8 + 4 * RandomBytes) * (DataBits + 2) * BitFast;
 
   int checks = 0;
   int errors = 0;
@@ -71,19 +73,17 @@ module uart_tx_bench #(
   logic done = 1'b0;
 
   logic clk = 1'b0;
-  logic core_en;
+  logic core_en = 1'b0;
   logic rst_n;
   logic [DataBits-1:0] tx_data;
   logic tx_valid;
   logic tx_ready;
   logic tx_serial;
-  logic [$clog2(ClkDiv)-1:0] div = '0;
 
   always #5 clk = ~clk;
 
-  // Core enable pulse
-  always_ff @(posedge clk) div <= div + 1'b1;
-  assign core_en = (div == '0);
+  // Random core enable
+  always @(negedge clk) core_en = $urandom_range(ClkDiv - 1) == 0;
 
   uart_tx #(
       .CLK_FREQ_HZ(ClkFreqHz),
@@ -109,18 +109,22 @@ module uart_tx_bench #(
     end
   endtask  // Automatic
 
+  task automatic en_cycle();
+    do @(posedge clk); while (!core_en);
+  endtask  // Automatic
+
   task automatic do_reset();
     rst_n = 0;
     tx_valid = 0;
     tx_data = '0;
-    repeat (2) @(posedge clk);
+    repeat (2) en_cycle();
     @(negedge clk);
     rst_n = 1;
     repeat (4) @(negedge clk);
   endtask  // Automatic
 
   task automatic send(input logic [DataBits-1:0] b);
-    do @(negedge clk); while (!tx_ready);
+    @(negedge clk);
     tx_data  = b;
     tx_valid = 1'b1;
     do @(posedge clk); while (!(core_en && tx_ready));
@@ -129,13 +133,23 @@ module uart_tx_bench #(
   endtask  // Automatic
 
   task automatic recv(output logic [DataBits-1:0] b);
+    logic steady;
+    int   t;
     @(negedge tx_serial);
-    repeat (BitFast / 2) @(posedge clk);
+    t = 0;
     for (int i = 0; i < DataBits; i++) begin
-      repeat (BitFast) @(posedge clk);
-      b[i] = tx_serial;
+      for (; t < (i + 1) * BitEn + BitEn / 4; t++) en_cycle();
+      b[i]   = tx_serial;
+      steady = 1'b1;
+      for (; t < (i + 1) * BitEn + 3 * BitEn / 4; t++) begin
+        en_cycle();
+        steady = steady && (tx_serial === b[i]);
+      end
+      check($sformatf("bit %0d steady", i), DataBits'(steady), DataBits'(1));
     end
-    repeat (BitFast) @(posedge clk);
+    for (; t < (DataBits + 1) * BitEn + BitEn / 2; t++) en_cycle();
+    check("stop bit", DataBits'(tx_serial), DataBits'(1));
+    repeat (BitEn / 2) en_cycle();
   endtask  // Automatic
 
   task automatic recv_check(input string name, input logic [DataBits-1:0] exp);
@@ -150,10 +164,23 @@ module uart_tx_bench #(
   endtask  // Automatic
 
   task automatic stream_bytes();
-    logic [DataBits-1:0] pat[4] = '{DataBits'('h41), DataBits'('h55), '0, '1};
+    logic [DataBits-1:0] pat[4];
+    pat = '{DataBits'('h41), DataBits'('h55), '0, '1};
     fork
       foreach (pat[i]) send(pat[i]);
       foreach (pat[i]) recv_check($sformatf("byte%0d", i), pat[i]);
+    join
+  endtask  // Automatic
+
+  task automatic stream_random();
+    logic [DataBits-1:0] pat[RandomBytes];
+    foreach (pat[i]) pat[i] = DataBits'($urandom);
+    fork
+      foreach (pat[i]) begin
+        if (1'($urandom)) repeat ($urandom_range(3 * BitFast)) @(negedge clk);
+        send(pat[i]);
+      end
+      foreach (pat[i]) recv_check($sformatf("random byte %0d", i), pat[i]);
     join
   endtask  // Automatic
 
@@ -175,6 +202,7 @@ module uart_tx_bench #(
     do_reset();
     check_idle();
     stream_bytes();
+    stream_random();
     finish();
   end
 
