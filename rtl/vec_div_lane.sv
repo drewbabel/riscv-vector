@@ -1,7 +1,7 @@
 `default_nettype none
 
 module vec_div_lane
-  import vec_pkg::*, muldiv_pkg::*;
+  import vec_pkg::*;
 #(
     parameter int ELEN = arch_pkg::ELEN
 ) (
@@ -11,19 +11,52 @@ module vec_div_lane
     input  wire                     start,
     input  wire vec_op_e            op,
     input  wire          [     2:0] vsew,
-    input  wire          [ELEN-1:0] a,
-    input  wire          [ELEN-1:0] b,
+    input  wire          [ELEN-1:0] a,        // vs2
+    input  wire          [ELEN-1:0] b,        // vs1
     output logic         [ELEN-1:0] result,
     output logic                    busy,
     output logic                    done
 );
 
-  logic is_signed;
-  muldiv_op_e md_op;
-  logic [ELEN-1:0] a_ext;
-  logic [ELEN-1:0] b_ext;
-  logic [ELEN-1:0] md_result;
-  logic [2:0] sew_q;
+  localparam int CountW = $clog2(ELEN + 1);
+
+  typedef enum logic [1:0] {
+    IDLE,
+    EXEC,
+    DONE
+  } state_t;
+
+  state_t               state;
+  state_t               next_state;
+  logic    [CountW-1:0] cycle_count;
+  logic    [CountW-1:0] target_iters;
+  logic                 op_complete;
+
+  // Operand preparation and captured operation.
+  logic                 op_signed;
+  logic    [  ELEN-1:0] a_ext;
+  logic    [  ELEN-1:0] b_ext;
+  logic    [  ELEN-1:0] a_mag;
+  logic    [  ELEN-1:0] b_mag;
+  logic    [  ELEN-1:0] stored_a;
+  logic    [  ELEN-1:0] stored_b;
+  vec_op_e              stored_op;
+  logic    [       2:0] sew_q;
+  logic                 is_div;
+  logic    [  ELEN-1:0] min_signed;
+  logic                 overflow;
+
+  // Restoring divider: dividend shifts from the MSB; divisor stays unshifted.
+  logic    [  ELEN-1:0] div_n;
+  logic    [  ELEN-1:0] div_d;
+  logic    [  ELEN-1:0] quotient;
+  logic    [  ELEN-1:0] remainder;
+  logic                 quot_neg;
+  logic                 rem_neg;
+  logic    [  ELEN-1:0] trial_rem;
+  logic    [  ELEN-1:0] step_remainder;
+  logic    [  ELEN-1:0] step_quotient;
+  logic    [  ELEN-1:0] div_result;
 
   function automatic logic [ELEN-1:0] extend(input logic [ELEN-1:0] x, input logic [2:0] sew,
                                              input logic sgn);
@@ -34,45 +67,131 @@ module vec_div_lane
     endcase
   endfunction
 
-  assign is_signed = (op == VEC_DIV) || (op == VEC_REM);
+  function automatic logic [CountW-1:0] sew_iters(input logic [2:0] sew);
+    case (sew)
+      3'd0: sew_iters = CountW'(8);
+      3'd1: sew_iters = CountW'(16);
+      default: sew_iters = CountW'(32);
+    endcase
+  endfunction
+
+  assign op_signed = (op == VEC_DIV) || (op == VEC_REM);
+  assign a_ext     = extend(a, vsew, op_signed);
+  assign b_ext     = extend(b, vsew, op_signed);
+  assign b_mag     = (op_signed && b_ext[ELEN-1]) ? -b_ext : b_ext;
 
   always_comb begin
-    case (op)
-      VEC_DIVU: md_op = MD_DIVU;
-      VEC_DIV:  md_op = MD_DIV;
-      VEC_REMU: md_op = MD_REMU;
-      VEC_REM:  md_op = MD_REM;
-      default:  md_op = MD_DIVU;
+    a_mag = (op_signed && a_ext[ELEN-1]) ? -a_ext : a_ext;
+    // Feed only the selected element's bits through the divider.
+    a_mag = a_mag << (ELEN - int'(sew_iters(vsew)));
+  end
+
+  // Decode the captured width, never live vsew, during execution.
+  assign target_iters = sew_iters(sew_q);
+  assign is_div       = (stored_op != VEC_REM) && (stored_op != VEC_REMU);
+
+  always_comb begin
+    case (sew_q)
+      3'd0: min_signed = ELEN'($signed(8'h80));
+      3'd1: min_signed = ELEN'($signed(16'h8000));
+      default: min_signed = ELEN'($signed(32'h8000_0000));
     endcase
   end
 
-  assign a_ext = extend(a, vsew, is_signed);
-  assign b_ext = extend(b, vsew, is_signed);
+  assign overflow = ((stored_op == VEC_DIV) || (stored_op == VEC_REM)) &&
+                    (stored_a == min_signed) && (&stored_b);
+  assign op_complete = (stored_b == '0) || overflow || (cycle_count == target_iters);
 
-  always_ff @(posedge clk) begin
-    if (!rst_n) begin
-      sew_q <= '0;
-    end else if (core_en) begin
-      if (start && !busy && !done) sew_q <= vsew;
+  // One combinational restoring step. The partial dividend fits in ELEN bits.
+  assign trial_rem = {remainder[ELEN-2:0], div_n[ELEN-1]};
+  always_comb begin
+    step_remainder = trial_rem;
+    step_quotient  = {quotient[ELEN-2:0], 1'b0};
+    if (trial_rem >= div_d) begin
+      step_remainder   = trial_rem - div_d;
+      step_quotient[0] = 1'b1;
     end
   end
 
-  muldiv #(
-      .XLEN(ELEN)
-  ) u_muldiv (
-      .clk(clk),
-      .rst_n(rst_n),
-      .core_en(core_en),
-      .start(start),
-      .op(md_op),
-      .a(a_ext),
-      .b(b_ext),
-      .busy(busy),
-      .done(done),
-      .result(md_result)
-  );
+  always_comb begin
+    if (stored_b == '0) div_result = is_div ? '1 : stored_a;
+    else if (overflow) div_result = is_div ? stored_a : '0;
+    else if (is_div) div_result = quot_neg ? -quotient : quotient;
+    else div_result = rem_neg ? -remainder : remainder;
+    div_result = extend(div_result, sew_q, 1'b0);
+  end
 
-  assign result = extend(md_result, sew_q, 1'b0);
+  always_comb begin
+    next_state = state;
+    case (state)
+      IDLE: if (start) next_state = EXEC;
+      EXEC: if (op_complete) next_state = DONE;
+      DONE: next_state = IDLE;
+      default: next_state = IDLE;
+    endcase
+  end
+
+  // Synchronous reset takes priority; core_en freezes all state and outputs.
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      state       <= IDLE;
+      result      <= '0;
+      busy        <= 1'b0;
+      done        <= 1'b0;
+      cycle_count <= '0;
+      stored_a    <= '0;
+      stored_b    <= '0;
+      stored_op   <= VEC_DIVU;
+      sew_q       <= '0;
+      div_n       <= '0;
+      div_d       <= '0;
+      quotient    <= '0;
+      remainder   <= '0;
+      quot_neg    <= 1'b0;
+      rem_neg     <= 1'b0;
+    end else if (core_en) begin
+      state <= next_state;
+      case (state)
+        IDLE: begin
+          busy <= 1'b0;
+          done <= 1'b0;
+          if (start) begin
+            stored_a    <= a_ext;
+            stored_b    <= b_ext;
+            stored_op   <= op;
+            sew_q       <= vsew;
+            busy        <= 1'b1;
+            cycle_count <= '0;
+            quotient    <= '0;
+            remainder   <= '0;
+            div_n       <= a_mag;
+            div_d       <= b_mag;
+            quot_neg    <= op_signed && (a_ext[ELEN-1] ^ b_ext[ELEN-1]);
+            rem_neg     <= op_signed && a_ext[ELEN-1];
+          end
+        end
+        EXEC: begin
+          // Complete one enabled cycle after the final arithmetic iteration.
+          if (op_complete) begin
+            result <= div_result;
+            busy   <= 1'b0;
+            done   <= 1'b1;
+          end else begin
+            cycle_count <= cycle_count + 1'b1;
+            div_n       <= div_n << 1;
+            remainder   <= step_remainder;
+            quotient    <= step_quotient;
+          end
+        end
+        DONE: done <= 1'b0;
+        default: begin
+          busy <= 1'b0;
+          done <= 1'b0;
+        end
+      endcase
+    end
+  end
+
 endmodule
 
 `default_nettype wire
