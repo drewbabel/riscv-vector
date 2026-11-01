@@ -5,7 +5,8 @@ module sc_csr
 #(
     parameter  int XLEN     = arch_pkg::XLEN,
     localparam int RegAddrW = arch_pkg::RegAddrW,
-    localparam int Funct3W  = opcode_pkg::Funct3W
+    localparam int Funct3W  = opcode_pkg::Funct3W,
+    localparam int InstrLsb = arch_pkg::InstrLsb
 ) (
     input wire clk,
     input wire core_en,
@@ -189,7 +190,7 @@ module sc_csr
           MieAddr:       mie <= csr_wdata;
           MtvecAddr:     mtvec <= csr_wdata;
           MscratchAddr:  mscratch <= csr_wdata;
-          MepcAddr:      mepc <= csr_wdata;
+          MepcAddr:      mepc <= {csr_wdata[XLEN-1:InstrLsb], InstrLsb'(0)};
           McauseAddr:    mcause <= csr_wdata;
           MtvalAddr:     mtval <= csr_wdata;
           MipAddr:       mip <= csr_wdata & ~(XLEN'(1) << Mtip);  // Mtip read-only
