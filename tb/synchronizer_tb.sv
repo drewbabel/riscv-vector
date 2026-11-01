@@ -13,12 +13,13 @@ module synchronizer_tb ();
   logic q;
   logic d1;
   logic d2;
+  logic core_en = 1'b1;
 
   always #5 clk = ~clk;
 
   synchronizer dut (
       .clk(clk),
-      .core_en(1'b1),
+      .core_en(core_en),
       .d(d),
       .q(q)
   );
@@ -41,6 +42,7 @@ module synchronizer_tb ();
     repeat (n) begin
       @(negedge clk);
       d = 1'($urandom);
+      core_en = $urandom_range(3) != 0;
     end
     @(posedge clk);
   endtask  // Automatic
@@ -62,13 +64,16 @@ module synchronizer_tb ();
     $dumpvars(0, synchronizer_tb);
     do_reset();
     drive_random(100);
+    drive_random(2000);
     do_verdict();
   end
 
   // Reference model
   always @(posedge clk) begin
-    d1 <= d;
-    d2 <= d1;
+    if (core_en) begin
+      d1 <= d;
+      d2 <= d1;
+    end
   end
 
   // Comparison to DUT
