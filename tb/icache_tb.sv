@@ -4,7 +4,12 @@ module icache_tb;
 
   import cache_pkg::*;
 
-  localparam int MinChecks = 10 + LineWords;
+  localparam int SoakOps = 2000;
+  localparam int CountOps = (1 << 16) + (1 << 10);
+  localparam int MinChecks = 10 + LineWords + 2 * (SoakOps + CountOps);
+  localparam int TagPool = 6;
+  localparam int SoakGuard = 1000 + 2 * IcSets;
+  localparam int RstOdds = 3000;
   localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 8192;
   localparam int Latency = 4;
@@ -31,6 +36,11 @@ module icache_tb;
   logic [Xlen-1:0] mem_addr;
   logic [LineBits-1:0] mem_rdata;
   logic mem_ready;
+  logic [LineBits-1:0] dly_rdata;
+  logic dly_ready;
+  logic soak_on = 1'b0;
+  logic soak_ready = 1'b0;
+  logic [LineBits-1:0] soak_rdata = '0;
 
   logic [Xlen-1:0] boot_addr;
   logic [Xlen-1:0] boot_wdata;
@@ -38,6 +48,22 @@ module icache_tb;
 
   logic [Xlen-1:0] hit_count;
   logic [Xlen-1:0] miss_count;
+
+  // Soak model
+  logic [IcTagLen-1:0] pool[TagPool];
+  logic [LineBits-1:0] img[TagPool][IcSets];
+  logic m_valid[IcSets];
+  logic [IcTagLen-1:0] m_tag[IcSets];
+  logic [Xlen-1:0] m_hits = '0;
+  logic [Xlen-1:0] m_misses = '0;
+  logic busy = 1'b0;
+  logic p_hit;
+  int p_set;
+  logic [IcTagLen-1:0] p_tag;
+  logic [Xlen-1:0] p_rdata;
+  int q_left = 0;
+  int soak_wait = 0;
+  int rst_left = 0;
 
   always #5 clk = ~clk;
 
@@ -67,16 +93,19 @@ module icache_tb;
       .clk(clk),
       .core_en(core_en),
       .rst_n(rst_n),
-      .req_valid(mem_valid),
+      .req_valid(mem_valid && !soak_on),
       .req_rw(1'b0),
       .req_addr(mem_addr),
       .req_wdata('0),
-      .resp_rdata(mem_rdata),
-      .resp_ready(mem_ready),
+      .resp_rdata(dly_rdata),
+      .resp_ready(dly_ready),
       .boot_we(boot_we),
       .boot_addr(boot_addr),
       .boot_wdata(boot_wdata)
   );
+
+  assign mem_ready = soak_on ? soak_ready : dly_ready;
+  assign mem_rdata = soak_on ? soak_rdata : dly_rdata;
 
   task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
     checks++;
@@ -173,6 +202,126 @@ module icache_tb;
     check("conflict misses", Xlen'(miss_count), Xlen'(4));
   endtask  // Automatic
 
+  task automatic soak_init();
+    for (int t = 0; t < TagPool; t++) begin
+      pool[t] = IcTagLen'($urandom);
+      for (int u = 0; u < t; u++) if (pool[u] == pool[t]) t--;
+    end
+    for (int t = 0; t < TagPool; t++) for (int s = 0; s < IcSets; s++) img[t][s] = rand_line();
+    do_reset();
+    model_reset();
+    soak_on = 1'b1;
+  endtask  // Automatic
+
+  task automatic model_reset();
+    for (int s = 0; s < IcSets; s++) m_valid[s] = 1'b0;
+    m_hits   = '0;
+    m_misses = '0;
+    busy     = 1'b0;
+    q_left   = 0;
+  endtask  // Automatic
+
+  task automatic soak_issue(input logic sweep, input int n);
+    int t;
+    logic [Xlen-1:0] low;
+    p_set = sweep ? n % IcSets : int'($urandom_range(IcSets - 1));
+    t = sweep ? (n / IcSets) % TagPool : int'($urandom_range(TagPool - 1));
+    p_tag = pool[t];
+    low = Xlen'($urandom_range(LineBytes - 1));
+    cpu_valid = 1'b1;
+    cpu_addr = line_addr(p_tag, p_set) | low;
+    p_hit = m_valid[p_set] && (m_tag[p_set] == p_tag);
+    q_left = p_hit ? 0 : 1;
+    p_rdata = img[t][p_set][(low>>WordLsb)*Xlen+:Xlen];
+    busy = 1'b1;
+  endtask  // Automatic
+
+  task automatic soak_commit();
+    check("soak rdata", cpu_rdata, p_rdata);
+    check("soak mem drained", Xlen'(q_left), '0);
+    m_valid[p_set] = 1'b1;
+    m_tag[p_set]   = p_tag;
+    if (p_hit) m_hits++;
+    else m_misses++;
+    busy = 1'b0;
+  endtask  // Automatic
+
+  task automatic soak_mem();
+    if (q_left == 0) check("soak spurious mem", Xlen'(mem_valid), '0);
+    if (!mem_valid || (q_left == 0)) return;
+    check("soak mem addr", mem_addr, line_addr(p_tag, p_set));
+    if (!core_en) return;
+    if (soak_ready) begin
+      q_left--;
+      soak_wait = int'($urandom_range(3));
+    end else begin
+      soak_wait--;
+    end
+  endtask  // Automatic
+
+  task automatic soak(input int n, input logic sweep);
+    int done;
+    int age;
+    int t;
+    done = 0;
+    age  = 0;
+    while (done < n) begin
+      @(negedge clk);
+      if (!busy) begin
+        check("soak hits", hit_count, m_hits);
+        check("soak misses", miss_count, m_misses);
+      end
+      if ((rst_left == 0) && !sweep && ($urandom_range(RstOdds - 1) == 0))
+        rst_left = 1 + int'($urandom_range(2));
+      core_en = $urandom_range(4) != 0;
+      if (rst_left > 0) begin
+        rst_left--;
+        rst_n = 1'b0;
+        model_reset();
+        soak_wait = 0;
+        age = 0;
+      end else begin
+        rst_n = 1'b1;
+      end
+      if (!busy && rst_n && ($urandom_range(3) != 0)) begin
+        soak_issue(sweep, done);
+      end else if (!busy) begin
+        cpu_valid = 1'b0;
+        cpu_addr  = Xlen'($urandom);
+      end
+      soak_ready = mem_valid && (soak_wait == 0);
+      t = pool_slot(mem_addr);
+      soak_rdata = (soak_ready && (t >= 0)) ? img[t][mem_addr[IdxLsb+:IcIdxLen]] : rand_line();
+      #1;
+      if (rst_n) begin
+        soak_mem();
+        if (core_en && cpu_valid && cpu_ready) begin
+          soak_commit();
+          done++;
+          age = 0;
+        end else if (busy) begin
+          age++;
+          if (age > SoakGuard) $fatal(1, "soak stuck at %h", cpu_addr);
+        end
+      end
+    end
+  endtask  // Automatic
+
+  task automatic test_soak();
+    soak_init();
+    soak(SoakOps, 1'b0);
+    soak(IcSets, 1'b1);
+    rst_left = 2;
+    soak(IcSets, 1'b1);
+    soak(CountOps, 1'b1);
+    soak(SoakOps / 10, 1'b0);
+    @(negedge clk);
+    cpu_valid = 1'b0;
+    core_en   = 1'b1;
+    rst_n     = 1'b1;
+    soak_on   = 1'b0;
+  endtask  // Automatic
+
   task automatic do_verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
@@ -193,9 +342,23 @@ module icache_tb;
     test_neighbours();
     test_other_index();
     test_conflict();
+    test_soak();
 
     do_verdict();
   end
+
+  function automatic logic [Xlen-1:0] line_addr(input logic [IcTagLen-1:0] tag, input int set);
+    return {tag, IcIdxLen'(set), IdxLsb'(0)};
+  endfunction
+
+  function automatic int pool_slot(input logic [Xlen-1:0] addr);
+    pool_slot = -1;
+    for (int t = 0; t < TagPool; t++) if (pool[t] == addr[Xlen-1-:IcTagLen]) pool_slot = t;
+  endfunction
+
+  function automatic logic [LineBits-1:0] rand_line();
+    for (int w = 0; w < LineWords; w++) rand_line[w*Xlen+:Xlen] = Xlen'($urandom);
+  endfunction
 
 endmodule
 
