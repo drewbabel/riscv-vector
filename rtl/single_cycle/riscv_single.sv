@@ -73,6 +73,7 @@ module riscv_single
   logic is_ctrl;
   logic load_misaligned;
   logic store_misaligned;
+  logic dec_illegal;
 
   always_comb begin
     case (opcode)
@@ -99,7 +100,7 @@ module riscv_single
     endcase
   end
 
-  assign exc_illegal = !opcode_known;
+  assign exc_illegal = !opcode_known || dec_illegal;
   assign is_ctrl = (opcode == OpcodeBranch) || (opcode == OpcodeJal) || (opcode == OpcodeJalr);
   assign exc_instr_misaligned = is_ctrl &&
       ((pc_src ? pc_target[InstrLsb-1:0] : pc[InstrLsb-1:0]) != '0);
@@ -126,7 +127,8 @@ module riscv_single
       .csr_access   (csr_access),
       .is_ecall     (is_ecall),
       .is_ebreak    (is_ebreak),
-      .is_mret      (is_mret)
+      .is_mret      (is_mret),
+      .illegal      (dec_illegal)
   );
 
   extend #(

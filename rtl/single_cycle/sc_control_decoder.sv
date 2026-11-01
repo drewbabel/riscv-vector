@@ -20,7 +20,8 @@ module sc_control_decoder
     output logic                csr_access,
     output logic                is_ecall,
     output logic                is_ebreak,
-    output logic                is_mret
+    output logic                is_mret,
+    output logic                illegal
 );
 
   always_comb begin
@@ -38,6 +39,7 @@ module sc_control_decoder
     is_ecall      = 1'b0;
     is_ebreak     = 1'b0;
     is_mret       = 1'b0;
+    illegal       = 1'b0;
 
     case (op)
       OpcodeOp: begin
@@ -59,6 +61,10 @@ module sc_control_decoder
         alu_src    = 1'b1;
         result_src = ResMem;
         alu_op     = AluOpAdd;
+        case (funct3)
+          Funct3Lb, Funct3Lh, Funct3Lw, Funct3Lbu, Funct3Lhu: ;
+          default: illegal = 1'b1;
+        endcase
       end
 
       OpcodeStore: begin  // sw
@@ -66,6 +72,10 @@ module sc_control_decoder
         alu_src   = 1'b1;
         mem_write = 1'b1;
         alu_op    = AluOpAdd;
+        case (funct3)
+          Funct3Sb, Funct3Sh, Funct3Sw: ;
+          default: illegal = 1'b1;
+        endcase
       end
 
       OpcodeBranch: begin
@@ -113,6 +123,8 @@ module sc_control_decoder
           is_ecall  = (funct12 == Funct12Ecall);
           is_ebreak = (funct12 == Funct12Ebreak);
           is_mret   = (funct12 == Funct12Mret);
+        end else if (funct3 == Funct3SysRsvd) begin
+          csr_access = 1'b1;
         end else begin
           reg_write  = 1'b1;
           csr_access = 1'b1;
