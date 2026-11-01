@@ -4,16 +4,22 @@ module sc_core_top
   import opcode_pkg::*;
 #(
     parameter  int XLEN  = arch_pkg::XLEN,
-    localparam int StrbW = XLEN / 8
+    localparam int StrbW = XLEN / 8,
+    localparam int ILEN  = arch_pkg::ILEN
 ) (
     input  wire              clk,
     input  wire              core_en,
     input  wire              rst_n,
-    input  wire  [ XLEN-1:0] instr,
+    input  wire  [ ILEN-1:0] instr,
     input  wire  [ XLEN-1:0] read_data,
     input  wire              timer_irq,
     input  wire              imem_ready,
     input  wire              dmem_ready,
+`ifdef SIM_BACKDOOR
+    output logic [ ILEN-1:0] instr_hold,
+    output logic [ XLEN-1:0] rdata_hold,
+    output logic             irq_hold,
+`endif
     output logic             imem_req,
     output logic             dmem_req,
     output logic [ XLEN-1:0] pc,
@@ -31,17 +37,17 @@ module sc_core_top
     STEP
   } state_t;
 
-  state_t             state;
+  state_t               state;
 
-  logic   [ XLEN-1:0] instr_h;
-  logic   [ XLEN-1:0] rdata_h;
-  logic               irq_h;
-  logic   [      6:0] opcode;
-  logic               is_mem;
-  logic               instr_cap;
-  logic               data_cap;
-  logic               core_step;
-  logic   [StrbW-1:0] core_wstrb;
+  logic   [   ILEN-1:0] instr_h;
+  logic   [   XLEN-1:0] rdata_h;
+  logic                 irq_h;
+  logic   [OpcodeW-1:0] opcode;
+  logic                 is_mem;
+  logic                 instr_cap;
+  logic                 data_cap;
+  logic                 core_step;
+  logic   [  StrbW-1:0] core_wstrb;
 
   // Live at capture
   assign opcode      = instr[6:0];
@@ -83,6 +89,12 @@ module sc_core_top
     if (!rst_n) rdata_h <= '0;
     else if (data_cap) rdata_h <= read_data;
   end
+
+`ifdef SIM_BACKDOOR
+  assign instr_hold = instr_h;
+  assign rdata_hold = rdata_h;
+  assign irq_hold   = irq_h;
+`endif
 
   riscv_single #(
       .XLEN(XLEN)

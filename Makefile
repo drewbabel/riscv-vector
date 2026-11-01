@@ -55,11 +55,11 @@ TF_RM_rdn     := min
 TF_RM_rup     := max
 TF_RM_rmm     := near_maxMag
 TF_ROUNDED    := f32_add f32_sub f32_mul f32_div i32_to_f32 ui32_to_f32 \
-                 f64_add f64_sub f64_mul f64_div i32_to_f64 ui32_to_f64 \
+                 f64_add f64_sub f64_mul f64_div i32_to_f64 ui32_to_f64 i64_to_f64 ui64_to_f64 \
                  f16_add f16_sub f16_mul f16_div
 TF_SQRT       := f32_sqrt f64_sqrt f16_sqrt
 TF_SQRT_OPTS  := -level 2 -n 46464
-TF_EXACT      := f32_to_i32 f32_to_ui32 f64_to_i32 f64_to_ui32
+TF_EXACT      := f32_to_i32 f32_to_ui32 f64_to_i32 f64_to_ui32 f64_to_i64 f64_to_ui64
 TF_CMP        := f32_eq f32_le f32_lt f64_eq f64_le f64_lt f16_eq f16_le f16_lt
 TF_MULADD     := f32_mulAdd f64_mulAdd f16_mulAdd
 TF_MULADD_STRIDE := 31
@@ -231,5 +231,11 @@ testfloat: $(TF_GEN)
 clean:
 	rm -rf build *.vcd sim_build results.xml
 
+rules:
+	python3 tests/rules/check.py $(if $(BASE),--base $(BASE))
+
+sweep:
+	python3 tests/rules/sweep.py $(ROWS)
+
 .DEFAULT_GOAL := run
-.PHONY: run vsim prog wave fmt formal view view-rvfi trace view-formal hex dis cosim testfloat clean sw sw-run
+.PHONY: run vsim prog wave fmt formal view view-rvfi trace view-formal hex dis cosim testfloat clean sw sw-run rules sweep

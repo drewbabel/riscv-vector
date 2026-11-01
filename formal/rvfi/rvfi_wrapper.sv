@@ -1,6 +1,8 @@
+`default_nettype none
+
 module rvfi_wrapper (
-    input clock,
-    input reset,  // riscv-formal convention
+    input wire clock,
+    input wire reset,
     `RVFI_OUTPUTS
 );
 
@@ -227,72 +229,64 @@ module rvfi_wrapper (
 `ifdef RISCV_FORMAL_CSR_MSCRATCH
   logic is_mscratch;
   assign is_mscratch = csr_op && dbg_insn[31:20] == 12'h340;
-  assign rvfi_csr_mscratch_rmask = is_mscratch ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mscratch_wmask = (mscratch_pre != mscratch_post) ?
-      32'hFFFFFFFF : (is_mscratch ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mscratch_rmask = {32{is_mscratch}};
+  assign rvfi_csr_mscratch_wmask = {32{(mscratch_pre != mscratch_post) || is_mscratch}};
   assign rvfi_csr_mscratch_rdata = mscratch_pre;
   assign rvfi_csr_mscratch_wdata = mscratch_post;
 `endif
 `ifdef RISCV_FORMAL_CSR_MSTATUS
   logic is_mstatus;
   assign is_mstatus = csr_op && dbg_insn[31:20] == 12'h300;
-  assign rvfi_csr_mstatus_rmask = is_mstatus ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mstatus_wmask = (mstatus_pre != mstatus_post) ?
-      32'hFFFFFFFF : (is_mstatus ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mstatus_rmask = {32{is_mstatus}};
+  assign rvfi_csr_mstatus_wmask = {32{(mstatus_pre != mstatus_post) || is_mstatus}};
   assign rvfi_csr_mstatus_rdata = mstatus_pre;
   assign rvfi_csr_mstatus_wdata = mstatus_post;
 `endif
 `ifdef RISCV_FORMAL_CSR_MTVEC
   logic is_mtvec;
   assign is_mtvec = csr_op && dbg_insn[31:20] == 12'h305;
-  assign rvfi_csr_mtvec_rmask = is_mtvec ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mtvec_wmask = (mtvec_pre != mtvec_post) ?
-      32'hFFFFFFFF : (is_mtvec ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mtvec_rmask = {32{is_mtvec}};
+  assign rvfi_csr_mtvec_wmask = {32{(mtvec_pre != mtvec_post) || is_mtvec}};
   assign rvfi_csr_mtvec_rdata = mtvec_pre;
   assign rvfi_csr_mtvec_wdata = mtvec_post;
 `endif
 `ifdef RISCV_FORMAL_CSR_MEPC
   logic is_mepc;
   assign is_mepc = csr_op && dbg_insn[31:20] == 12'h341;
-  assign rvfi_csr_mepc_rmask = is_mepc ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mepc_wmask = (mepc_pre != mepc_post) ?
-      32'hFFFFFFFF : (is_mepc ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mepc_rmask = {32{is_mepc}};
+  assign rvfi_csr_mepc_wmask = {32{(mepc_pre != mepc_post) || is_mepc}};
   assign rvfi_csr_mepc_rdata = mepc_pre;
   assign rvfi_csr_mepc_wdata = mepc_post;
 `endif
 `ifdef RISCV_FORMAL_CSR_MCAUSE
   logic is_mcause;
   assign is_mcause = csr_op && dbg_insn[31:20] == 12'h342;
-  assign rvfi_csr_mcause_rmask = is_mcause ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mcause_wmask = (mcause_pre != mcause_post) ?
-      32'hFFFFFFFF : (is_mcause ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mcause_rmask = {32{is_mcause}};
+  assign rvfi_csr_mcause_wmask = {32{(mcause_pre != mcause_post) || is_mcause}};
   assign rvfi_csr_mcause_rdata = mcause_pre;
   assign rvfi_csr_mcause_wdata = mcause_post;
 `endif
 `ifdef RISCV_FORMAL_CSR_MTVAL
   logic is_mtval;
   assign is_mtval = csr_op && dbg_insn[31:20] == 12'h343;
-  assign rvfi_csr_mtval_rmask = is_mtval ? 32'hFFFFFFFF : 32'd0;
-  assign rvfi_csr_mtval_wmask = (mtval_pre != mtval_post) ?
-      32'hFFFFFFFF : (is_mtval ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mtval_rmask = {32{is_mtval}};
+  assign rvfi_csr_mtval_wmask = {32{(mtval_pre != mtval_post) || is_mtval}};
   assign rvfi_csr_mtval_rdata = mtval_pre;
   assign rvfi_csr_mtval_wdata = mtval_post;
 `endif
 `ifdef RISCV_FORMAL_CSR_MIE
   logic is_mie;
   assign is_mie = csr_op && dbg_insn[31:20] == 12'h304;
-  assign rvfi_csr_mie_rmask = is_mie ? 32'hFFFFFFFF : 32'd0;
-  assign
-      rvfi_csr_mie_wmask = (mie_pre != mie_post) ? 32'hFFFFFFFF : (is_mie ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mie_rmask = {32{is_mie}};
+  assign rvfi_csr_mie_wmask = {32{(mie_pre != mie_post) || is_mie}};
   assign rvfi_csr_mie_rdata = mie_pre;
   assign rvfi_csr_mie_wdata = mie_post;
 `endif
 `ifdef RISCV_FORMAL_CSR_MIP
   logic is_mip;
   assign is_mip = csr_op && dbg_insn[31:20] == 12'h344;
-  assign rvfi_csr_mip_rmask = is_mip ? 32'hFFFFFFFF : 32'd0;
-  assign
-      rvfi_csr_mip_wmask = (mip_pre != mip_post) ? 32'hFFFFFFFF : (is_mip ? 32'hFFFFFFFF : 32'd0);
+  assign rvfi_csr_mip_rmask = {32{is_mip}};
+  assign rvfi_csr_mip_wmask = {32{(mip_pre != mip_post) || is_mip}};
   assign rvfi_csr_mip_rdata = mip_pre;
   assign rvfi_csr_mip_wdata = mip_post;
 `endif
@@ -301,12 +295,8 @@ module rvfi_wrapper (
   assign is_mcycle_lo = csr_op && dbg_insn[31:20] == 12'hB00;
   logic is_mcycle_hi;
   assign is_mcycle_hi = csr_op && dbg_insn[31:20] == 12'hB80;
-  assign rvfi_csr_mcycle_rmask = {
-    is_mcycle_hi ? 32'hFFFFFFFF : 32'd0, is_mcycle_lo ? 32'hFFFFFFFF : 32'd0
-  };
-  assign rvfi_csr_mcycle_wmask = {
-    is_mcycle_hi ? 32'hFFFFFFFF : 32'd0, is_mcycle_lo ? 32'hFFFFFFFF : 32'd0
-  };
+  assign rvfi_csr_mcycle_rmask = {{32{is_mcycle_hi}}, {32{is_mcycle_lo}}};
+  assign rvfi_csr_mcycle_wmask = {{32{is_mcycle_hi}}, {32{is_mcycle_lo}}};
   assign rvfi_csr_mcycle_rdata = {mcycleh_pre, mcycle_pre};
   assign rvfi_csr_mcycle_wdata = {mcycleh_post, mcycle_post};
 `endif
@@ -315,14 +305,12 @@ module rvfi_wrapper (
   assign is_minstret_lo = csr_op && dbg_insn[31:20] == 12'hB02;
   logic is_minstret_hi;
   assign is_minstret_hi = csr_op && dbg_insn[31:20] == 12'hB82;
-  assign rvfi_csr_minstret_rmask = {
-    is_minstret_hi ? 32'hFFFFFFFF : 32'd0, is_minstret_lo ? 32'hFFFFFFFF : 32'd0
-  };
-  assign rvfi_csr_minstret_wmask = {
-    is_minstret_hi ? 32'hFFFFFFFF : 32'd0, is_minstret_lo ? 32'hFFFFFFFF : 32'd0
-  };
+  assign rvfi_csr_minstret_rmask = {{32{is_minstret_hi}}, {32{is_minstret_lo}}};
+  assign rvfi_csr_minstret_wmask = {{32{is_minstret_hi}}, {32{is_minstret_lo}}};
   assign rvfi_csr_minstret_rdata = {minstreth_pre, minstret_pre};
   assign rvfi_csr_minstret_wdata = {minstreth_post, minstret_post};
 `endif
 
 endmodule
+
+`default_nettype wire

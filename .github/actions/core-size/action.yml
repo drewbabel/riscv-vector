@@ -1,0 +1,32 @@
+name: Core size
+description: Set package constants in the checkout to a sweep.txt size
+
+inputs:
+  size:
+    description: Comma-separated package settings as in sweep.txt, or defaults
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set the package constants
+      shell: bash
+      env:
+        SIZE: ${{ inputs.size }}
+      run: |
+        python3 - "$SIZE" <<'PY'
+        import sys
+        sys.path.insert(0, "tests/rules")
+        import check
+        for s in sys.argv[1].split(",") if sys.argv[1] != "defaults" else []:
+            k, v = s.split("=")
+            pkg, name = k.split("::")
+            path = f"rtl/{pkg}.sv"
+            with open(path) as f:
+                text, n = check.set_package(f.read(), name, v)
+            if n != 1:
+                sys.exit(f"cannot set {k}")
+            with open(path, "w") as f:
+                f.write(text)
+        PY
+        grep -E 'int (VLEN|MulLanes) =' rtl/arch_pkg.sv

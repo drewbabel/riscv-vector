@@ -60,7 +60,7 @@ module fp_regfile #(
       if (we) begin
         regfile_mem[waddr] <= wdata;
       end
-      // Second port wins ties
+      // Second port wins
       if (we2) begin
         regfile_mem[waddr2] <= wdata2;
       end

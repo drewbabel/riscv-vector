@@ -14,13 +14,13 @@ module alu
     output logic ltu
 );
 
-  localparam int SHAMT = $clog2(XLEN);  // Shift-amount width
+  localparam int ShamtW = $clog2(XLEN);
 
-  logic [SHAMT-1:0] shamt;
+  logic [ShamtW-1:0] shamt;
   logic signed_lt;
   logic unsigned_lt;
 
-  assign shamt = b[SHAMT-1:0];
+  assign shamt = b[ShamtW-1:0];
 
   always_comb begin
     case (alu_op)

@@ -1,0 +1,397 @@
+alu              alu                 -
+alu              alu                 arch_pkg::XLEN=64
+alu              alu                 arch_pkg::XLEN=128
+alu_decoder      alu_decoder         -
+boot_loader      boot_loader         -
+boot_loader      boot_loader         arch_pkg::XLEN=64
+boot_loader      boot_loader         arch_pkg::XLEN=128
+boot_loader      boot_loader         DEPTH=4096
+boot_loader      boot_loader         DEPTH=65536
+boot_loader      boot_loader         arch_pkg::UartDataBits=16
+boot_loader      boot_loader         arch_pkg::UartDataBits=7                 expect="XLEN must hold at least two whole DATA_BITS frames"
+bram_sdp         board_top           -
+bram_sdp         board_top           Width=1
+bram_sdp         board_top           Width=32
+bram_sdp         board_top           Depth=16
+bram_sdp         board_top           Depth=1024
+bram_sdp         board_top           Block=0
+board_top        board_top           -
+board_top        board_top           DEPTH=4096
+board_top        board_top           DEPTH=65536
+board_top        board_top           arch_pkg::XLEN=64                        expect="implements RV32 only"
+board_top        board_top           arch_pkg::VLEN=64
+board_top        board_top           arch_pkg::VLEN=256
+board_top        board_top           arch_pkg::ELEN=64                        expect="ELEN must be 32"
+board_top        board_top           arch_pkg::MulLanes=2
+board_top        board_top           DEPTH=1024,ClkDiv=32
+board_top        board_top           arch_pkg::BoardClkHz=200000000
+board_top        board_top           arch_pkg::MemLatency=5
+btb              btb                 -
+btb              btb                 arch_pkg::XLEN=64
+btb              btb                 arch_pkg::XLEN=128
+btb              btb                 arch_pkg::BtbIdxLen=5
+btb              btb                 arch_pkg::BtbIdxLen=7
+clint            clint               -
+clint            clint               arch_pkg::XLEN=64
+clint            clint               arch_pkg::XLEN=128                       expect="XLEN must divide the 64-bit timer"
+control_decoder  control_decoder     -
+control_unit     pl_fwd              -
+csr              csr                 -
+csr              csr                 arch_pkg::XLEN=64                        expect="implements RV32 only"
+csr              csr                 arch_pkg::XLEN=128                       expect="implements RV32 only"
+csr              csr                 arch_pkg::VLEN=64
+csr              csr                 arch_pkg::VLEN=256
+dcache           dcache              -
+dcache           dcache              arch_pkg::XLEN=64
+dcache           dcache              arch_pkg::XLEN=128
+dcache           dcache              arch_pkg::DcWays=2
+dcache           dcache              arch_pkg::DcWays=8
+dcache           dcache              arch_pkg::DcIdxLen=6
+dcache           dcache              arch_pkg::DcIdxLen=8
+dcache           dcache              arch_pkg::LineWords=2
+dcache           dcache              arch_pkg::LineWords=8
+dmem_arb         dmem_arb            -
+dmem_arb         dmem_arb            arch_pkg::XLEN=64
+dmem_arb         dmem_arb            arch_pkg::XLEN=128
+dmem_arb         dmem_arb            DATA_W=64
+dmem_arb         dmem_arb            DATA_W=128
+dmem             dmem                -
+dmem             dmem                arch_pkg::XLEN=64
+dmem             dmem                arch_pkg::XLEN=128
+dmem             dmem                DEPTH=16
+dmem             dmem                DEPTH=256
+extend           extend              -
+extend           extend              arch_pkg::XLEN=64
+extend           extend              arch_pkg::XLEN=128
+fp_add           fp_add              -
+fp_add           fp_add              ExpW=11,FracW=52
+fp_add           fp_add              ExpW=5,FracW=10
+fp_mul           fp_mul              -
+fp_mul           fp_mul              ExpW=11,FracW=52
+fp_mul           fp_mul              ExpW=5,FracW=10
+fp_fma           fp_fma              -
+fp_fma           fp_fma              ExpW=11,FracW=52
+fp_fma           fp_fma              ExpW=5,FracW=10
+fp_div_sqrt      fp_div_sqrt         -
+fp_div_sqrt      fp_div_sqrt         ExpW=11,FracW=52
+fp_div_sqrt      fp_div_sqrt         ExpW=5,FracW=10
+fp_misc          fp_misc             -
+fp_misc          fp_misc             ExpW=11,FracW=52
+fp_misc          fp_misc             ExpW=5,FracW=10
+fp_rec7          fp_rec7             -
+fp_rec7          fp_rec7             ExpW=11,FracW=52
+fp_rec7          fp_rec7             ExpW=5,FracW=10
+fp_cvt           fp_cvt              -
+fp_cvt           fp_cvt              arch_pkg::XLEN=64
+fp_cvt           fp_cvt              arch_pkg::XLEN=128                        expect="ExpW and FracW outside the supported range"
+fp_cvt           fp_cvt              ExpW=11,FracW=52
+fp_cvt           fp_cvt              ExpW=5,FracW=10                           expect="ExpW and FracW outside the supported range"
+fp_add           fp_add              ExpW=1,FracW=23                           expect="ExpW and FracW outside the supported range"
+fp_mul           fp_mul              ExpW=4,FracW=23                           expect="ExpW and FracW outside the supported range"
+fp_mul           fp_mul              ExpW=15,FracW=64                          expect="ExpW and FracW outside the supported range"
+fp_fma           fp_fma              ExpW=5,FracW=23                           expect="ExpW and FracW outside the supported range"
+fp_div_sqrt      fp_div_sqrt         ExpW=5,FracW=23                           expect="ExpW and FracW outside the supported range"
+fp_cvt           fp_cvt              ExpW=5,FracW=23                           expect="ExpW and FracW outside the supported range"
+fp_decode        fp_decode           -
+fp_misc          fp_misc             ExpW=8,FracW=1                            expect="ExpW and FracW outside the supported range"
+fp_rec7          fp_rec7             ExpW=8,FracW=7                            expect="ExpW and FracW outside the supported range"
+fp_regfile       fp_regfile          -
+fp_regfile       fp_regfile          arch_pkg::RegAddrW=4
+fp_regfile       fp_regfile          arch_pkg::RegAddrW=6
+fp_regfile       fp_regfile          FLEN=16
+fp_regfile       fp_regfile          FLEN=64
+fp_unit          fp_unit             -
+fp_unit          fp_unit             arch_pkg::XLEN=64
+fp_unit          fp_unit             arch_pkg::XLEN=128                        expect="ExpW and FracW outside the supported range"
+fp_unit          fp_unit             arch_pkg::RegAddrW=4
+fp_unit          fp_unit             arch_pkg::RegAddrW=6
+gpio             gpio                -
+gpio             gpio                arch_pkg::XLEN=64
+gpio             gpio                arch_pkg::XLEN=128
+gpio             gpio                WIDTH=8
+gpio             gpio                WIDTH=32
+gshare           gshare              -
+gshare           gshare              arch_pkg::XLEN=64
+gshare           gshare              arch_pkg::XLEN=128
+gshare           gshare              arch_pkg::GhistLen=8
+gshare           gshare              arch_pkg::GhistLen=12
+hazard_unit      pl_fwd              -
+icache           icache              -
+icache           icache              arch_pkg::XLEN=64
+icache           icache              arch_pkg::XLEN=128
+icache           icache              arch_pkg::IcIdxLen=8
+icache           icache              arch_pkg::IcIdxLen=10
+icache           icache              arch_pkg::LineWords=2
+icache           icache              arch_pkg::LineWords=8
+imem             imem                -
+imem             imem                arch_pkg::XLEN=64
+imem             imem                arch_pkg::XLEN=128
+imem             imem                DEPTH=16
+imem             imem                DEPTH=256
+mem_arb          mem_arb             -
+mem_arb          mem_arb             arch_pkg::XLEN=64
+mem_arb          mem_arb             arch_pkg::XLEN=128
+mem_arb          mem_arb             APP_ADDR_WIDTH=27
+mem_arb          mem_arb             APP_ADDR_WIDTH=30
+mem_delay        mem_delay           -
+mem_delay        mem_delay           arch_pkg::XLEN=64
+mem_delay        mem_delay           arch_pkg::XLEN=128
+mem_delay        mem_delay           DEPTH=4096
+mem_delay        mem_delay           DEPTH=65536
+mem_delay        mem_delay           Latency=1                                expect="Latency must be at least 2"
+mem_delay        mem_delay           Latency=5
+mem_word_if      mem_word_if         -
+mem_word_if      mem_word_if         arch_pkg::XLEN=64
+mem_word_if      mem_word_if         arch_pkg::XLEN=128
+mem_word_if      mem_word_if         RW=1
+mem_word_if      mem_word_if         CPU_W=64
+mem_word_if      mem_word_if         CPU_W=128
+mem              mem                 -
+mem              mem                 arch_pkg::XLEN=64
+mem              mem                 arch_pkg::XLEN=128
+mem              mem                 DEPTH=1024
+mem              mem                 DEPTH=32768
+muldiv           pl_muldiv           -
+muldiv           formal:muldiv       arch_pkg::XLEN=128
+pc               pc                  -
+pc               pc                  arch_pkg::XLEN=64
+pc               pc                  arch_pkg::XLEN=128
+pc               pc                  RESET_ADDR=256
+pc               pc                  RESET_ADDR=2147483648
+pmu              pmu                 -
+pmu              pmu                 CLK_FREQ_HZ=25000000
+pmu              pmu                 CLK_FREQ_HZ=100000000
+pmu              pmu                 arch_pkg::XLEN=64                        expect="implements RV32 only"
+pmu              pmu                 arch_pkg::XLEN=128                       expect="implements RV32 only"
+regfile          regfile             -
+regfile          regfile             arch_pkg::XLEN=64
+regfile          regfile             arch_pkg::XLEN=128
+regfile          regfile             arch_pkg::RegAddrW=4
+regfile          regfile             arch_pkg::RegAddrW=6
+riscv_pipelined  cosim               -
+riscv_pipelined  cosim               arch_pkg::VLEN=256
+riscv_pipelined  cosim               arch_pkg::VLEN=64
+riscv_pipelined  cosim               arch_pkg::MulLanes=1
+riscv_pipelined  cosim               arch_pkg::MulLanes=2
+riscv_pipelined  cosim               arch_pkg::MulLanes=1,arch_pkg::VLEN=64
+riscv_pipelined  cosim               arch_pkg::MulLanes=1,arch_pkg::VLEN=256
+riscv_pipelined  cosim               arch_pkg::MulLanes=2,arch_pkg::VLEN=256
+riscv_pipelined  cosim               arch_pkg::MulLanes=8,arch_pkg::VLEN=256
+riscv_pipelined  cosim               arch_pkg::MulLanes=4,arch_pkg::VLEN=64   expect="MUL_LANES * ELEN must not exceed VLEN"
+riscv_pipelined  cosim               arch_pkg::MulLanes=8                     expect="MUL_LANES * ELEN must not exceed VLEN"
+riscv_pipelined  cosim               arch_pkg::ELEN=64                        expect="ELEN must be 32"
+riscv_pipelined  cosim               arch_pkg::XLEN=64                        expect="implements RV32 only"
+riscv_pipelined  cosim               arch_pkg::DcWays=2
+riscv_pipelined  cosim               arch_pkg::DcWays=8
+riscv_pipelined  cosim               arch_pkg::DcIdxLen=6
+riscv_pipelined  cosim               arch_pkg::DcIdxLen=8
+riscv_pipelined  cosim               arch_pkg::IcIdxLen=8
+riscv_pipelined  cosim               arch_pkg::IcIdxLen=10
+riscv_pipelined  cosim               arch_pkg::GhistLen=8
+riscv_pipelined  cosim               arch_pkg::GhistLen=12
+riscv_pipelined  cosim               arch_pkg::BtbIdxLen=5
+riscv_pipelined  cosim               arch_pkg::BtbIdxLen=7
+riscv_pipelined  cosim:cosim_static  GSHARE_EN=0
+riscv_pipelined  cosim               VLEN=256                                  expect="VLEN must equal LineBits"
+riscv_pipelined  cosim               arch_pkg::LineWords=4,arch_pkg::VLEN=256 expect="VLEN must equal LineBits"
+riscv_pipelined  cosim               arch_pkg::LineWords=8                     expect="VLEN must equal LineBits"
+datapath         cosim               -
+datapath         cosim               arch_pkg::VLEN=256
+datapath         cosim               arch_pkg::VLEN=64
+datapath         cosim:cosim_static  GSHARE_EN=0
+datapath         cosim               VLEN=256                                  expect="VLEN must equal LineBits"
+datapath         cosim               VLEN=64                                   expect="VLEN must equal LineBits"
+datapath         cosim               arch_pkg::XLEN=64                        expect="implements RV32 only"
+datapath         cosim               arch_pkg::ELEN=64                        expect="ELEN must be 32"
+top              pl_fwd              -
+top              pl_fwd              arch_pkg::XLEN=64                        expect="implements RV32 only"
+top              pl_fwd              arch_pkg::XLEN=128                       expect="implements RV32 only"
+top              pl_fwd              DEPTH=16
+top              pl_fwd              DEPTH=256
+top              pl_fwd              arch_pkg::VLEN=64
+top              pl_fwd              arch_pkg::VLEN=256
+top              pl_fwd              arch_pkg::ELEN=64                        expect="ELEN must be 32"
+top              pl_fwd              arch_pkg::MulLanes=2
+riscv_single     sc_core_top         -
+riscv_single     sc_core_top         arch_pkg::XLEN=64                        expect="riscv_single implements RV32 only"
+riscv_single     sc_core_top         arch_pkg::XLEN=128                       expect="riscv_single implements RV32 only"
+sc_core_top      sc_core_top         -
+sc_core_top      sc_core_top         arch_pkg::XLEN=64                        expect="riscv_single implements RV32 only"
+sc_core_top      sc_core_top         arch_pkg::XLEN=128                       expect="riscv_single implements RV32 only"
+sc_control_decoder sc_core_top         -
+sc_control_unit  sc_core_top         -
+sc_csr           sc_core_top         -
+sc_csr           sc_core_top         arch_pkg::XLEN=64                        expect="sc_csr implements RV32 only"
+sc_csr           sc_core_top         arch_pkg::XLEN=128                       expect="sc_csr implements RV32 only"
+sc_datapath      sc_core_top         -
+sc_datapath      sc_core_top         arch_pkg::XLEN=64                        expect="sc_datapath implements RV32 only"
+sc_datapath      sc_core_top         arch_pkg::XLEN=128                       expect="sc_datapath implements RV32 only"
+sc_regfile       sc_regfile          -
+sc_regfile       sc_regfile          arch_pkg::XLEN=64
+sc_regfile       sc_regfile          arch_pkg::XLEN=128
+sc_regfile       sc_regfile          arch_pkg::RegAddrW=4
+sc_regfile       sc_regfile          arch_pkg::RegAddrW=6
+rr_arbiter       rr_arbiter          -
+rr_arbiter       rr_arbiter          N=2
+rr_arbiter       rr_arbiter          N=3
+rr_arbiter       rr_arbiter          N=8
+synchronizer     synchronizer        -
+tick_gen         tick_gen            -
+tick_gen         tick_gen            DIVISOR=2
+tick_gen         tick_gen            DIVISOR=7
+uart_ctrl        uart_ctrl           -
+uart_ctrl        uart_ctrl           arch_pkg::XLEN=64
+uart_ctrl        uart_ctrl           arch_pkg::XLEN=128
+uart_ctrl        uart_ctrl           arch_pkg::UartDataBits=7
+uart_ctrl        uart_ctrl           arch_pkg::UartDataBits=9
+uart_rx          uart_rx             -
+uart_rx          uart_rx             OVERSAMPLE=8
+uart_rx          uart_rx             OVERSAMPLE=4
+uart_rx          uart_rx             DATA_BITS=7
+uart_rx          uart_rx             DATA_BITS=9
+uart_rx          uart_rx             arch_pkg::BaudRate=9600
+uart_rx          uart_rx             arch_pkg::BaudRate=115200
+uart_rx          uart_rx             CLK_FREQ_HZ=100000000,BAUD_RATE=115200
+uart_tx          uart_tx             -
+uart_tx          uart_tx             DATA_BITS=7
+uart_tx          uart_tx             DATA_BITS=9
+uart_tx          uart_tx             arch_pkg::BaudRate=9600
+uart_tx          uart_tx             arch_pkg::BaudRate=115200
+uart_tx          uart_tx             CLK_FREQ_HZ=3125000
+vec_alu_lane     vec_alu             -
+vec_alu          vec_alu             -
+vec_alu          vec_alu             arch_pkg::XLEN=64
+vec_alu          vec_alu             arch_pkg::XLEN=128
+vec_alu          vec_alu             arch_pkg::VLEN=64
+vec_alu          vec_alu             arch_pkg::VLEN=256
+vec_alu          vec_alu             arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_alu          vec_alu             arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_busy_bits    vec_busy_bits       -
+vec_busy_bits    vec_busy_bits       arch_pkg::RegAddrW=4
+vec_busy_bits    vec_busy_bits       arch_pkg::RegAddrW=6
+vec_config       vec_config          -
+vec_config       vec_config          arch_pkg::XLEN=64
+vec_config       vec_config          arch_pkg::XLEN=128
+vec_config       vec_config          arch_pkg::VLEN=64
+vec_config       vec_config          arch_pkg::VLEN=256
+vec_config       vec_config          arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_config       vec_config          arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_decode       vec_decode          -
+vec_div_lane     vec_div_lane        -
+vec_div_lane     vec_div_lane        arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_div_lane     vec_div_lane        arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_fp_lane      vec_fp_lane         -
+vec_fp_lane      vec_fp_lane         fp_pkg::ExpW=11,fp_pkg::FracW=52
+vec_fp_lane      vec_fp_lane         fp_pkg::ExpW=5,fp_pkg::FracW=10
+vec_fp_cvt_lane  vec_fp_cvt_lane     -
+vec_fp_cvt_lane  vec_fp_cvt_lane     fp_pkg::ExpW=11,fp_pkg::FracW=52
+vec_fp_cvt_lane  vec_fp_cvt_lane     fp_pkg::ExpW=5,fp_pkg::FracW=10          expect="ExpW and FracW outside the supported range"
+vec_fp_div_lane  vec_fp_div_lane     -
+vec_fp_div_lane  vec_fp_div_lane     fp_pkg::ExpW=11,fp_pkg::FracW=52
+vec_fp_div_lane  vec_fp_div_lane     fp_pkg::ExpW=5,fp_pkg::FracW=10
+vec_fp_reduce    vec_fp_reduce       -
+vec_fp_reduce    vec_fp_reduce       arch_pkg::VLEN=64
+vec_fp_reduce    vec_fp_reduce       arch_pkg::VLEN=256
+vec_fp_reduce    vec_fp_reduce       DLEN=32                                   expect="DLEN must hold a power of two float elements, at least two"
+vec_fp_reduce    vec_fp_reduce       DLEN=96                                   expect="DLEN must hold a power of two float elements, at least two"
+vec_fp_reduce    vec_fp_reduce       fp_pkg::ExpW=11,fp_pkg::FracW=52
+vec_fp_reduce    vec_fp_reduce       fp_pkg::ExpW=5,fp_pkg::FracW=10
+vec_issue        vec_issue           -
+vec_issue        vec_issue           arch_pkg::XLEN=64
+vec_issue        vec_issue           arch_pkg::XLEN=128
+vec_issue        vec_issue           arch_pkg::RegAddrW=4
+vec_issue        vec_issue           arch_pkg::RegAddrW=6
+vec_issue        vec_issue           arch_pkg::VLEN=64
+vec_issue        vec_issue           arch_pkg::VLEN=256
+vec_mask         vec_mask            -
+vec_mask         vec_mask            arch_pkg::XLEN=64
+vec_mask         vec_mask            arch_pkg::XLEN=128
+vec_mask         vec_mask            arch_pkg::VLEN=64
+vec_mask         vec_mask            arch_pkg::VLEN=256
+vec_mask         vec_mask            arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_mask         vec_mask            arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_mem          vec_mem             -
+vec_mem          vec_mem             arch_pkg::XLEN=64
+vec_mem          vec_mem             arch_pkg::XLEN=128
+vec_mem          vec_mem             arch_pkg::RegAddrW=4
+vec_mem          vec_mem             arch_pkg::RegAddrW=6
+vec_mem          vec_mem             arch_pkg::VLEN=64
+vec_mem          vec_mem             arch_pkg::VLEN=256
+vec_mixed        vec_mixed           -
+vec_mixed        vec_mixed           arch_pkg::XLEN=64
+vec_mixed        vec_mixed           arch_pkg::XLEN=128
+vec_mixed        vec_mixed           arch_pkg::VLEN=64
+vec_mixed        vec_mixed           arch_pkg::VLEN=256
+vec_mixed        vec_mixed           arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_mixed        vec_mixed           arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_mul_lane     vec_mul_lane        -
+vec_mul_lane     vec_mul_lane        arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_mul_lane     vec_mul_lane        arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_reduce       vec_reduce          -
+vec_reduce       vec_reduce          arch_pkg::VLEN=64
+vec_reduce       vec_reduce          arch_pkg::VLEN=256
+vec_reduce       vec_reduce          arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_reduce       vec_reduce          arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_regfile      vec_regfile         -
+vec_regfile      vec_regfile         arch_pkg::RegAddrW=4
+vec_regfile      vec_regfile         arch_pkg::RegAddrW=6
+vec_regfile      vec_regfile         arch_pkg::VLEN=64
+vec_regfile      vec_regfile         arch_pkg::VLEN=256
+vec_sat_lane     vec_sat_lane        -
+vec_sat_lane     vec_sat_lane        arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_sat_lane     vec_sat_lane        arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_sequencer    vec_sequencer       -
+vec_sequencer    vec_sequencer       arch_pkg::RegAddrW=4
+vec_sequencer    vec_sequencer       arch_pkg::RegAddrW=6
+vec_sequencer    vec_sequencer       arch_pkg::VLEN=64
+vec_sequencer    vec_sequencer       arch_pkg::VLEN=256
+vec_sequencer    vec_sequencer       arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_sequencer    vec_sequencer       arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_sequencer    vec_sequencer       arch_pkg::MulLanes=1
+vec_sequencer    vec_sequencer       arch_pkg::MulLanes=2
+vec_sequencer    vec_sequencer       arch_pkg::MulLanes=8
+vec_sequencer    vec_sequencer       arch_pkg::MulLanes=3                      expect="MUL_LANES must be a power of two"
+vec_slide        vec_slide           -
+vec_slide        vec_slide           arch_pkg::XLEN=64
+vec_slide        vec_slide           arch_pkg::XLEN=128
+vec_slide        vec_slide           arch_pkg::RegAddrW=4
+vec_slide        vec_slide           arch_pkg::RegAddrW=6
+vec_slide        vec_slide           arch_pkg::VLEN=64
+vec_slide        vec_slide           arch_pkg::VLEN=256
+vec_unit         vec_unit            -
+vec_unit         vec_unit            arch_pkg::XLEN=64
+vec_unit         vec_unit            arch_pkg::XLEN=128
+vec_unit         vec_unit            arch_pkg::RegAddrW=4                     expect="vector register file must hold 32 registers"
+vec_unit         vec_unit            arch_pkg::RegAddrW=6                     expect="vector register file must hold 32 registers"
+vec_unit         vec_unit            arch_pkg::VLEN=64
+vec_unit         vec_unit            arch_pkg::VLEN=256
+vec_unit         vec_unit            arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_unit         vec_unit            arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_unit         vec_unit            arch_pkg::MulLanes=1
+vec_unit         vec_unit            arch_pkg::MulLanes=2
+vec_unit         vec_unit            arch_pkg::MulLanes=1,arch_pkg::VLEN=64
+vec_unit         vec_unit            arch_pkg::MulLanes=8,arch_pkg::VLEN=256
+vec_unit         vec_unit            arch_pkg::MulLanes=8                     expect="MUL_LANES * ELEN must not exceed VLEN"
+vec_unit         vec_unit            arch_pkg::MulLanes=3                      expect="MUL_LANES must be a power of two"
+vec_write_slots  vec_write_slots     -
+vec_write_slots  vec_write_slots     DEPTH=2
+vec_write_slots  vec_write_slots     DEPTH=5
+vec_write_slots  vec_write_slots     DEPTH=8
+vec_config       formal:vec_config   arch_pkg::VLEN=64
+vec_config       formal:vec_config   arch_pkg::VLEN=256
+vec_config       formal:vec_config   arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_sat_lane     formal:vec_sat      arch_pkg::ELEN=16                        expect="ELEN must be 32"
+vec_sat_lane     formal:vec_sat      arch_pkg::ELEN=64                        expect="ELEN must be 32"
+vec_sequencer    formal:vec_seq      arch_pkg::VLEN=64
+vec_sequencer    formal:vec_seq      arch_pkg::VLEN=256
+vec_sequencer    formal:vec_seq      arch_pkg::MulLanes=2
+vec_sequencer    formal:vec_seq      arch_pkg::MulLanes=8
+vec_mem          formal:vec_mem      arch_pkg::VLEN=64
+vec_mem          formal:vec_mem      arch_pkg::VLEN=256
+dmem_arb         formal:dmem_arb     arch_pkg::XLEN=64
+mem_arb          formal:mem_arb      arch_pkg::XLEN=64
+muldiv           formal:muldiv       arch_pkg::XLEN=64
+hazard_unit      formal:hazard_unit  arch_pkg::RegAddrW=4
+hazard_unit      formal:hazard_unit  arch_pkg::RegAddrW=6
+csr              formal:irq          arch_pkg::VLEN=64
+csr              formal:irq          arch_pkg::VLEN=256

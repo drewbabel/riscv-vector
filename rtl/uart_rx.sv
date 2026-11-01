@@ -1,10 +1,10 @@
 `default_nettype none
 
 module uart_rx #(
-    parameter int CLK_FREQ_HZ = arch_pkg::BoardClkHz / arch_pkg::ClkDiv,
+    parameter int CLK_FREQ_HZ = arch_pkg::CoreClkHz,
     parameter int BAUD_RATE   = arch_pkg::BaudRate,
     parameter int OVERSAMPLE  = 16,
-    parameter int DATA_BITS   = 8
+    parameter int DATA_BITS   = arch_pkg::UartDataBits
 ) (
     input wire clk,
     input wire core_en,
@@ -34,7 +34,7 @@ module uart_rx #(
   logic [$clog2(OVERSAMPLE)-1:0] tick_cnt;
   logic [$clog2(DATA_BITS):0] data_cnt;
 
-  synchronizer sync_FF (
+  synchronizer u_sync (
       .clk(clk),
       .core_en(core_en),
       .d(rx_serial),

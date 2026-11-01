@@ -6,6 +6,7 @@ module vec_mem_formal ();
   localparam int AWIDTH = arch_pkg::RegAddrW;
   localparam int VLEN = arch_pkg::VLEN;
   localparam int VlW = $clog2(VLEN + 1);
+  localparam int LineElems32 = VLEN / 32;
 
   logic              clk;
 
@@ -168,7 +169,7 @@ module vec_mem_formal ();
       cover (done && f_count == 8'd0);
       cover (done && f_count == 8'd3 && !load && !vm);
       cover (done && f_count == 8'd4 && load && width == 2'd2);
-      cover (done && f_count == 8'd4 && f_beats == 8'd1 && width == 2'd2);
+      cover (done && f_count == VlW'(LineElems32) && f_beats == 8'd1 && width == 2'd2);
       cover (done && f_count == 8'd4 && f_beats == 8'd2 && width == 2'd2 && stride == 32'd4);
       cover (mem_req && !mem_ready && $past(mem_req) && !$past(core_en));
     end

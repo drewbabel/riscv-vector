@@ -1,28 +1,29 @@
 `default_nettype none
 
 module fp_rec7
-  import fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmRup;
   import fp_pkg::FlagNv, fp_pkg::FlagDz, fp_pkg::FlagOf, fp_pkg::FlagNx;
-  import fp_pkg::fp_lzc, fp_pkg::FpLzcW;
+  import fp_pkg::fp_lzc, fp_pkg::FpLzcW, fp_pkg::fp_ovf_max;
+  import fp_pkg::FlagW, fp_pkg::RmW;
+  import fp_pkg::fp_canon_nan, fp_pkg::fp_inf_mag, fp_pkg::fp_max_mag;
 #(
     parameter  int ExpW  = fp_pkg::ExpW,
     parameter  int FracW = fp_pkg::FracW,
     localparam int FLEN  = 1 + ExpW + FracW
 ) (
-    input  wire             sqrt,
-    input  wire  [     2:0] rm,
-    input  wire  [FLEN-1:0] a,
-    output logic [FLEN-1:0] result,
-    output logic [     4:0] fflags
+    input  wire              sqrt,
+    input  wire  [  RmW-1:0] rm,
+    input  wire  [ FLEN-1:0] a,
+    output logic [ FLEN-1:0] result,
+    output logic [FlagW-1:0] fflags
 );
 
   localparam int Bias = (1 << (ExpW - 1)) - 1;
   localparam int LzW = $clog2(FracW + 1);
   localparam logic [ExpW:0] RsqBase = (ExpW + 1)'(3 * Bias - 1);
   localparam logic [ExpW-1:0] RecBase = ExpW'(2 * Bias - 1);
-  localparam logic [FLEN-1:0] CanonNan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
-  localparam logic [FLEN-2:0] InfMag = {{ExpW{1'b1}}, {FracW{1'b0}}};
-  localparam logic [FLEN-2:0] MaxMag = {{(ExpW - 1) {1'b1}}, 1'b0, {FracW{1'b1}}};
+  localparam logic [FLEN-1:0] CanonNan = FLEN'(fp_canon_nan(ExpW, FracW));
+  localparam logic [FLEN-2:0] InfMag = (FLEN - 1)'(fp_inf_mag(ExpW, FracW));
+  localparam logic [FLEN-2:0] MaxMag = (FLEN - 1)'(fp_max_mag(ExpW, FracW));
 
   if (!((FracW >= 10) && (FracW <= FpLzcW))) begin : g_width_error
     $error("ExpW and FracW outside the supported range");
@@ -74,7 +75,7 @@ module fp_rec7
   assign rec_den = !is_sub && (exp_in >= RecBase);
   assign rec_den_sig = (exp_in == ExpW'(2 * Bias)) ?
       {2'b01, rec_lut, {(FracW - 9) {1'b0}}} : {1'b1, rec_lut, {(FracW - 8) {1'b0}}};
-  assign rec_max = (rm == RmRtz) || ((rm == RmRdn) && !sign) || ((rm == RmRup) && sign);
+  assign rec_max = fp_ovf_max(rm, sign);
 
   // Reciprocal table entry
   function automatic logic [6:0] rec_entry(input int i);
@@ -111,7 +112,7 @@ module fp_rec7
     fflags = '0;
     if (is_nan) begin
       result = CanonNan;
-      fflags = is_snan ? FlagNv : 5'b0;
+      fflags = is_snan ? FlagNv : '0;
     end else if (is_zero) begin
       result = {sign, InfMag};
       fflags = FlagDz;
@@ -125,7 +126,7 @@ module fp_rec7
     end else if (is_inf) begin
       result = {sign, {(FLEN - 1) {1'b0}}};
     end else if (rec_ovf) begin
-      result = rec_max ? {sign, MaxMag} : {sign, InfMag};
+      result = {sign, rec_max ? MaxMag : InfMag};
       fflags = FlagOf | FlagNx;
     end else if (rec_den) begin
       result = {sign, {ExpW{1'b0}}, rec_den_sig};

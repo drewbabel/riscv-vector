@@ -27,8 +27,8 @@ module dcache
     input  wire                 mem_ready,
 
     // Counters
-    output logic [31:0] hit_count,
-    output logic [31:0] miss_count
+    output logic [XLEN-1:0] hit_count,
+    output logic [XLEN-1:0] miss_count
 );
 
   // Controller states
@@ -42,64 +42,74 @@ module dcache
 
   state_t state, next_state;
 
+  if ((DcWays < 2) || (DcWays != (1 << DcWaySel))) begin : g_ways
+    $error("DcWays must be a power of two of at least 2");
+  end
+
   // Tag carries flags
-  localparam int TagWordW = DcTagLen + 2;
+  localparam int FlagBits = 2;
+  localparam int TagWordW = DcTagLen + FlagBits;
   localparam int ValidBit = DcTagLen + 1;
   localparam int DirtyBit = DcTagLen;
+  localparam int PlruW = DcWays - 1;
 
   // Tree in flops
-  logic [   DcSets-1:0][DcWays-2:0] plru_mem;
+  logic [   DcSets-1:0][PlruW-1:0] plru_mem;
 
-  logic [ DcTagLen-1:0]             addr_tag;
-  logic [ DcIdxLen-1:0]             addr_idx;
-  logic [ DcIdxLen-1:0]             rd_idx;
-  logic [ DcIdxLen-1:0]             wr_idx;
-  logic [ DcIdxLen-1:0]             init_ctr;
+  logic [ DcTagLen-1:0]            addr_tag;
+  logic [ DcIdxLen-1:0]            addr_idx;
+  logic [ DcIdxLen-1:0]            rd_idx;
+  logic [ DcIdxLen-1:0]            wr_idx;
+  logic [ DcIdxLen-1:0]            init_ctr;
 
   // Sampled request
-  logic [     XLEN-1:0]             req_addr;
-  logic [ LineBits-1:0]             req_wdata;
-  logic [LineBytes-1:0]             req_wstrb;
-  logic                             req_rw;
-  logic                             refill;
+  logic [     XLEN-1:0]            req_addr;
+  logic [ LineBits-1:0]            req_wdata;
+  logic [LineBytes-1:0]            req_wstrb;
+  logic                            req_rw;
+  logic                            refill;
 
-  logic [ TagWordW-1:0]             tag_rd       [DcWays];
-  logic [ LineBits-1:0]             line_rd      [DcWays];
-  logic [ TagWordW-1:0]             tag_q        [DcWays];
-  logic [ LineBits-1:0]             line_q       [DcWays];
+  logic [ TagWordW-1:0]            tag_rd          [DcWays];
+  logic [ LineBits-1:0]            line_rd         [DcWays];
+  logic [ TagWordW-1:0]            tag_q           [DcWays];
+  logic [ LineBits-1:0]            line_q          [DcWays];
 
-  logic [ TagWordW-1:0]             tag_wdata    [DcWays];
-  logic                             tag_we       [DcWays];
-  logic                             data_we      [DcWays];
-  logic [ LineBits-1:0]             data_wdata;
+  logic [ TagWordW-1:0]            tag_wdata       [DcWays];
+  logic                            tag_we          [DcWays];
+  logic                            data_we         [DcWays];
+  logic [ LineBits-1:0]            data_wdata;
 
-  logic                             fill_q;
-  logic [ DcWaySel-1:0]             victim_way_q;
-  logic [ TagWordW-1:0]             fill_tag_q;
-  logic [ LineBits-1:0]             fill_line_q;
+  logic                            fill_q;
+  logic [ DcWaySel-1:0]            victim_way_q;
+  logic [ TagWordW-1:0]            fill_tag_q;
+  logic [ LineBits-1:0]            fill_line_q;
 
-  logic [   DcWays-1:0]             way_hit;
-  logic [   DcWays-1:0]             way_valid;
-  logic                             hit;
-  logic [ DcWaySel-1:0]             hit_way;
-  logic [   DcWays-2:0]             plru_tree;
-  logic [   DcWays-2:0]             plru_next;
-  logic [ DcWaySel-1:0]             plru_way;
-  logic [ DcWaySel-1:0]             victim_way;
-  logic                             victim_dirty;
-  logic [ DcTagLen-1:0]             victim_tag;
-  logic [ LineBits-1:0]             victim_line;
-  logic [ LineBits-1:0]             line_read;
-  logic [ LineBits-1:0]             line_write;
-  logic                             fill;
-  logic                             write_hit;
-  logic                             full_store;
-  logic                             install;
-  logic [ DcWaySel-1:0]             touch_way;
-  logic                             init_done;
+  logic [   DcWays-1:0]            way_hit;
+  logic [   DcWays-1:0]            way_valid;
+  logic                            hit;
+  logic                            compare_hit;
+  logic                            compare_miss;
+  logic [ DcWaySel-1:0]            hit_way;
+  logic [    PlruW-1:0]            plru_tree;
+  logic [    PlruW-1:0]            plru_next;
+  logic [ DcWaySel-1:0]            plru_way;
+  logic [ DcWaySel-1:0]            victim_way;
+  logic                            victim_dirty;
+  logic [ DcTagLen-1:0]            victim_tag;
+  logic [ LineBits-1:0]            victim_line;
+  logic [ LineBits-1:0]            line_read;
+  logic [ LineBits-1:0]            line_write;
+  logic                            fill;
+  logic                            write_hit;
+  logic                            full_store;
+  logic                            install;
+  logic [ DcWaySel-1:0]            touch_way;
+  logic                            init_done;
+  logic                            unused_addr_lsb;
 
   assign addr_tag = req_addr[XLEN-1 : XLEN-DcTagLen];
   assign addr_idx = req_addr[XLEN-DcTagLen-1 : XLEN-DcTagLen-DcIdxLen];
+  assign unused_addr_lsb = ^req_addr[IdxLsb-1:0];
 
   // Read index early
   assign rd_idx = (state == IDLE) ? cpu_addr[IdxLsb+:DcIdxLen] : addr_idx;
@@ -132,15 +142,24 @@ module dcache
     for (int w = 0; w < DcWays; w++) if (way_hit[w]) hit_way = DcWaySel'(w);
   end
 
-  assign write_hit = (state == COMPARE) && hit && req_rw;
+  assign compare_hit = (state == COMPARE) && hit;
+  assign compare_miss = (state == COMPARE) && !hit;
+
+  assign write_hit = compare_hit && req_rw;
   assign full_store = &req_wstrb && req_rw;
   assign install = full_store &&
-      (((state == COMPARE) && !hit && !victim_dirty) || ((state == WRITE_BACK) && mem_ready));
+      ((compare_miss && !victim_dirty) || ((state == WRITE_BACK) && mem_ready));
 
-  // Bit 0 old half, 1 old of 01, 2 old of 23
+  // Heap ordered tree
   assign plru_tree = plru_mem[addr_idx];
-  assign plru_way[1] = plru_tree[0];
-  assign plru_way[0] = plru_tree[0] ? plru_tree[2] : plru_tree[1];
+  always_comb begin
+    int node;
+    node = 0;
+    for (int lvl = DcWaySel - 1; lvl >= 0; lvl--) begin
+      plru_way[lvl] = plru_tree[node];
+      node = 2 * node + 1 + int'(plru_tree[node]);
+    end
+  end
 
   // Invalid way first
   always_comb begin
@@ -185,7 +204,7 @@ module dcache
     endcase
   end
 
-  assign cpu_ready = ((state == COMPARE) && hit) || install;
+  assign cpu_ready = compare_hit || install;
 
   // Line memory request
   assign mem_valid = (state == WRITE_BACK) || (state == ALLOCATE);
@@ -302,17 +321,20 @@ module dcache
 
   // Touch points away
   always_comb begin
+    int node;
     plru_next = plru_tree;
-    plru_next[0] = ~touch_way[1];
-    if (touch_way[1]) plru_next[2] = ~touch_way[0];
-    else plru_next[1] = ~touch_way[0];
+    node = 0;
+    for (int lvl = DcWaySel - 1; lvl >= 0; lvl--) begin
+      plru_next[node] = ~touch_way[lvl];
+      node = 2 * node + 1 + int'(touch_way[lvl]);
+    end
   end
 
   // Update on hit
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       plru_mem <= '0;
-    end else if (core_en && (((state == COMPARE) && hit) || install)) begin
+    end else if (core_en && (compare_hit || install)) begin
       plru_mem[addr_idx] <= plru_next;
     end
   end
@@ -321,7 +343,7 @@ module dcache
   always_ff @(posedge clk) begin
     if (!rst_n) refill <= 1'b0;
     else if (core_en) begin
-      if ((state == COMPARE) && !hit) refill <= 1'b1;
+      if (compare_miss) refill <= 1'b1;
       else if (state == IDLE) refill <= 1'b0;
     end
   end
@@ -331,9 +353,9 @@ module dcache
     if (!rst_n) begin
       hit_count  <= '0;
       miss_count <= '0;
-    end else if (core_en && (state == COMPARE)) begin
-      if (!hit) miss_count <= miss_count + 1;
-      else if (!refill) hit_count <= hit_count + 1;
+    end else if (core_en) begin
+      if (compare_miss) miss_count <= miss_count + 1;
+      else if (compare_hit && !refill) hit_count <= hit_count + 1;
     end
   end
 

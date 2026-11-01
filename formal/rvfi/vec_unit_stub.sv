@@ -8,19 +8,19 @@ module vec_unit_stub
     parameter  int VLEN      = arch_pkg::VLEN,
     parameter  int ELEN      = arch_pkg::ELEN,
     parameter  int MUL_LANES = arch_pkg::MulLanes,
-    localparam int MaxElems  = VLEN / 8,
     localparam int VlW       = $clog2(VLEN + 1),
     localparam int NRegs     = 1 << AWIDTH
 ) (
 `ifdef RISCV_FORMAL
-    output logic [      7:0] dbg_vec_tag,
-    output logic             dbg_vec_retire,
-    output logic [NRegs-1:0] dbg_vec_wregs,
-    output logic             dbg_vec_idle,
+    output logic [VecTagW-1:0] dbg_vec_tag,
+    output logic               dbg_vec_retire,
+    output logic [  NRegs-1:0] dbg_vec_wregs,
+    output logic               dbg_vec_idle,
+    output logic               dbg_vec_accept,
 `endif
-    input  wire              clk,
-    input  wire              rst_n,
-    input  wire              core_en,
+    input  wire                clk,
+    input  wire                rst_n,
+    input  wire                core_en,
 
     input wire vec_dec_t            dec,
     input wire                      instr_valid,
@@ -67,11 +67,16 @@ module vec_unit_stub
     output logic store_pending
 );
 
+  if (MUL_LANES * ELEN > VLEN) begin : g_lanes
+    $error("MUL_LANES * ELEN must not exceed VLEN");
+  end
+
 `ifdef RISCV_FORMAL
   assign dbg_vec_tag    = '0;
   assign dbg_vec_retire = 1'b0;
   assign dbg_vec_wregs  = '0;
   assign dbg_vec_idle   = 1'b1;
+  assign dbg_vec_accept = 1'b0;
 `endif
   assign mem_req        = 1'b0;
   assign mem_addr       = '0;

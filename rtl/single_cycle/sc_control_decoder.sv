@@ -4,45 +4,24 @@ module sc_control_decoder
   import csr_pkg::*;
   import opcode_pkg::*;
 (
-    input  wire  [ 6:0] op,
-    input  wire  [ 2:0] funct3,
-    input  wire  [11:0] funct12,
-    output logic        reg_write,
-    output logic [ 2:0] imm_src,
-    output logic [ 1:0] alu_a_src,
-    output logic        pc_target_src,
-    output logic        alu_src,
-    output logic        mem_write,
-    output logic [ 1:0] result_src,
-    output logic        branch,
-    output logic        jump,
-    output logic [ 1:0] alu_op,
-    output logic        csr_access,
-    output logic        is_ecall,
-    output logic        is_ebreak,
-    output logic        is_mret
+    input  wire  [ OpcodeW-1:0] op,
+    input  wire  [ Funct3W-1:0] funct3,
+    input  wire  [CsrAddrW-1:0] funct12,
+    output logic                reg_write,
+    output logic [ ImmSrcW-1:0] imm_src,
+    output logic [   SrcAW-1:0] alu_a_src,
+    output logic                pc_target_src,
+    output logic                alu_src,
+    output logic                mem_write,
+    output logic [ ResSrcW-1:0] result_src,
+    output logic                branch,
+    output logic                jump,
+    output logic [  AluOpW-1:0] alu_op,
+    output logic                csr_access,
+    output logic                is_ecall,
+    output logic                is_ebreak,
+    output logic                is_mret
 );
-
-  // imm_src
-  localparam logic [2:0] ImmI = 3'd0;
-  localparam logic [2:0] ImmS = 3'd1;
-  localparam logic [2:0] ImmB = 3'd2;
-  localparam logic [2:0] ImmU = 3'd3;
-  localparam logic [2:0] ImmJ = 3'd4;
-
-  localparam logic [1:0] SrcARs1 = 2'd0;
-  localparam logic [1:0] SrcAPc = 2'd1;
-  localparam logic [1:0] SrcAZero = 2'd2;
-
-  // result_src
-  localparam logic [1:0] ResAlu = 2'd0;
-  localparam logic [1:0] ResMem = 2'd1;
-  localparam logic [1:0] ResPc4 = 2'd2;
-
-  // alu_op
-  localparam logic [1:0] AluOpAdd = 2'b00;  // Pc math
-  localparam logic [1:0] AluOpBranch = 2'b01;  // Branch compare
-  localparam logic [1:0] AluOpFunct = 2'b10;  // Funct3/funct7 decode
 
   always_comb begin
     reg_write     = 1'b0;
@@ -142,15 +121,15 @@ module sc_control_decoder
 
       default: begin
         reg_write     = 1'b0;
-        imm_src       = 3'bxxx;
-        alu_a_src     = 2'bxx;
+        imm_src       = 'x;
+        alu_a_src     = 'x;
         pc_target_src = 1'bx;
         alu_src       = 1'bx;
         mem_write     = 1'b0;
-        result_src    = 2'bxx;
+        result_src    = 'x;
         branch        = 1'b0;
         jump          = 1'b0;
-        alu_op        = 2'bxx;
+        alu_op        = 'x;
       end
     endcase
   end

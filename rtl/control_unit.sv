@@ -4,30 +4,32 @@ module control_unit
   import alu_pkg::*;
   import csr_pkg::*;
   import muldiv_pkg::*;
+  import opcode_pkg::*;
 (
-    input  wire                    [ 6:0] op,
-    input  wire                    [ 2:0] funct3,
-    input  wire                    [11:0] funct12,
-    input  wire                           funct7b5,
-    output logic                          reg_write,
-    output logic                   [ 2:0] imm_src,
-    output logic                   [ 1:0] alu_a_src,
-    output logic                          pc_target_src,
-    output logic                          alu_src,
-    output logic                          mem_write,
-    output logic                   [ 1:0] result_src,
-    output alu_pkg::alu_op_e              alu_ctrl,
-    output logic                          branch,
-    output logic                          jump,
-    output logic                          csr_access,
-    output logic                          is_ecall,
-    output logic                          is_ebreak,
-    output logic                          is_mret,
-    output logic                          is_muldiv,
-    output muldiv_pkg::muldiv_op_e        muldiv_op
+    input  wire                    [ OpcodeW-1:0] op,
+    input  wire                    [ Funct3W-1:0] funct3,
+    input  wire                    [CsrAddrW-1:0] funct12,
+    input  wire                                   funct7b5,
+    output logic                                  reg_write,
+    output logic                   [ ImmSrcW-1:0] imm_src,
+    output logic                   [   SrcAW-1:0] alu_a_src,
+    output logic                                  pc_target_src,
+    output logic                                  alu_src,
+    output logic                                  mem_write,
+    output logic                   [ ResSrcW-1:0] result_src,
+    output alu_pkg::alu_op_e                      alu_ctrl,
+    output logic                                  branch,
+    output logic                                  jump,
+    output logic                                  csr_access,
+    output logic                                  is_ecall,
+    output logic                                  is_ebreak,
+    output logic                                  is_mret,
+    output logic                                  illegal,
+    output logic                                  is_muldiv,
+    output muldiv_pkg::muldiv_op_e                muldiv_op
 );
 
-  logic [1:0] alu_op;
+  logic [AluOpW-1:0] alu_op;
 
   control_decoder u_decoder (
       .op           (op),
@@ -47,6 +49,7 @@ module control_unit
       .is_ecall     (is_ecall),
       .is_ebreak    (is_ebreak),
       .is_mret      (is_mret),
+      .illegal      (illegal),
       .is_muldiv    (is_muldiv),
       .muldiv_op    (muldiv_op)
   );

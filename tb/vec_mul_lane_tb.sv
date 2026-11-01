@@ -4,32 +4,34 @@ module vec_mul_lane_tb
   import vec_pkg::*;
 ();
 
-  localparam int ELEN = 32;
-  localparam int MinChecks = 26500;
-  localparam int MinHold = 5000;
+  localparam int ELEN = arch_pkg::ELEN;
+  localparam int Latency = 1;
+  localparam int ProdW = 2 * ELEN;
+  localparam int MinChecks = 92000;
+  localparam int MinHold = 19000;
   localparam int MixN = 20000;
+  localparam int SweepN = 250;
 
   localparam logic [2:0] SEW8 = 3'b000;
   localparam logic [2:0] SEW16 = 3'b001;
   localparam logic [2:0] SEW32 = 3'b010;
-
-  logic clk = 1'b0;
-  always #5 clk = ~clk;
-
-  logic core_en = 1'b1;
-  vec_op_e op = VEC_MUL;
-  logic [2:0] vsew = '0;
-  logic [ELEN-1:0] a = '0;
-  logic [ELEN-1:0] b = '0;
-  logic [ELEN-1:0] c = '0;
-
-  logic [ELEN-1:0] result;
-  logic [2*ELEN-1:0] product;
+  localparam logic [2:0] SewTop = 3'($clog2(ELEN / 8));
 
   int checks = 0;
   int hold_checks = 0;
-  int error_count = 0;
+  int errors = 0;
   int max_errors = 0;
+  logic stalling = 1'b0;
+
+  logic clk = 1'b0;
+  logic core_en;
+  vec_op_e op;
+  logic [2:0] vsew;
+  logic [ELEN-1:0] a;
+  logic [ELEN-1:0] b;
+  logic [ELEN-1:0] c;
+  logic [ELEN-1:0] result;
+  logic [2*ELEN-1:0] product;
 
   vec_op_e ops[15] = '{
       VEC_MUL,
@@ -49,27 +51,12 @@ module vec_mul_lane_tb
       VEC_WMACCUS
   };
 
-  logic stalling = 1'b0;
-  logic in_valid = 1'b0;
-  logic [ELEN-1:0] in_result = '0;
-  logic [2*ELEN-1:0] in_product = '0;
-  logic out_valid = 1'b0;
-  logic out_held = 1'b0;
-  logic [ELEN-1:0] out_result = '0;
-  logic [2*ELEN-1:0] out_product = '0;
-  vec_op_e out_op = VEC_MUL;
-  logic [2:0] out_vsew = '0;
-  logic [ELEN-1:0] out_a = '0;
-  logic [ELEN-1:0] out_b = '0;
-  logic [ELEN-1:0] out_c = '0;
+  logic pend_valid[$];
+  string pend_name[$];
+  logic [ELEN-1:0] pend_result[$];
+  logic [2*ELEN-1:0] pend_product[$];
 
-  int op_idx;
-  int sew_idx;
-  int rand_idx;
-
-  vec_op_e rand_op;
-  logic [2:0] rand_vsew;
-
+  always #5 clk = ~clk;
 
   vec_mul_lane #(
       .ELEN(ELEN)
@@ -85,435 +72,305 @@ module vec_mul_lane_tb
       .product(product)
   );
 
-
-  function automatic logic [2*ELEN-1:0] product_ref(input vec_op_e op_in, input logic [2:0] vsew_in,
-                                                    input logic [ELEN-1:0] a_in,
-                                                    input logic [ELEN-1:0] b_in);
-
-    logic signed [ELEN:0] ref_a;
-    logic signed [ELEN:0] ref_b;
-    logic signed [2*ELEN+1:0] ref_full;
-
-    begin
-      ref_a = '0;
-      ref_b = '0;
-      ref_full = '0;
-      product_ref = '0;
-
-      case (vsew_in)
-
-        SEW8: begin
-          case (op_in)
-            VEC_MUL, VEC_MULH, VEC_WMUL, VEC_WMACC: begin
-              ref_a = {{(ELEN + 1 - 8) {a_in[7]}}, a_in[7:0]};
-              ref_b = {{(ELEN + 1 - 8) {b_in[7]}}, b_in[7:0]};
-            end
-
-            VEC_MULHU, VEC_MACC, VEC_NMSAC, VEC_MADD, VEC_NMSUB, VEC_WMULU, VEC_WMACCU: begin
-              ref_a = {{(ELEN + 1 - 8) {1'b0}}, a_in[7:0]};
-              ref_b = {{(ELEN + 1 - 8) {1'b0}}, b_in[7:0]};
-            end
-
-            VEC_MULHSU, VEC_WMULSU, VEC_WMACCUS: begin
-              ref_a = {{(ELEN + 1 - 8) {a_in[7]}}, a_in[7:0]};
-              ref_b = {{(ELEN + 1 - 8) {1'b0}}, b_in[7:0]};
-            end
-
-            VEC_WMACCSU: begin
-              ref_a = {{(ELEN + 1 - 8) {1'b0}}, a_in[7:0]};
-              ref_b = {{(ELEN + 1 - 8) {b_in[7]}}, b_in[7:0]};
-            end
-
-            default: begin
-            end
-          endcase
-
-          ref_full = ref_a * ref_b;
-          product_ref[15:0] = ref_full[15:0];
-        end
-
-
-        SEW16: begin
-          case (op_in)
-            VEC_MUL, VEC_MULH, VEC_WMUL, VEC_WMACC: begin
-              ref_a = {{(ELEN + 1 - 16) {a_in[15]}}, a_in[15:0]};
-              ref_b = {{(ELEN + 1 - 16) {b_in[15]}}, b_in[15:0]};
-            end
-
-            VEC_MULHU, VEC_MACC, VEC_NMSAC, VEC_MADD, VEC_NMSUB, VEC_WMULU, VEC_WMACCU: begin
-              ref_a = {{(ELEN + 1 - 16) {1'b0}}, a_in[15:0]};
-              ref_b = {{(ELEN + 1 - 16) {1'b0}}, b_in[15:0]};
-            end
-
-            VEC_MULHSU, VEC_WMULSU, VEC_WMACCUS: begin
-              ref_a = {{(ELEN + 1 - 16) {a_in[15]}}, a_in[15:0]};
-              ref_b = {{(ELEN + 1 - 16) {1'b0}}, b_in[15:0]};
-            end
-
-            VEC_WMACCSU: begin
-              ref_a = {{(ELEN + 1 - 16) {1'b0}}, a_in[15:0]};
-              ref_b = {{(ELEN + 1 - 16) {b_in[15]}}, b_in[15:0]};
-            end
-
-            default: begin
-            end
-          endcase
-
-          ref_full = ref_a * ref_b;
-          product_ref[31:0] = ref_full[31:0];
-        end
-
-
-        SEW32: begin
-          case (op_in)
-            VEC_MUL, VEC_MULH: begin
-              ref_a = {a_in[31], a_in[31:0]};
-              ref_b = {b_in[31], b_in[31:0]};
-            end
-
-            VEC_MULHU, VEC_MACC, VEC_NMSAC, VEC_MADD, VEC_NMSUB: begin
-              ref_a = {1'b0, a_in[31:0]};
-              ref_b = {1'b0, b_in[31:0]};
-            end
-
-            VEC_MULHSU: begin
-              ref_a = {a_in[31], a_in[31:0]};
-              ref_b = {1'b0, b_in[31:0]};
-            end
-
-            default: begin
-            end
-          endcase
-
-          ref_full = ref_a * ref_b;
-          product_ref[63:0] = ref_full[63:0];
-        end
-
-
-        default: begin
-          product_ref = '0;
-        end
-
-      endcase
+  task automatic check(input string name, input logic [2*ELEN-1:0] got,
+                       input logic [2*ELEN-1:0] exp);
+    checks++;
+    if (got !== exp) begin
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
-  endfunction
+  endtask  // Automatic
 
+  task automatic do_reset();
+    core_en = 1'b1;
+    op      = VEC_MUL;
+    vsew    = SEW8;
+    a       = '0;
+    b       = '0;
+    c       = '0;
+  endtask  // Automatic
 
-  function automatic logic [ELEN-1:0] result_ref(input vec_op_e op_in, input logic [2:0] vsew_in,
-                                                 input logic [2*ELEN-1:0] product_in,
-                                                 input logic [ELEN-1:0] c_in);
-
-    begin
-      result_ref = '0;
-
-      case (vsew_in)
-
-        SEW8: begin
-          case (op_in)
-            VEC_MUL: result_ref[7:0] = product_in[7:0];
-            VEC_MACC, VEC_MADD: result_ref[7:0] = product_in[7:0] + c_in[7:0];
-            VEC_NMSAC, VEC_NMSUB: result_ref[7:0] = c_in[7:0] - product_in[7:0];
-            VEC_WMUL, VEC_WMULU, VEC_WMULSU: result_ref[15:0] = product_in[15:0];
-            VEC_WMACC, VEC_WMACCU, VEC_WMACCSU, VEC_WMACCUS:
-            result_ref[15:0] = product_in[15:0] + c_in[15:0];
-            default: result_ref[7:0] = product_in[15:8];
-          endcase
-        end
-
-        SEW16: begin
-          case (op_in)
-            VEC_MUL: result_ref[15:0] = product_in[15:0];
-            VEC_MACC, VEC_MADD: result_ref[15:0] = product_in[15:0] + c_in[15:0];
-            VEC_NMSAC, VEC_NMSUB: result_ref[15:0] = c_in[15:0] - product_in[15:0];
-            VEC_WMUL, VEC_WMULU, VEC_WMULSU: result_ref[31:0] = product_in[31:0];
-            VEC_WMACC, VEC_WMACCU, VEC_WMACCSU, VEC_WMACCUS:
-            result_ref[31:0] = product_in[31:0] + c_in[31:0];
-            default: result_ref[15:0] = product_in[31:16];
-          endcase
-        end
-
-        SEW32: begin
-          case (op_in)
-            VEC_MUL: result_ref[31:0] = product_in[31:0];
-            VEC_MACC, VEC_MADD: result_ref[31:0] = product_in[31:0] + c_in[31:0];
-            VEC_NMSAC, VEC_NMSUB: result_ref[31:0] = c_in[31:0] - product_in[31:0];
-            VEC_WMUL, VEC_WMULU, VEC_WMULSU, VEC_WMACC, VEC_WMACCU, VEC_WMACCSU, VEC_WMACCUS:
-            result_ref = '0;
-            default: result_ref[31:0] = product_in[63:32];
-          endcase
-        end
-
-        default: begin
-          result_ref = '0;
-        end
-
-      endcase
-    end
-  endfunction
-
+  task automatic retire();
+    logic valid;
+    string name;
+    logic [ELEN-1:0] exp_result;
+    logic [2*ELEN-1:0] exp_product;
+    if (pend_valid.size() < Latency) return;
+    valid = pend_valid.pop_front();
+    name = pend_name.pop_front();
+    exp_result = pend_result.pop_front();
+    exp_product = pend_product.pop_front();
+    if (!valid) return;
+    check({name, " result"}, ProdW'(result), ProdW'(exp_result));
+    check({name, " product"}, product, exp_product);
+  endtask  // Automatic
 
   // Clock enable drops
   task automatic stall();
+    logic [  ELEN-1:0] held_result;
+    logic [2*ELEN-1:0] held_product;
     while (stalling && 1'($urandom)) begin
-      @(posedge clk);
-      core_en <= 1'b0;
-      in_valid <= 1'b0;
-      op <= ops[$urandom_range(14)];
-      vsew <= 3'($urandom);
-      a <= $urandom;
-      b <= $urandom;
-      c <= $urandom;
+      held_result = result;
+      held_product = product;
+      core_en = 1'b0;
+      op = ops[$urandom_range($size(ops)-1)];
+      vsew = 3'($urandom);
+      a = rand_elem();
+      b = rand_elem();
+      c = rand_elem();
+      @(negedge clk);
+      hold_checks++;
+      check("held result", ProdW'(result), ProdW'(held_result));
+      check("held product", product, held_product);
     end
-  endtask
+    core_en = 1'b1;
+  endtask  // Automatic
 
-  task automatic check_case_c(input vec_op_e op_in, input logic [2:0] vsew_in,
-                              input logic [ELEN-1:0] a_in, input logic [ELEN-1:0] b_in,
-                              input logic [ELEN-1:0] c_in);
-
-    logic [  ELEN-1:0] exp_result;
+  task automatic issue(input logic valid, input vec_op_e op_in, input logic [2:0] vsew_in,
+                       input logic [ELEN-1:0] a_in, input logic [ELEN-1:0] b_in,
+                       input logic [ELEN-1:0] c_in);
     logic [2*ELEN-1:0] exp_product;
+    @(negedge clk);
+    retire();
+    stall();
+    exp_product = product_ref(op_in, vsew_in, a_in, b_in);
+    op = op_in;
+    vsew = vsew_in;
+    a = a_in;
+    b = b_in;
+    c = c_in;
+    pend_valid.push_back(valid);
+    pend_name.push_back($sformatf(
+                        "op=%s vsew=%b a=%h b=%h c=%h", op_in.name(), vsew_in, a_in, b_in, c_in));
+    pend_result.push_back(result_ref(op_in, vsew_in, exp_product, c_in));
+    pend_product.push_back(exp_product);
+  endtask  // Automatic
 
-    begin
-      stall();
+  task automatic mac(input vec_op_e op_in, input logic [2:0] vsew_in, input logic [ELEN-1:0] a_in,
+                     input logic [ELEN-1:0] b_in, input logic [ELEN-1:0] c_in);
+    issue(1'b1, op_in, vsew_in, a_in, b_in, c_in);
+  endtask  // Automatic
 
-      exp_product = product_ref(op_in, vsew_in, a_in, b_in);
-      exp_result  = result_ref(op_in, vsew_in, exp_product, c_in);
+  task automatic mul(input vec_op_e op_in, input logic [2:0] vsew_in, input logic [ELEN-1:0] a_in,
+                     input logic [ELEN-1:0] b_in);
+    mac(op_in, vsew_in, a_in, b_in, rand_elem());
+  endtask  // Automatic
 
-      @(posedge clk);
-      core_en <= 1'b1;
-      op <= op_in;
-      vsew <= vsew_in;
-      a <= a_in;
-      b <= b_in;
-      c <= c_in;
-      in_valid <= 1'b1;
-      in_result <= exp_result;
-      in_product <= exp_product;
-    end
-  endtask
+  task automatic drain();
+    repeat (Latency) issue(1'b0, VEC_MUL, SEW8, '0, '0, '0);
+  endtask  // Automatic
 
-  task automatic check_case(input vec_op_e op_in, input logic [2:0] vsew_in,
-                            input logic [ELEN-1:0] a_in, input logic [ELEN-1:0] b_in);
-    check_case_c(op_in, vsew_in, a_in, b_in, $urandom);
-  endtask
+  // Directed cases
+  task automatic test_directed();
+    mul(VEC_MUL, SEW8, ELEN'('h0000_00FE), ELEN'('h0000_0003));
+    mul(VEC_MULH, SEW8, ELEN'('h0000_00FF), ELEN'('h0000_00FF));
+    mul(VEC_MULHU, SEW8, ELEN'('h0000_00FF), ELEN'('h0000_0002));
+    mul(VEC_MULHSU, SEW8, ELEN'('h0000_00FE), ELEN'('h0000_0002));
 
-  always @(posedge clk) begin
-    out_held <= !core_en;
-    if (core_en) begin
-      out_valid <= in_valid;
-      out_result <= in_result;
-      out_product <= in_product;
-      out_op <= op;
-      out_vsew <= vsew;
-      out_a <= a;
-      out_b <= b;
-      out_c <= c;
-    end
-  end
+    mul(VEC_MUL, SEW16, ELEN'('h0000_FFFE), ELEN'('h0000_0003));
+    mul(VEC_MULH, SEW16, ELEN'('h0000_FFFF), ELEN'('h0000_FFFF));
+    mul(VEC_MULHU, SEW16, ELEN'('h0000_FFFF), ELEN'('h0000_0002));
+    mul(VEC_MULHSU, SEW16, ELEN'('h0000_FFFE), ELEN'('h0000_0002));
 
-  always @(negedge clk) begin
-    if (out_valid) begin
-      if (out_held) hold_checks++;
-      else checks++;
+    mul(VEC_MUL, SEW32, ELEN'('hFFFF_FFFE), ELEN'('h0000_0003));
+    mul(VEC_MULH, SEW32, ELEN'('hFFFF_FFFF), ELEN'('hFFFF_FFFF));
+    mul(VEC_MULHU, SEW32, ELEN'('hFFFF_FFFF), ELEN'('h0000_0002));
+    mul(VEC_MULHSU, SEW32, ELEN'('hFFFF_FFFE), ELEN'('h0000_0002));
+  endtask  // Automatic
 
-      if ((result !== out_result) || (product !== out_product)) begin
-        error_count++;
+  // Sign corners
+  task automatic test_sign_corners();
+    mul(VEC_MULH, SEW8, ELEN'('h0000_0080), ELEN'('h0000_0080));
+    mul(VEC_MULHSU, SEW8, ELEN'('h0000_0080), ELEN'('h0000_00FF));
+    mul(VEC_MULHU, SEW8, ELEN'('h0000_00FF), ELEN'('h0000_00FF));
 
-        $display("FAIL op=%s held=%0b vsew=%b a=%h b=%h c=%h exp %h/%h got %h/%h", out_op.name(),
-                 out_held, out_vsew, out_a, out_b, out_c, out_result, out_product, result, product);
-        if (error_count == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", error_count);
-      end
-    end
-  end
+    mul(VEC_MULH, SEW16, ELEN'('h0000_8000), ELEN'('h0000_8000));
+    mul(VEC_MULHSU, SEW16, ELEN'('h0000_8000), ELEN'('h0000_FFFF));
+    mul(VEC_MULHU, SEW16, ELEN'('h0000_FFFF), ELEN'('h0000_FFFF));
 
+    mul(VEC_MULH, SEW32, ELEN'('h8000_0000), ELEN'('h8000_0000));
+    mul(VEC_MULHSU, SEW32, ELEN'('h8000_0000), ELEN'('hFFFF_FFFF));
+    mul(VEC_MULHU, SEW32, ELEN'('hFFFF_FFFF), ELEN'('hFFFF_FFFF));
+  endtask  // Automatic
+
+  // Widening sign corners
+  task automatic test_widen_corners();
+    mul(VEC_WMUL, SEW8, ELEN'('h0000_0080), ELEN'('h0000_0080));
+    mul(VEC_WMULU, SEW8, ELEN'('h0000_00FF), ELEN'('h0000_00FF));
+    mul(VEC_WMULSU, SEW8, ELEN'('h0000_0080), ELEN'('h0000_00FF));
+
+    mul(VEC_WMUL, SEW16, ELEN'('h0000_8000), ELEN'('h0000_8000));
+    mul(VEC_WMULU, SEW16, ELEN'('h0000_FFFF), ELEN'('h0000_FFFF));
+    mul(VEC_WMULSU, SEW16, ELEN'('h0000_8000), ELEN'('h0000_FFFF));
+  endtask  // Automatic
+
+  // Widening directed cases
+  task automatic test_widen_directed();
+    mul(VEC_WMUL, SEW8, ELEN'('h0000_00FE), ELEN'('h0000_0003));
+    mul(VEC_WMULU, SEW8, ELEN'('h0000_00FF), ELEN'('h0000_0002));
+    mul(VEC_WMULSU, SEW8, ELEN'('h0000_00FE), ELEN'('h0000_00FF));
+
+    mul(VEC_WMUL, SEW16, ELEN'('h0000_FFFE), ELEN'('h0000_0003));
+    mul(VEC_WMULU, SEW16, ELEN'('h0000_FFFF), ELEN'('h0000_0002));
+    mul(VEC_WMULSU, SEW16, ELEN'('h0000_FFFE), ELEN'('h0000_FFFF));
+  endtask  // Automatic
+
+  // Accumulate sign corners
+  task automatic test_acc_corners();
+    mac(VEC_WMACC, SEW8, ELEN'('h0000_0080), ELEN'('h0000_0080), ELEN'('h0000_0001));
+    mac(VEC_WMACCU, SEW8, ELEN'('h0000_00FF), ELEN'('h0000_00FF), ELEN'('h0000_0001));
+    mac(VEC_WMACCSU, SEW8, ELEN'('h0000_00FF), ELEN'('h0000_0080), ELEN'('h0000_0001));
+    mac(VEC_WMACCUS, SEW8, ELEN'('h0000_0080), ELEN'('h0000_00FF), ELEN'('h0000_0001));
+
+    mac(VEC_WMACC, SEW16, ELEN'('h0000_8000), ELEN'('h0000_8000), ELEN'('h0000_0001));
+    mac(VEC_WMACCU, SEW16, ELEN'('h0000_FFFF), ELEN'('h0000_FFFF), ELEN'('h0000_0001));
+    mac(VEC_WMACCSU, SEW16, ELEN'('h0000_FFFF), ELEN'('h0000_8000), ELEN'('h0000_0001));
+    mac(VEC_WMACCUS, SEW16, ELEN'('h0000_8000), ELEN'('h0000_FFFF), ELEN'('h0000_0001));
+  endtask  // Automatic
+
+  // Accumulate directed cases
+  task automatic test_acc_directed();
+    mac(VEC_WMACC, SEW8, ELEN'('h0000_00FE), ELEN'('h0000_0003), ELEN'('h0000_0005));
+    mac(VEC_WMACCU, SEW8, ELEN'('h0000_00FF), ELEN'('h0000_0002), ELEN'('h0000_0001));
+    mac(VEC_WMACCSU, SEW8, ELEN'('h0000_00FF), ELEN'('h0000_00FE), ELEN'('h0000_0003));
+    mac(VEC_WMACCUS, SEW8, ELEN'('h0000_00FE), ELEN'('h0000_00FF), ELEN'('h0000_0004));
+
+    mac(VEC_WMACC, SEW16, ELEN'('h0000_FFFE), ELEN'('h0000_0003), ELEN'('h0000_0005));
+    mac(VEC_WMACCU, SEW16, ELEN'('h0000_FFFF), ELEN'('h0000_0002), ELEN'('h0000_0001));
+    mac(VEC_WMACCSU, SEW16, ELEN'('h0000_FFFF), ELEN'('h0000_FFFE), ELEN'('h0000_0003));
+    mac(VEC_WMACCUS, SEW16, ELEN'('h0000_FFFE), ELEN'('h0000_FFFF), ELEN'('h0000_0004));
+  endtask  // Automatic
+
+  // Accumulate carries out
+  task automatic test_acc_carry();
+    mac(VEC_WMACCU, SEW8, ELEN'('h0000_00FF), ELEN'('h0000_00FF), ELEN'('h0000_0200));
+    mac(VEC_WMACCU, SEW16, ELEN'('h0000_FFFF), ELEN'('h0000_FFFF), ELEN'('h0002_0000));
+  endtask  // Automatic
+
+  // Widening past ELEN
+  task automatic test_widen_past_elen();
+    mul(VEC_WMUL, SewTop, ELEN'('h1234_5678), ELEN'('h0000_0002));
+    mac(VEC_WMACC, SewTop, ELEN'('h1234_5678), ELEN'('h0000_0002), ELEN'('hFFFF_FFFF));
+  endtask  // Automatic
+
+  // Randomized sweep
+  task automatic test_sweep(input int n);
+    for (int s = int'(SEW8); s <= int'(SewTop); s++)
+      for (int k = 0; k < 4; k++) repeat (n) mul(ops[k], 3'(s), rand_elem(), rand_elem());
+  endtask  // Automatic
+
+  // Widening sweep
+  task automatic test_widen_sweep(input int n);
+    for (int s = int'(SEW8); s < int'(SewTop); s++)
+      for (int k = 0; k < $size(ops); k++)
+        if (widen_op(ops[k])) repeat (n) mul(ops[k], 3'(s), rand_elem(), rand_elem());
+  endtask  // Automatic
+
+  // Neighbours differ
+  task automatic test_mixed(input int n);
+    stalling = 1'b1;
+    repeat (n)
+      mul(ops[$urandom_range($size(ops)-1)], 3'($urandom_range(SewTop)), rand_elem(), rand_elem());
+    stalling = 1'b0;
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (checks < MinChecks || hold_checks < MinHold)
+      $fatal(
+          1,
+          "TB UNDER-RAN: %0d checks, %0d hold checks, expected at least %0d and %0d",
+          checks,
+          hold_checks,
+          MinChecks,
+          MinHold
+      );
+    if (errors == 0)
+      $display("PASS: %0d checks, %0d hold checks, %0d mismatches", checks, hold_checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
+    $finish;
+  endtask  // Automatic
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
-
-    // Directed cases
-
-    check_case(VEC_MUL, SEW8, 32'h0000_00FE, 32'h0000_0003);
-
-    check_case(VEC_MULH, SEW8, 32'h0000_00FF, 32'h0000_00FF);
-
-    check_case(VEC_MULHU, SEW8, 32'h0000_00FF, 32'h0000_0002);
-
-    check_case(VEC_MULHSU, SEW8, 32'h0000_00FE, 32'h0000_0002);
-
-
-    check_case(VEC_MUL, SEW16, 32'h0000_FFFE, 32'h0000_0003);
-
-    check_case(VEC_MULH, SEW16, 32'h0000_FFFF, 32'h0000_FFFF);
-
-    check_case(VEC_MULHU, SEW16, 32'h0000_FFFF, 32'h0000_0002);
-
-    check_case(VEC_MULHSU, SEW16, 32'h0000_FFFE, 32'h0000_0002);
-
-
-    check_case(VEC_MUL, SEW32, 32'hFFFF_FFFE, 32'h0000_0003);
-
-    check_case(VEC_MULH, SEW32, 32'hFFFF_FFFF, 32'hFFFF_FFFF);
-
-    check_case(VEC_MULHU, SEW32, 32'hFFFF_FFFF, 32'h0000_0002);
-
-    check_case(VEC_MULHSU, SEW32, 32'hFFFF_FFFE, 32'h0000_0002);
-
-
-    // Sign corners
-
-    check_case(VEC_MULH, SEW8, 32'h0000_0080, 32'h0000_0080);
-
-    check_case(VEC_MULHSU, SEW8, 32'h0000_0080, 32'h0000_00FF);
-
-    check_case(VEC_MULHU, SEW8, 32'h0000_00FF, 32'h0000_00FF);
-
-
-    check_case(VEC_MULH, SEW16, 32'h0000_8000, 32'h0000_8000);
-
-    check_case(VEC_MULHSU, SEW16, 32'h0000_8000, 32'h0000_FFFF);
-
-    check_case(VEC_MULHU, SEW16, 32'h0000_FFFF, 32'h0000_FFFF);
-
-
-    check_case(VEC_MULH, SEW32, 32'h8000_0000, 32'h8000_0000);
-
-    check_case(VEC_MULHSU, SEW32, 32'h8000_0000, 32'hFFFF_FFFF);
-
-    check_case(VEC_MULHU, SEW32, 32'hFFFF_FFFF, 32'hFFFF_FFFF);
-
-
-    // Widening sign corners
-
-    check_case(VEC_WMUL, SEW8, 32'h0000_0080, 32'h0000_0080);
-    check_case(VEC_WMULU, SEW8, 32'h0000_00FF, 32'h0000_00FF);
-    check_case(VEC_WMULSU, SEW8, 32'h0000_0080, 32'h0000_00FF);
-
-    check_case(VEC_WMUL, SEW16, 32'h0000_8000, 32'h0000_8000);
-    check_case(VEC_WMULU, SEW16, 32'h0000_FFFF, 32'h0000_FFFF);
-    check_case(VEC_WMULSU, SEW16, 32'h0000_8000, 32'h0000_FFFF);
-
-
-    // Widening directed cases
-
-    check_case(VEC_WMUL, SEW8, 32'h0000_00FE, 32'h0000_0003);
-    check_case(VEC_WMULU, SEW8, 32'h0000_00FF, 32'h0000_0002);
-    check_case(VEC_WMULSU, SEW8, 32'h0000_00FE, 32'h0000_00FF);
-
-    check_case(VEC_WMUL, SEW16, 32'h0000_FFFE, 32'h0000_0003);
-    check_case(VEC_WMULU, SEW16, 32'h0000_FFFF, 32'h0000_0002);
-    check_case(VEC_WMULSU, SEW16, 32'h0000_FFFE, 32'h0000_FFFF);
-
-
-    // Accumulate sign corners
-
-    check_case_c(VEC_WMACC, SEW8, 32'h0000_0080, 32'h0000_0080, 32'h0000_0001);
-    check_case_c(VEC_WMACCU, SEW8, 32'h0000_00FF, 32'h0000_00FF, 32'h0000_0001);
-    check_case_c(VEC_WMACCSU, SEW8, 32'h0000_00FF, 32'h0000_0080, 32'h0000_0001);
-    check_case_c(VEC_WMACCUS, SEW8, 32'h0000_0080, 32'h0000_00FF, 32'h0000_0001);
-
-    check_case_c(VEC_WMACC, SEW16, 32'h0000_8000, 32'h0000_8000, 32'h0000_0001);
-    check_case_c(VEC_WMACCU, SEW16, 32'h0000_FFFF, 32'h0000_FFFF, 32'h0000_0001);
-    check_case_c(VEC_WMACCSU, SEW16, 32'h0000_FFFF, 32'h0000_8000, 32'h0000_0001);
-    check_case_c(VEC_WMACCUS, SEW16, 32'h0000_8000, 32'h0000_FFFF, 32'h0000_0001);
-
-
-    // Accumulate directed cases
-
-    check_case_c(VEC_WMACC, SEW8, 32'h0000_00FE, 32'h0000_0003, 32'h0000_0005);
-    check_case_c(VEC_WMACCU, SEW8, 32'h0000_00FF, 32'h0000_0002, 32'h0000_0001);
-    check_case_c(VEC_WMACCSU, SEW8, 32'h0000_00FF, 32'h0000_00FE, 32'h0000_0003);
-    check_case_c(VEC_WMACCUS, SEW8, 32'h0000_00FE, 32'h0000_00FF, 32'h0000_0004);
-
-    check_case_c(VEC_WMACC, SEW16, 32'h0000_FFFE, 32'h0000_0003, 32'h0000_0005);
-    check_case_c(VEC_WMACCU, SEW16, 32'h0000_FFFF, 32'h0000_0002, 32'h0000_0001);
-    check_case_c(VEC_WMACCSU, SEW16, 32'h0000_FFFF, 32'h0000_FFFE, 32'h0000_0003);
-    check_case_c(VEC_WMACCUS, SEW16, 32'h0000_FFFE, 32'h0000_FFFF, 32'h0000_0004);
-
-
-    // Accumulate carries out
-    check_case_c(VEC_WMACCU, SEW8, 32'h0000_00FF, 32'h0000_00FF, 32'h0000_0200);
-    check_case_c(VEC_WMACCU, SEW16, 32'h0000_FFFF, 32'h0000_FFFF, 32'h0002_0000);
-
-
-    // Widening past ELEN
-    check_case(VEC_WMUL, SEW32, 32'h1234_5678, 32'h0000_0002);
-    check_case_c(VEC_WMACC, SEW32, 32'h1234_5678, 32'h0000_0002, 32'hFFFF_FFFF);
-
-
-    // Randomized sweep:
-    // 3 SEWs * 4 operations * 250 random inputs = 3000 tests
-
-    for (sew_idx = 0; sew_idx < 3; sew_idx++) begin
-
-      case (sew_idx)
-        0: rand_vsew = SEW8;
-        1: rand_vsew = SEW16;
-        2: rand_vsew = SEW32;
-        default: rand_vsew = SEW8;
-      endcase
-
-      for (op_idx = 0; op_idx < 4; op_idx++) begin
-
-        case (op_idx)
-          0: rand_op = VEC_MUL;
-          1: rand_op = VEC_MULH;
-          2: rand_op = VEC_MULHU;
-          3: rand_op = VEC_MULHSU;
-          default: rand_op = VEC_MUL;
-        endcase
-
-        for (rand_idx = 0; rand_idx < 250; rand_idx++) begin
-          check_case(rand_op, rand_vsew, $urandom, $urandom);
-        end
-
-      end
-    end
-
-
-    // Widening sweep
-
-    for (sew_idx = 0; sew_idx < 2; sew_idx++) begin
-
-      rand_vsew = (sew_idx == 0) ? SEW8 : SEW16;
-
-      for (op_idx = 0; op_idx < 7; op_idx++) begin
-
-        rand_op = ops[8+op_idx];
-
-        for (rand_idx = 0; rand_idx < 250; rand_idx++) begin
-          check_case(rand_op, rand_vsew, $urandom, $urandom);
-        end
-
-      end
-    end
-
-
-    // Neighbours differ
-    stalling = 1'b1;
-    for (rand_idx = 0; rand_idx < MixN; rand_idx++) begin
-      check_case(ops[$urandom_range(14)], 3'($urandom_range(2)), $urandom, $urandom);
-    end
-    stalling = 1'b0;
-
-    @(posedge clk);
-    core_en  <= 1'b1;
-    in_valid <= 1'b0;
-    @(posedge clk);
-    @(negedge clk);
-
-
-    if (checks < MinChecks || hold_checks < MinHold) begin
-      $fatal(1, "TB UNDER-RAN: %0d tests, %0d hold checks", checks, hold_checks);
-    end else if (error_count == 0) begin
-      $display("PASS: %0d tests, %0d hold checks, %0d mismatches", checks, hold_checks,
-               error_count);
-    end else begin
-      $fatal(1, "FAIL: %0d mismatches, %0d tests", error_count, checks);
-    end
-
-    $finish;
+    $dumpfile("vec_mul_lane_tb.vcd");
+    $dumpvars(0, vec_mul_lane_tb);
+    do_reset();
+
+    test_directed();
+    test_sign_corners();
+    test_widen_corners();
+    test_widen_directed();
+    test_acc_corners();
+    test_acc_directed();
+    test_acc_carry();
+    test_widen_past_elen();
+    test_sweep(SweepN);
+    test_widen_sweep(SweepN);
+    test_mixed(MixN);
+    drain();
+
+    do_verdict();
   end
+
+  function automatic logic [ELEN-1:0] rand_elem();
+    return ELEN'({32'($urandom), 32'($urandom)});
+  endfunction
+
+  function automatic logic widen_op(input vec_op_e o);
+    return (o == VEC_WMUL) || (o == VEC_WMULU) || (o == VEC_WMULSU) || (o == VEC_WMACC) ||
+        (o == VEC_WMACCU) || (o == VEC_WMACCSU) || (o == VEC_WMACCUS);
+  endfunction
+
+  function automatic logic signed [2*ELEN+1:0] extend(input logic [ELEN-1:0] x, input int w,
+                                                      input logic sgn);
+    logic signed [2*ELEN+1:0] out;
+    out = '0;
+    for (int i = 0; i < 2 * ELEN + 2; i++) out[i] = (i < w) ? x[i] : (sgn && x[w-1]);
+    return out;
+  endfunction
+
+  function automatic logic [2*ELEN-1:0] product_ref(input vec_op_e op_in, input logic [2:0] vsew_in,
+                                                    input logic [ELEN-1:0] a_in,
+                                                    input logic [ELEN-1:0] b_in);
+    int w;
+    logic sa;
+    logic sb;
+    logic signed [2*ELEN+1:0] full;
+    w = 8 << vsew_in;
+    if (vsew_in > SewTop || (widen_op(op_in) && 2 * w > ELEN)) return '0;
+    case (op_in)
+      VEC_MUL, VEC_MULH, VEC_WMUL, VEC_WMACC: {sa, sb} = 2'b11;
+      VEC_MULHSU, VEC_WMULSU, VEC_WMACCUS: {sa, sb} = 2'b10;
+      VEC_WMACCSU: {sa, sb} = 2'b01;
+      default: {sa, sb} = 2'b00;
+    endcase
+    full = extend(a_in, w, sa) * extend(b_in, w, sb);
+    return full[2*ELEN-1:0] & ({2 * ELEN{1'b1}} >> (2 * ELEN - 2 * w));
+  endfunction
+
+  function automatic logic [ELEN-1:0] result_ref(input vec_op_e op_in, input logic [2:0] vsew_in,
+                                                 input logic [2*ELEN-1:0] product_in,
+                                                 input logic [ELEN-1:0] c_in);
+    int w;
+    logic [ELEN-1:0] mask;
+    logic [ELEN-1:0] wide_mask;
+    logic [ELEN-1:0] low;
+    w = 8 << vsew_in;
+    if (vsew_in > SewTop || (widen_op(op_in) && 2 * w > ELEN)) return '0;
+    mask = {ELEN{1'b1}} >> (ELEN - w);
+    wide_mask = (2 * w >= ELEN) ? '1 : ({ELEN{1'b1}} >> (ELEN - 2 * w));
+    low = product_in[ELEN-1:0];
+    case (op_in)
+      VEC_MUL: return low & mask;
+      VEC_MACC, VEC_MADD: return (low + c_in) & mask;
+      VEC_NMSAC, VEC_NMSUB: return (c_in - low) & mask;
+      VEC_WMUL, VEC_WMULU, VEC_WMULSU: return low & wide_mask;
+      VEC_WMACC, VEC_WMACCU, VEC_WMACCSU, VEC_WMACCUS: return (low + c_in) & wide_mask;
+      default: return ELEN'(product_in >> w) & mask;
+    endcase
+  endfunction
 
 endmodule
 

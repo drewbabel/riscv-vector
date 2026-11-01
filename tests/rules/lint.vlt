@@ -1,0 +1,3 @@
+`verilator_config
+lint_off -rule UNUSEDPARAM -file "*_pkg.sv"
+lint_off -rule UNUSEDSIGNAL -file "*/pmu.sv" -match "*'addr'*"

@@ -3,8 +3,17 @@
 module predict_tb ();
 
   localparam int Xlen = arch_pkg::XLEN;
-  localparam int Depth = 64;
+  localparam int AWIDTH = arch_pkg::RegAddrW;
   localparam int MaxCycles = 400;
+  localparam int MinChecks = 5;
+  localparam logic [Xlen-1:0] Nop = Xlen'(opcode_pkg::OpcodeOpImm);
+
+  int              checks = 0;
+  int              errors = 0;
+  int              max_errors = 0;
+  int              branches = 0;
+  int              mispredicts = 0;
+  int              taken = 0;
 
   logic            clk = 1'b0;
   logic            rst_n;
@@ -12,113 +21,108 @@ module predict_tb ();
   logic [Xlen-1:0] alu_result;
   logic [Xlen-1:0] write_data;
   logic            mem_write;
-
-  int              branches = 0;
-  int              mispredicts = 0;
-  int              taken = 0;
   logic            last_taken = 1'b0;
-
-  int              checks = 0;
-  int              errors = 0;
-  int              max_errors = 0;
+  logic            core_branch;
+  logic            core_taken_ex;
+  logic            core_mispred;
 
   always #5 clk = ~clk;
 
   top #(
-      .XLEN (Xlen),
-      .DEPTH(Depth)
+      .XLEN(Xlen)
   ) dut (
-      .clk       (clk),
-      .rst_n     (rst_n),
-      .pc        (pc),
-      .alu_result(alu_result),
-      .write_data(write_data),
-      .mem_write (mem_write)
+      .clk             (clk),
+      .rst_n           (rst_n),
+      .pc              (pc),
+      .alu_result      (alu_result),
+      .write_data      (write_data),
+      .mem_write       (mem_write),
+      .sim_branch      (core_branch),
+      .sim_branch_taken(core_taken_ex),
+      .sim_mispredict  (core_mispred),
+      .sim_muldiv_hold ()
   );
-
-  // Resolve taps
-  logic core_valid_ex, core_branch_ex, core_taken_ex, core_mispred;
-  assign core_valid_ex  = dut.riscv_pipelined_inst.datapath_inst.valid_ex;
-  assign core_branch_ex = dut.riscv_pipelined_inst.datapath_inst.branch_ex;
-  assign core_taken_ex  = dut.riscv_pipelined_inst.datapath_inst.branch_taken_ex;
-  assign core_mispred   = dut.riscv_pipelined_inst.datapath_inst.mispredict;
 
   task automatic check(input string name, input logic [Xlen-1:0] got, input logic [Xlen-1:0] exp);
     checks++;
     if (got !== exp) begin
-      $error("%s = %0d, expected %0d", name, got, exp);
       errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
-  endtask
-
-  task automatic load_program();
-    for (int i = 0; i < Depth; i++) dut.imem_inst.mem[i] = 32'h00000013;  // NOP fill
-    $readmemh("tests/pl_predict.hex", dut.imem_inst.mem);
-  endtask
+  endtask  // Automatic
 
   task automatic do_reset();
     rst_n = 0;
     repeat (2) @(posedge clk);
+    @(negedge clk);
     rst_n = 1;
+  endtask  // Automatic
+
+  task automatic load_image(input string path);
+    for (int i = 0; i < $size(dut.imem_inst.mem); i++) dut.imem_inst.mem[i] = Nop;
+    $readmemh(path, dut.imem_inst.mem);
   endtask  // Automatic
 
   task automatic run_to_sentinel();
     int cycles = 0;
-    while (dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[28] !== 32'd1 &&
+    while (dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[28] !== Xlen'(1) &&
            cycles < MaxCycles) begin
       @(posedge clk);
       cycles++;
     end
-  endtask
+    @(negedge clk);
+  endtask  // Automatic
+
+  task automatic check_reg(input logic [AWIDTH-1:0] r, input logic [Xlen-1:0] exp);
+    check($sformatf("x%0d", r), dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[r],
+          exp);
+  endtask  // Automatic
 
   task automatic check_registers();
-    check("x1", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[1], 32'd190);
-    check("x28", dut.riscv_pipelined_inst.datapath_inst.regfile_inst.regfile_mem[28], 32'd1);
-  endtask
+    check_reg(AWIDTH'(1), Xlen'(190));
+    check_reg(AWIDTH'(28), Xlen'(1));
+  endtask  // Automatic
 
   task automatic check_branches();
-    check("branches", branches, 32'd20);
-    check("taken", taken, 32'd19);
-    check("last taken", 32'(last_taken), 32'd0);
-  endtask
+    check("branches", Xlen'(branches), Xlen'(20));
+    check("taken", Xlen'(taken), Xlen'(19));
+    check("last taken", Xlen'(last_taken), Xlen'(0));
+  endtask  // Automatic
 
   task automatic report_rate();
     $display("branches=%0d mispredicts=%0d rate=%0d%%", branches, mispredicts,
              (branches == 0) ? 0 : (100 * mispredicts) / branches);
-  endtask
+  endtask  // Automatic
 
-  task automatic verdict();
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
-  endtask
+  endtask  // Automatic
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
+
+  initial begin
+    load_image("tests/pl_predict.hex");
+    do_reset();
+    run_to_sentinel();
+
+    check_registers();
+    check_branches();
+    report_rate();
+    do_verdict();
+  end
 
   always @(posedge clk) begin
-    if (rst_n && core_valid_ex && core_branch_ex) begin
+    if (rst_n && core_branch) begin
       branches++;
       if (core_taken_ex) taken++;
       last_taken = core_taken_ex;
       if (core_mispred) mispredicts++;
     end
-  end
-
-  initial void'($value$plusargs("max_errors=%d", max_errors));
-
-  initial begin
-    // Run to sentinel
-    load_program();
-    do_reset();
-    run_to_sentinel();
-
-    // Loop results
-    check_registers();
-
-    // Branch resolutions
-    check_branches();
-
-    report_rate();
-    verdict();
   end
 
 endmodule

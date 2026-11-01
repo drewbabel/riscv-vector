@@ -1,26 +1,28 @@
 `default_nettype none
 
 module fp_fma
-  import fp_pkg::RmRne, fp_pkg::RmRdn, fp_pkg::RmRup, fp_pkg::RmRmm;
+  import fp_pkg::RmRdn;
   import fp_pkg::FlagNv, fp_pkg::FlagOf, fp_pkg::FlagUf, fp_pkg::FlagNx;
-  import fp_pkg::fp_round_up;
+  import fp_pkg::fp_round_up, fp_pkg::fp_ovf_inf;
+  import fp_pkg::FlagW, fp_pkg::RmW;
+  import fp_pkg::fp_canon_nan, fp_pkg::fp_inf_mag, fp_pkg::fp_max_mag;
 #(
     parameter int ExpW = fp_pkg::ExpW,
     parameter int FracW = fp_pkg::FracW,
     localparam int FLEN = 1 + ExpW + FracW,
     localparam int Latency = fp_pkg::FpFmaLatency
 ) (
-    input  wire             clk,
-    input  wire             rst_n,
-    input  wire             core_en,
-    input  wire             neg_prod,
-    input  wire             neg_add,
-    input  wire  [     2:0] rm,
-    input  wire  [FLEN-1:0] a,
-    input  wire  [FLEN-1:0] b,
-    input  wire  [FLEN-1:0] c,
-    output logic [FLEN-1:0] result,
-    output logic [     4:0] fflags
+    input  wire              clk,
+    input  wire              rst_n,
+    input  wire              core_en,
+    input  wire              neg_prod,
+    input  wire              neg_add,
+    input  wire  [  RmW-1:0] rm,
+    input  wire  [ FLEN-1:0] a,
+    input  wire  [ FLEN-1:0] b,
+    input  wire  [ FLEN-1:0] c,
+    output logic [ FLEN-1:0] result,
+    output logic [FlagW-1:0] fflags
 );
 
   localparam int SigW = FracW + 1;
@@ -40,12 +42,17 @@ module fp_fma
   localparam logic [ExpSW-1:0] TopSlot = ExpSW'(DpW - GrdW - 2 * FracW);
   localparam logic [ExpSW-1:0] MaxShift = ExpSW'(DpW);
 
-  localparam logic [FLEN-1:0] CanonNan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
-  localparam logic [FLEN-2:0] InfMag = {{ExpW{1'b1}}, {FracW{1'b0}}};
-  localparam logic [FLEN-2:0] MaxMag = {{(ExpW - 1) {1'b1}}, 1'b0, {FracW{1'b1}}};
+  localparam int FmaStages = 3;
+  localparam logic [FLEN-1:0] CanonNan = FLEN'(fp_canon_nan(ExpW, FracW));
+  localparam logic [FLEN-2:0] InfMag = (FLEN - 1)'(fp_inf_mag(ExpW, FracW));
+  localparam logic [FLEN-2:0] MaxMag = (FLEN - 1)'(fp_max_mag(ExpW, FracW));
 
   if (!((SigW + 3) < (1 << (ExpW - 1)))) begin : g_width_error
     $error("ExpW and FracW outside the supported range");
+  end
+
+  if (FmaStages != Latency) begin : g_latency_error
+    $error("FpFmaLatency must equal the three fp_fma stages");
   end
 
   logic [ExpW-1:0] ea, eb, ec;
@@ -73,7 +80,7 @@ module fp_fma
   logic [  DpW-1:0] addend_q1;
   logic [ExpSW-1:0] e_top_q1;
   logic sub_q1, sp_q1, sc_q1;
-  logic [2:0] rm_q1;
+  logic [RmW-1:0] rm_q1;
   logic a_nan_q1, b_nan_q1, c_nan_q1, any_snan_q1, inf_zero_q1;
   logic a_inf_q1, b_inf_q1, c_inf_q1;
 
@@ -94,7 +101,7 @@ module fp_fma
   logic [ExpSW-1:0] e_top_q2;
   logic res_sign_q2, zero_sign_q2, mag_nz_q2;
   logic sub_q2, sp_q2, sc_q2;
-  logic [2:0] rm_q2;
+  logic [RmW-1:0] rm_q2;
   logic a_nan_q2, b_nan_q2, c_nan_q2, any_snan_q2, inf_zero_q2;
   logic a_inf_q2, b_inf_q2, c_inf_q2;
 
@@ -105,10 +112,10 @@ module fp_fma
   logic is_norm;
   logic [FracW-1:0] frac;
   logic g, st, inc, inc_wide;
-  logic [FLEN-2:0] rnd;
+  logic [ExpW+FracW-1:0] rnd;
   logic ovf, tiny, inexact, to_inf;
-  logic [FLEN-1:0] result_next;
-  logic [4:0] fflags_next;
+  logic [ FLEN-1:0] result_next;
+  logic [FlagW-1:0] fflags_next;
 
   assign ea = a[FLEN-2-:ExpW];
   assign eb = b[FLEN-2-:ExpW];
@@ -309,8 +316,7 @@ module fp_fma
   assign tiny = !is_norm && !((rsrc[SumW-2-:SigW] == '1) && inc_wide);
   assign inexact = g || st;
 
-  assign to_inf = (rm_q2 == RmRne) || (rm_q2 == RmRmm) || ((rm_q2 == RmRdn) && res_sign_q2) ||
-      ((rm_q2 == RmRup) && !res_sign_q2);
+  assign to_inf = fp_ovf_inf(rm_q2, res_sign_q2);
 
   always_comb begin
     fflags_next = '0;

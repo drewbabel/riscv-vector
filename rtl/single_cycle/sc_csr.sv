@@ -3,7 +3,9 @@
 module sc_csr
   import csr_pkg::*;
 #(
-    parameter int XLEN = arch_pkg::XLEN
+    parameter  int XLEN     = arch_pkg::XLEN,
+    localparam int RegAddrW = arch_pkg::RegAddrW,
+    localparam int Funct3W  = opcode_pkg::Funct3W
 ) (
     input wire clk,
     input wire core_en,
@@ -11,11 +13,11 @@ module sc_csr
     input wire rst_n,
 
     // Zicsr access
-    input wire            csr_access,
-    input wire [    11:0] csr_addr,
-    input wire [     2:0] funct3,
-    input wire [XLEN-1:0] rs1_data,
-    input wire [     4:0] zimm,
+    input wire                csr_access,
+    input wire [CsrAddrW-1:0] csr_addr,
+    input wire [ Funct3W-1:0] funct3,
+    input wire [    XLEN-1:0] rs1_data,
+    input wire [RegAddrW-1:0] zimm,
 
     // Trapped-instruction context
     input wire [XLEN-1:0] pc,
@@ -43,6 +45,10 @@ module sc_csr
     output logic [XLEN-1:0] mepc_out
 );
 
+  if (XLEN != 32) begin : g_xlen
+    $error("sc_csr implements RV32 only");
+  end
+
   logic [XLEN-1:0] mstatus;
   logic [XLEN-1:0] mtvec;
   logic [XLEN-1:0] mepc;
@@ -59,8 +65,9 @@ module sc_csr
   logic [XLEN-1:0] csr_wsrc;
   logic [XLEN-1:0] csr_wdata;
   logic            csr_write_en;
+  logic            set_clear;
 
-  assign csr_wsrc = (funct3[2]) ? {{(XLEN - 5) {1'b0}}, zimm} : rs1_data;
+  assign csr_wsrc = (funct3[2]) ? XLEN'(zimm) : rs1_data;
   always_comb begin
     case (funct3)
       Funct3Csrrw, Funct3Csrrwi: csr_wdata = csr_wsrc;
@@ -71,10 +78,16 @@ module sc_csr
   end
   assign trap_taken = exc_illegal | exc_ecall | exc_ebreak | exc_instr_misaligned |
       exc_load_misaligned | exc_store_misaligned | (timer_irq & mstatus[MstatusMie] & mie[Mtie]);
+  always_comb begin
+    case (funct3)
+      Funct3Csrrs, Funct3Csrrc, Funct3Csrrsi, Funct3Csrrci: set_clear = 1'b1;
+      default: set_clear = 1'b0;
+    endcase
+  end
+
   // Reject zero-source clears
-  assign csr_write_en = csr_access && !trap_taken &&
-      !((funct3[1:0] == 2'b10 || funct3[1:0] == 2'b11) && (csr_wsrc == '0));
-  assign trap_vector = {mtvec[XLEN-1:2], 2'b00};  // Clear low bits
+  assign csr_write_en = csr_access && !trap_taken && !(set_clear && (csr_wsrc == '0));
+  assign trap_vector = {mtvec[XLEN-1:MtvecModeW], MtvecModeW'(0)};  // Clear low bits
   assign mret_taken = is_mret;
   assign mepc_out = mepc;
 

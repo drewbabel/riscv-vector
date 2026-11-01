@@ -2,25 +2,32 @@
 
 module vec_write_slots_tb ();
 
-  localparam int MinChecks = 3000;
+  localparam int MinChecks = 7500;
 
-  int checks;
-  int errors;
-  int max_errors;
+  int checks = 0;
+  int errors = 0;
+  int max_errors = 0;
+
+  vec_write_slots_bench #(.DEPTH(2)) depth2_bench ();
 
   vec_write_slots_bench #(.DEPTH(4)) depth4_bench ();
 
   vec_write_slots_bench #(.DEPTH(5)) depth5_bench ();
 
+  vec_write_slots_bench #(.DEPTH(8)) depth8_bench ();
+
   task automatic do_verdict();
-    checks = depth4_bench.checks + depth5_bench.checks;
-    errors = depth4_bench.errors + depth5_bench.errors;
-    if (depth4_bench.checks < MinChecks || depth5_bench.checks < MinChecks)
+    checks = depth2_bench.checks + depth4_bench.checks + depth5_bench.checks + depth8_bench.checks;
+    errors = depth2_bench.errors + depth4_bench.errors + depth5_bench.errors + depth8_bench.errors;
+    if (depth2_bench.checks < MinChecks || depth4_bench.checks < MinChecks ||
+        depth5_bench.checks < MinChecks || depth8_bench.checks < MinChecks)
       $fatal(
           1,
-          "TB UNDER-RAN: %0d and %0d checks, expected at least %0d each",
+          "TB UNDER-RAN: %0d, %0d, %0d and %0d checks, expected at least %0d each",
+          depth2_bench.checks,
           depth4_bench.checks,
           depth5_bench.checks,
+          depth8_bench.checks,
           MinChecks
       );
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
@@ -31,14 +38,16 @@ module vec_write_slots_tb ();
   initial begin
     $dumpfile("vec_write_slots_tb.vcd");
     $dumpvars(0, vec_write_slots_tb);
-    wait (depth4_bench.done && depth5_bench.done);
+    wait (depth2_bench.done && depth4_bench.done && depth5_bench.done && depth8_bench.done);
     do_verdict();
   end
 
   initial begin
     if ($value$plusargs("max_errors=%d", max_errors) && max_errors > 0) begin
-      wait (depth4_bench.errors + depth5_bench.errors >= max_errors);
-      $fatal(1, "TB STOPPED: %0d mismatches", depth4_bench.errors + depth5_bench.errors);
+      wait (depth2_bench.errors + depth4_bench.errors + depth5_bench.errors + depth8_bench.errors >=
+            max_errors);
+      $fatal(1, "TB STOPPED: %0d mismatches",
+             depth2_bench.errors + depth4_bench.errors + depth5_bench.errors + depth8_bench.errors);
     end
   end
 
@@ -54,13 +63,18 @@ module vec_write_slots_bench #(
   int                checks = 0;
   int                errors = 0;
   logic              done = 1'b0;
+  int                count;
 
   logic              clk = 1'b0;
-  logic              rst_n = 1'b1;
-  logic              core_en = 1'b1;
-  logic              start = 1'b0;
-  logic [DepthW-1:0] depth = '0;
+  logic              rst_n;
+  logic              core_en;
+  logic              start;
+  logic [DepthW-1:0] depth;
   logic              free;
+
+  logic [DepthW-1:0] timer       [Slots];
+  logic              writing     [Slots];
+  logic              books       [Slots];  // Depth above one
 
   always #5 clk = ~clk;
 
@@ -75,90 +89,94 @@ module vec_write_slots_bench #(
       .free(free)
   );
 
-  logic [$bits(depth)-1:0] timer[Slots];
-  logic writing[Slots];
-  logic books[Slots];  // Depth above one
-  int count;
-
-  task automatic do_reset();
-    rst_n = 0;
-    for (int i = 0; i < $size(timer); i++) begin
-      timer[i] = '0;
-    end
-    repeat (2) @(posedge clk);
-    rst_n = 1;
-  endtask  // Automatic
-
   task automatic check(input string name, input logic got, input logic exp);
     checks++;
     if (got !== exp) begin
       errors++;
-      $error("DEPTH %0d %s: got %b, expected %b", DEPTH, name, got, exp);
+      $display("FAIL DEPTH %0d %s: got %h, expected %h", DEPTH, name, got, exp);
     end
   endtask  // Automatic
 
-  task automatic load(input logic [$bits(depth)-1:0] time_amount);
-    int i;
-    load_free(time_amount);
-    start = free;
-    do @(posedge clk); while (!core_en);
-    #1;
-    if (start) begin
-      i = add_timer();
-      check("Max timers", i >= 0, 1'b1);
-      if (i >= 0) begin
-        timer[i] = time_amount;
-        books[i] = time_amount > 1;
-      end
+  task automatic do_reset();
+    rst_n   = 1'b0;
+    core_en = 1'b1;
+    start   = 1'b0;
+    depth   = '0;
+    for (int i = 0; i < $size(timer); i++) begin
+      timer[i] = '0;
+      books[i] = 1'b0;
     end
+    repeat (2) @(posedge clk);
+    @(negedge clk);
+    rst_n = 1'b1;
+  endtask  // Automatic
+
+  task automatic tick(input logic [DepthW-1:0] d, input logic want_start);
+    logic exp_free;
+    depth = d;
+    exp_free = model_free(d);
+    start = want_start && exp_free;
+    @(posedge clk);
+    check($sformatf("Free at depth %0d", d), free, exp_free);
+    if (core_en) begin
+      advance();
+      if (start) book(d);
+    end
+    @(negedge clk);
     start = 1'b0;
   endtask  // Automatic
 
-  task automatic load_free(input logic [$bits(depth)-1:0] time_amount);
-    logic exp_free;
-    depth = time_amount;
-    #1;
-    exp_free = 1'b1;
-    for (int i = 0; i < $size(timer); i++) begin
-      if (books[i] && timer[i] == time_amount + 1) exp_free = 1'b0;
-    end
-    check("Load free", free, exp_free);
+  task automatic load(input logic [DepthW-1:0] time_amount);
+    tick(time_amount, 1'b1);
   endtask  // Automatic
 
-  function automatic int add_timer();
-    for (int i = 0; i < $size(timer); i++) begin
-      if (timer[i] == 0) return i;
-    end
-    return -1;
-  endfunction
+  // State frozen
+  task automatic probe(input logic [DepthW-1:0] d, input logic exp);
+    logic keep_en;
+    keep_en = core_en;
+    core_en = 1'b0;
+    depth   = d;
+    @(posedge clk);
+    check($sformatf("Probe free at depth %0d", d), free, exp);
+    @(negedge clk);
+    core_en = keep_en;
+  endtask  // Automatic
+
+  task automatic load_free(input logic [DepthW-1:0] d);
+    probe(d, model_free(d));
+  endtask  // Automatic
+
+  task automatic expect_free(input logic [DepthW-1:0] d, input logic exp);
+    probe(d, exp);
+  endtask  // Automatic
 
   task automatic idle(input int n);
-    start = 1'b0;
-    repeat (n) begin
-      do @(posedge clk); while (!core_en);
-      #1;
-    end
+    repeat (n) tick(depth, 1'b0);
   endtask  // Automatic
 
   task automatic pause(input int n);
     core_en = 1'b0;
-    repeat (n) @(posedge clk);
-    #1;
+    repeat (n) begin
+      @(posedge clk);
+      check("Paused free", free, model_free(depth));
+      @(negedge clk);
+    end
     core_en = 1'b1;
   endtask  // Automatic
 
-  task automatic expect_free(input logic [$bits(depth)-1:0] d, input logic exp);
+  task automatic pause_start(input logic [DepthW-1:0] d, input int n);
     depth = d;
-    #1;
-    check($sformatf("Free at depth %0d", d), free, exp);
+    start = 1'b1;
+    pause(n);
+    start = 1'b0;
   endtask  // Automatic
 
   task automatic test_example();
-    load(4);
-    expect_free(3, 1'b0);
-    load(3);
-    expect_free(3, 1'b1);
-    load(3);
+    load(DepthW'(DEPTH));
+    expect_free(DepthW'(DEPTH - 1), 1'b0);
+    load(DepthW'(DEPTH - 1));
+    expect_free(DepthW'(DEPTH - 1), 1'b1);
+    load(DepthW'(DEPTH - 1));
     idle(DEPTH);
   endtask  // Automatic
 
@@ -182,7 +200,7 @@ module vec_write_slots_bench #(
   endtask  // Automatic
 
   task automatic test_reset_mid();
-    load(4);
+    load(DepthW'(DEPTH));
     do_reset();
     expect_free(1, 1'b1);
     load(1);
@@ -190,19 +208,16 @@ module vec_write_slots_bench #(
   endtask  // Automatic
 
   task automatic test_core_paused();
-    load(4);
+    load(DepthW'(DEPTH));
     pause(3);
-    expect_free(3, 1'b0);
-    load(3);
-    expect_free(3, 1'b1);
+    expect_free(DepthW'(DEPTH - 1), 1'b0);
+    load(DepthW'(DEPTH - 1));
+    expect_free(DepthW'(DEPTH - 1), 1'b1);
     idle(DEPTH);
 
     // Start while paused
-    depth = 3;
-    start = 1'b1;
-    pause(2);
-    start = 1'b0;
-    expect_free(2, 1'b1);
+    pause_start(DepthW'(DEPTH - 1), 2);
+    expect_free(DepthW'(DEPTH - 2), 1'b1);
     idle(DEPTH);
   endtask  // Automatic
 
@@ -226,17 +241,22 @@ module vec_write_slots_bench #(
     end
   endtask  // Automatic
 
-  task automatic test_random();
-    repeat (2000) begin
+  task automatic test_random(input int n);
+    repeat (n) begin
       case ($urandom_range(
-          0, 3
+          3
       ))
         0: idle(1);
         1: pause(1);
-        default: load(DepthW'($urandom_range(0, Slots - 1)));
+        default: load(DepthW'($urandom));
       endcase
     end
     idle(DEPTH);
+  endtask  // Automatic
+
+  task automatic finish();
+    @(posedge clk);
+    done = 1'b1;
   endtask  // Automatic
 
   initial begin
@@ -248,10 +268,45 @@ module vec_write_slots_bench #(
     test_reset_mid();
     test_core_paused();
     test_every_depth();
-    test_random();
+    test_random(2000);
 
-    @(posedge clk);
-    done = 1'b1;
+    finish();
+  end
+
+  function automatic int add_timer();
+    for (int i = 0; i < $size(timer); i++) begin
+      if (timer[i] == 0) return i;
+    end
+    return -1;
+  endfunction
+
+  function automatic logic model_free(input logic [DepthW-1:0] d);
+    for (int i = 0; i < $size(timer); i++) begin
+      if (books[i] && timer[i] == d + 1) return 1'b0;
+    end
+    return 1'b1;
+  endfunction
+
+  task automatic advance();
+    for (int i = 0; i < $size(timer); i++) begin
+      if (timer[i] > 0) timer[i]--;
+    end
+  endtask  // Automatic
+
+  task automatic book(input logic [DepthW-1:0] time_amount);
+    int i;
+    i = add_timer();
+    check("Max timers", i >= 0, 1'b1);
+    if (i >= 0) begin
+      timer[i] = time_amount;
+      books[i] = time_amount > 1;
+    end
+  endtask  // Automatic
+
+  always_comb begin
+    for (int i = 0; i < $size(writing); i++) begin
+      writing[i] = (timer[i] == 1) && rst_n;
+    end
   end
 
   // No concurrent writes
@@ -262,20 +317,6 @@ module vec_write_slots_bench #(
         if (writing[i]) count++;
       end
       check("Concurrent writes", count <= 1, 1'b1);
-    end
-  end
-
-  always_comb begin
-    for (int i = 0; i < $size(writing); i++) begin
-      writing[i] = (timer[i] == 1) && rst_n;
-    end
-  end
-
-  always @(posedge clk) begin
-    if (rst_n && core_en) begin
-      for (int i = 0; i < $size(timer); i++) begin
-        if (timer[i] > 0) timer[i]--;
-      end
     end
   end
 

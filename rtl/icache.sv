@@ -22,8 +22,8 @@ module icache
     input  wire                 mem_ready,
 
     // Counters
-    output logic [31:0] hit_count,
-    output logic [31:0] miss_count
+    output logic [XLEN-1:0] hit_count,
+    output logic [XLEN-1:0] miss_count
 );
 
   typedef enum logic [1:0] {
@@ -35,53 +35,66 @@ module icache
 
   state_t state, next_state;
 
-  logic [ IcTagLen-1:0] addr_tag;
-  logic [ IcIdxLen-1:0] addr_idx;
-  logic [BlkOffLen-1:0] addr_word;
-  logic [ IcIdxLen-1:0] rd_idx;
-  logic [ IcIdxLen-1:0] init_ctr;
-  logic [     XLEN-1:0] req_addr;
+  logic [IcTagLen-1:0] addr_tag;
+  logic [IcIdxLen-1:0] addr_idx;
+  logic [IcIdxLen-1:0] rd_idx;
+  logic [IcIdxLen-1:0] init_ctr;
+  logic [    XLEN-1:0] req_addr;
 
-  logic [   IcTagLen:0] tag_rd;
-  logic [ LineBits-1:0] line_rd;
-  logic [   IcTagLen:0] tag_q;
-  logic [ LineBits-1:0] line_q;
-  logic                 fill_q;
-  logic [   IcTagLen:0] fill_tag_q;
-  logic [ LineBits-1:0] fill_line_q;
+  logic [  IcTagLen:0] tag_rd;
+  logic [LineBits-1:0] line_rd;
+  logic [  IcTagLen:0] tag_q;
+  logic [LineBits-1:0] line_q;
+  logic                fill_q;
+  logic [  IcTagLen:0] fill_tag_q;
+  logic [LineBits-1:0] fill_line_q;
 
-  logic [   IcTagLen:0] tag_wdata;
-  logic [ IcIdxLen-1:0] tag_widx;
-  logic                 tag_we;
+  logic [  IcTagLen:0] tag_wdata;
+  logic [IcIdxLen-1:0] tag_widx;
+  logic                tag_we;
 
-  logic                 hit;
-  logic                 refill;
-  logic                 fill;
-  logic                 init_done;
+  logic                hit;
+  logic                compare_hit;
+  logic                compare_miss;
+  logic                refill;
+  logic                fill;
+  logic                init_done;
+  logic                unused_addr_lsb;
 
-  assign addr_tag  = req_addr[XLEN-1 : XLEN-IcTagLen];
-  assign addr_idx  = req_addr[XLEN-IcTagLen-1 : XLEN-IcTagLen-IcIdxLen];
-  assign addr_word = req_addr[XLEN-IcTagLen-IcIdxLen-1 : WordLsb];
+  assign addr_tag        = req_addr[XLEN-1 : XLEN-IcTagLen];
+  assign addr_idx        = req_addr[XLEN-IcTagLen-1 : XLEN-IcTagLen-IcIdxLen];
+  assign unused_addr_lsb = ^req_addr[WordLsb-1:0];
 
-  assign rd_idx    = (state == IDLE) ? cpu_addr[IdxLsb+:IcIdxLen] : addr_idx;
-  assign fill      = (state == ALLOCATE) && mem_ready;
-  assign init_done = (init_ctr == IcIdxLen'(IcSets - 1));
+  assign rd_idx          = (state == IDLE) ? cpu_addr[IdxLsb+:IcIdxLen] : addr_idx;
+  assign fill            = (state == ALLOCATE) && mem_ready;
+  assign init_done       = (init_ctr == IcIdxLen'(IcSets - 1));
 
   // Fill bypasses read
-  assign tag_q     = fill_q ? fill_tag_q : tag_rd;
-  assign line_q    = fill_q ? fill_line_q : line_rd;
+  assign tag_q           = fill_q ? fill_tag_q : tag_rd;
+  assign line_q          = fill_q ? fill_line_q : line_rd;
 
-  assign hit       = tag_q[IcTagLen] && (tag_q[IcTagLen-1:0] == addr_tag);
-  assign cpu_rdata = line_q[addr_word*XLEN+:XLEN];
+  assign hit             = tag_q[IcTagLen] && (tag_q[IcTagLen-1:0] == addr_tag);
+
+  // Word within line
+  if (BlkOffLen > 0) begin : g_word
+    logic [BlkOffLen-1:0] addr_word;
+    assign addr_word = req_addr[WordLsb+:BlkOffLen];
+    assign cpu_rdata = line_q[addr_word*XLEN+:XLEN];
+  end else begin : g_line_word
+    assign cpu_rdata = line_q;
+  end
 
   // Walk clears valid
-  assign tag_we    = (state == INIT) || fill;
-  assign tag_widx  = (state == INIT) ? init_ctr : addr_idx;
-  assign tag_wdata = (state == INIT) ? '0 : {1'b1, addr_tag};
+  assign tag_we       = (state == INIT) || fill;
+  assign tag_widx     = (state == INIT) ? init_ctr : addr_idx;
+  assign tag_wdata    = (state == INIT) ? '0 : {1'b1, addr_tag};
 
-  assign cpu_ready = (state == COMPARE) && hit;
-  assign mem_valid = (state == ALLOCATE);
-  assign mem_addr  = {addr_tag, addr_idx, {IdxLsb{1'b0}}};
+  assign compare_hit  = (state == COMPARE) && hit;
+  assign compare_miss = (state == COMPARE) && !hit;
+
+  assign cpu_ready    = compare_hit;
+  assign mem_valid    = (state == ALLOCATE);
+  assign mem_addr     = {addr_tag, addr_idx, {IdxLsb{1'b0}}};
 
   always_ff @(posedge clk) begin
     if (!rst_n) state <= INIT;
@@ -155,7 +168,7 @@ module icache
   always_ff @(posedge clk) begin
     if (!rst_n) refill <= 1'b0;
     else if (core_en) begin
-      if ((state == COMPARE) && !hit) refill <= 1'b1;
+      if (compare_miss) refill <= 1'b1;
       else if (state == IDLE) refill <= 1'b0;
     end
   end
@@ -165,10 +178,8 @@ module icache
       hit_count  <= '0;
       miss_count <= '0;
     end else if (core_en) begin
-      if (state == COMPARE) begin
-        if (!hit) miss_count <= miss_count + 1;
-        else if (!refill) hit_count <= hit_count + 1;
-      end
+      if (compare_miss) miss_count <= miss_count + 1;
+      else if (compare_hit && !refill) hit_count <= hit_count + 1;
     end
   end
 

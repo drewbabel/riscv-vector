@@ -4,20 +4,20 @@ module vec_decode
   import vec_pkg::*;
   import opcode_pkg::*;
 (
-    input  wire      [31:0] instr,
-    output logic            valid,
-    output vec_op_e         op,
-    output vec_src_e        src,
-    output vec_eew_e        eew,
-    output logic            vm,
-    output logic     [ 4:0] vs1,
-    output logic     [ 4:0] vs2,
-    output logic     [ 4:0] vd,
-    output logic     [ 4:0] simm,
-    output logic            reads_vd,
-    output logic            reads_xreg,
-    output logic            writes_xreg,
-    output logic            writes_mask,
+    input  wire      [    arch_pkg::ILEN-1:0] instr,
+    output logic                              valid,
+    output vec_op_e                           op,
+    output vec_src_e                          src,
+    output vec_eew_e                          eew,
+    output logic                              vm,
+    output logic     [arch_pkg::RegAddrW-1:0] vs1,
+    output logic     [arch_pkg::RegAddrW-1:0] vs2,
+    output logic     [arch_pkg::RegAddrW-1:0] vd,
+    output logic     [                   4:0] simm,
+    output logic                              reads_vd,
+    output logic                              reads_xreg,
+    output logic                              writes_xreg,
+    output logic                              writes_mask,
 
     // Float forms
     output vec_fop_e fop,
@@ -35,10 +35,16 @@ module vec_decode
   localparam logic [2:0] Funct3Opivv = 3'b000;
   localparam logic [2:0] Funct3Opivx = 3'b100;
   localparam logic [2:0] Funct3Opivi = 3'b011;
-  localparam logic [2:0] Funct3Opmvv = 3'b010;
   localparam logic [2:0] Funct3Opmvx = 3'b110;
   localparam logic [2:0] Funct3Opfvv = 3'b001;
   localparam logic [2:0] Funct3Opfvf = 3'b101;
+  localparam logic [2:0] Funct3Ve8 = 3'b000;
+  localparam logic [2:0] Funct3Ve16 = 3'b101;
+  localparam logic [2:0] Funct3Ve32 = 3'b110;
+  localparam logic [1:0] MopUnit = 2'b00;
+  localparam logic [1:0] MopStrided = 2'b10;
+  localparam logic [4:0] LumopWhole = 5'b01000;
+  localparam logic [4:0] LumopMask = 5'b01011;
 
   // Instruction fields
   logic [5:0] funct6;
@@ -51,6 +57,9 @@ module vec_decode
   logic    is_store;
   logic    width_ok;
   logic    nf_ok;
+  logic    nf_zero;
+  logic    vs1_zero;
+  logic    vs2_zero;
   vec_op_e mem_op;
 
   assign funct6 = instr[31:26];
@@ -64,18 +73,21 @@ module vec_decode
 
   // Instruction forms
   assign is_opv = (instr[6:0] == OpcodeOpV);
-  assign is_v = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opivv);
-  assign is_x = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opivx);
-  assign is_i = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opivi);
-  assign is_mv = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opmvv);
-  assign is_mx = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opmvx);
-  assign is_fv = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opfvv);
-  assign is_ff = (instr[6:0] == OpcodeOpV) && (funct3 == Funct3Opfvf);
+  assign is_v = is_opv && (funct3 == Funct3Opivv);
+  assign is_x = is_opv && (funct3 == Funct3Opivx);
+  assign is_i = is_opv && (funct3 == Funct3Opivi);
+  assign is_mv = is_opv && (funct3 == Funct3Opmvv);
+  assign is_mx = is_opv && (funct3 == Funct3Opmvx);
+  assign is_fv = is_opv && (funct3 == Funct3Opfvv);
+  assign is_ff = is_opv && (funct3 == Funct3Opfvf);
   assign is_load = (instr[6:0] == OpcodeLoadFp);
   assign is_store = (instr[6:0] == OpcodeStoreFp);
 
   // Whole register counts
-  assign nf_ok = (nf == 3'd0) || (nf == 3'd1) || (nf == 3'd3) || (nf == 3'd7);
+  assign nf_zero = (nf == 3'd0);
+  assign nf_ok = nf_zero || (nf == 3'd1) || (nf == 3'd3) || (nf == 3'd7);
+  assign vs1_zero = (vs1 == '0);
+  assign vs2_zero = (vs2 == '0);
 
   always_comb begin
     op = VEC_ILLEGAL;
@@ -96,29 +108,34 @@ module vec_decode
     // Loads and stores
     if ((is_load || is_store) && !instr[28]) begin
       case (funct3)
-        3'b000:  width_ok = 1'b1;
-        3'b101:  width_ok = 1'b1;
-        3'b110:  width_ok = 1'b1;
-        default: width_ok = 1'b0;
+        Funct3Ve8: width_ok = 1'b1;
+        Funct3Ve16: begin
+          width_ok  = 1'b1;
+          mem_width = 2'd1;
+        end
+        Funct3Ve32: begin
+          width_ok  = 1'b1;
+          mem_width = 2'd2;
+        end
+        default:   width_ok = 1'b0;
       endcase
-      mem_width = (funct3 == 3'b110) ? 2'd2 : ((funct3 == 3'b101) ? 2'd1 : 2'd0);
       mem_op = vec_pkg::vec_op_e'(is_load ? VEC_LOAD : VEC_STORE);
       if (width_ok) begin
         case (instr[27:26])
-          2'b00: begin
-            if ((vs2 == 5'b00000) && (nf == 3'd0)) op = mem_op;
-            if ((vs2 == 5'b01000) && vm && nf_ok && (is_load || funct3 == 3'b000)) begin
+          MopUnit: begin
+            if (vs2_zero && nf_zero) op = mem_op;
+            if ((vs2 == LumopWhole) && vm && nf_ok && (is_load || funct3 == Funct3Ve8)) begin
               op = mem_op;
               mem_whole = 1'b1;
               mem_nf = nf;
             end
-            if ((vs2 == 5'b01011) && vm && (funct3 == 3'b000) && (nf == 3'd0)) begin
+            if ((vs2 == LumopMask) && vm && (funct3 == Funct3Ve8) && nf_zero) begin
               op = mem_op;
               mem_mask = 1'b1;
             end
           end
-          2'b10: begin
-            if (nf == 3'd0) begin
+          MopStrided: begin
+            if (nf_zero) begin
               op = mem_op;
               mem_strided = 1'b1;
             end
@@ -155,7 +172,7 @@ module vec_decode
           op = VEC_MSBC;
           writes_mask = 1'b1;
         end
-        6'b010111: if (!vm || (vs2 == 5'b00000)) op = VEC_MERGE;
+        6'b010111: if (!vm || vs2_zero) op = VEC_MERGE;
         6'b011000: begin
           op = VEC_MSEQ;
           writes_mask = 1'b1;
@@ -272,7 +289,7 @@ module vec_decode
               end
               default: ;
             endcase
-          end else if (vs2 == 5'b00000) begin
+          end else if (vs2_zero) begin
             op = VEC_MV_S_X;
           end
         end
@@ -687,13 +704,13 @@ module vec_decode
         6'b001111: if (is_ff) op = VEC_SLIDE1DOWN;
 
         // Float moves
-        6'b010111: if (is_ff && (!vm || (vs2 == 5'b00000))) op = VEC_MERGE;
+        6'b010111: if (is_ff && (!vm || vs2_zero)) op = VEC_MERGE;
         6'b010000: begin
-          if (is_fv && (vs1 == 5'b00000)) begin
+          if (is_fv && vs1_zero) begin
             op          = VEC_MV_X_S;
             writes_freg = 1'b1;
           end
-          if (is_ff && (vs2 == 5'b00000)) op = VEC_MV_S_X;
+          if (is_ff && vs2_zero) op = VEC_MV_S_X;
         end
         default:   ;
       endcase
@@ -714,10 +731,9 @@ module vec_decode
     end
   end
 
-  assign reads_freg = is_ff && (op != VEC_ILLEGAL);
-  assign reads_xreg = (((src == VEC_SRC_VX) && !is_ff) || is_load || is_store) &&
-      (op != VEC_ILLEGAL);
   assign valid = (op != VEC_ILLEGAL);
+  assign reads_freg = is_ff && valid;
+  assign reads_xreg = (((src == VEC_SRC_VX) && !is_ff) || is_load || is_store) && valid;
 
 endmodule
 

@@ -40,8 +40,8 @@ module irq_formal
 
   logic            cycle_en;
   logic            is_vset;
-  logic [ VlW-1:0] vl_d;
-  logic [XLEN-1:0] vtype_d;
+  logic [ VlW-1:0] vl_next;
+  logic [XLEN-1:0] vtype_next;
   logic            is_vec_instr;
   logic [ VlW-1:0] vl_q;
   logic [XLEN-1:0] vtype_q;
@@ -93,8 +93,8 @@ module irq_formal
       .mret_taken(mret_taken),
       .mepc_out(mepc_out),
       .is_vset(is_vset),
-      .vl_d(vl_d),
-      .vtype_d(vtype_d),
+      .vl_next(vl_next),
+      .vtype_next(vtype_next),
       .is_vec_instr(is_vec_instr),
       .vl_q(vl_q),
       .vtype_q(vtype_q),
@@ -203,6 +203,16 @@ module irq_formal
         assert (dbg_mstatus[MstatusMie] == $past(dbg_mstatus[MstatusMpie]));
     end
   end
+
+  // Covers
+  always @(posedge clk)
+    if (f_past_valid && core_en) begin
+      cover (trap_taken && timer_ready && !ext_ready && !exc_any);
+      cover (trap_taken && ext_ready && timer_ready && !exc_any);
+      cover (trap_taken && exc_any && irq_ready);
+      cover (mret_taken && !trap_taken && dbg_mstatus[MstatusMpie]);
+      cover (!trap_taken && (timer_irq || ext_irq) && !exc_any);
+    end
 
 endmodule
 

@@ -8,23 +8,37 @@ module vec_reduce
     localparam int MaxElems = DLEN / 8,
     localparam int BitsW    = $clog2(ELEN) + 1,
     localparam int IdxW     = $clog2(ELEN),
-    localparam int LiveW    = $clog2(MaxElems + 1)
+    localparam int LiveW    = $clog2(MaxElems + 1),
+    localparam int Widths   = $clog2(ELEN / 8) + 1
 ) (
     input wire clk,
     input wire rst_n,
     input wire core_en,
 
-    input wire vec_op_e                op,
-    input wire          [         2:0] vsew,
-    input wire                         widen,
-    input wire                         first,
-    input wire                         step,
-    input wire          [    DLEN-1:0] vs2_data,
-    input wire          [    DLEN-1:0] vs1_data,
-    input wire          [MaxElems-1:0] elem_active,
+    input wire vec_op_e                      op,
+    input wire          [vec_pkg::VsewW-1:0] vsew,
+    input wire                               widen,
+    input wire                               first,
+    input wire                               step,
+    input wire          [          DLEN-1:0] vs2_data,
+    input wire          [          DLEN-1:0] vs1_data,
+    input wire          [      MaxElems-1:0] elem_active,
 
     output logic [DLEN-1:0] result
 );
+
+  if (ELEN != 32) begin : g_elen
+    $error("ELEN must be 32 (Zve32f)");
+  end
+
+  if (MaxElems != (1 << $clog2(MaxElems))) begin : g_dlen_error
+    $error("DLEN must be a power of two bytes");
+  end
+
+  if (DLEN > ELEN) begin : g_unused_vs1
+    logic unused_vs1;
+    assign unused_vs1 = ^vs1_data[DLEN-1:ELEN];
+  end
 
   logic sign_ext;
   assign sign_ext = (op == VEC_REDMIN) || (op == VEC_REDMAX) || (op == VEC_WREDSUM);
@@ -77,18 +91,27 @@ module vec_reduce
   assign live = LiveW'(MaxElems >> vsew);
 
   // Lane values
-  logic [ELEN-1:0] val[MaxElems];
+  logic [ELEN-1:0] raw_w[  Widths] [MaxElems];
+  logic [ELEN-1:0] val  [MaxElems];
+
+  for (genvar w = 0; w < Widths; w++) begin : g_w
+    localparam int ElemW = 8 << w;
+    for (genvar e = 0; e < MaxElems; e++) begin : g_e
+      if (e < DLEN / ElemW) begin : g_in
+        assign raw_w[w][e] = ELEN'(vs2_data[ElemW*e+:ElemW]);
+      end else begin : g_out
+        assign raw_w[w][e] = '0;
+      end
+    end
+  end
+
   always_comb begin
     for (int e = 0; e < MaxElems; e++) begin
-      logic [ELEN-1:0] raw;
-      raw = '0;
-      case (vsew)
-        3'd0: raw = ELEN'(vs2_data[8*e+:8]);
-        3'd1: raw = (e < MaxElems / 2) ? ELEN'(vs2_data[16*(e%(MaxElems/2))+:16]) : '0;
-        default: raw = (e < MaxElems / 4) ? ELEN'(vs2_data[32*(e%(MaxElems/4))+:32]) : '0;
-      endcase
-      val[e] = (elem_active[e] && (LiveW'(e) < live)) ? widen_val(sign_ext, raw, sew_bits) :
-          identity;
+      if (elem_active[e] && (LiveW'(e) < live)) begin
+        val[e] = widen_val(sign_ext, raw_w[vec_sew_index(vsew, Widths)][e], sew_bits);
+      end else begin
+        val[e] = identity;
+      end
     end
   end
 

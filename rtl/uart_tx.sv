@@ -1,9 +1,9 @@
 `default_nettype none
 
 module uart_tx #(
-    parameter int CLK_FREQ_HZ = arch_pkg::BoardClkHz / arch_pkg::ClkDiv,
+    parameter int CLK_FREQ_HZ = arch_pkg::CoreClkHz,
     parameter int BAUD_RATE   = arch_pkg::BaudRate,
-    parameter int DATA_BITS   = 8
+    parameter int DATA_BITS   = arch_pkg::UartDataBits
 ) (
     input wire clk,
     input wire core_en,

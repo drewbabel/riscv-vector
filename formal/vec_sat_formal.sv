@@ -52,7 +52,7 @@ module vec_sat_formal
     return is_fx(o) && (o != VEC_SADDU) && (o != VEC_SADD) && (o != VEC_SSUBU) && (o != VEC_SSUB);
   endfunction
 
-  // Spec reference per SEW
+  // Reference per SEW
   logic [ELEN-1:0] ref_res [Widths];
   logic            ref_sat [Widths];
   logic            ref_inc [Widths];
@@ -113,7 +113,7 @@ module vec_sat_formal
       assign sw = '0;
     end
 
-    // Chapter 12 roundoff operands
+    // Roundoff operands
     logic [R-1:0] v;
     int           d;
     logic         arith;
@@ -218,15 +218,19 @@ module vec_sat_formal
     end
 
     logic signed [R-1:0] clipped;
-    assign clipped = !clip ? t : ((t > hi) ? hi : ((t < lo) ? lo : t));
+    always_comb begin
+      if (clip && (t > hi)) clipped = hi;
+      else if (clip && (t < lo)) clipped = lo;
+      else clipped = t;
+    end
 
-    assign ref_res[w] = ELEN'(clipped[S-1:0]);
-    assign ref_sat[w] = clip && ((t > hi) || (t < lo));
-    assign ref_hi[w] = clip && (t > hi);
-    assign ref_inc[w] = r;
-    assign ref_odd[w] = v[d];
+    assign ref_res[w]  = ELEN'(clipped[S-1:0]);
+    assign ref_sat[w]  = clip && ((t > hi) || (t < lo));
+    assign ref_hi[w]   = clip && (t > hi);
+    assign ref_inc[w]  = r;
+    assign ref_odd[w]  = v[d];
     assign ref_lost[w] = (d != 0) && ((v & ((R'(1) << d) - R'(1))) != '0);
-    assign ref_tie[w] = (d != 0) && ((v & ((R'(1) << d) - R'(1))) == (R'(1) << (d - 1)));
+    assign ref_tie[w]  = (d != 0) && ((v & ((R'(1) << d) - R'(1))) == (R'(1) << (d - 1)));
 
     // vec_mul_lane product contract
     always @(posedge clk)
@@ -270,7 +274,7 @@ module vec_sat_formal
   logic [ELEN-1:0] sew_mask;
   assign sew_mask = ELEN'((64'(1) << (8 << chk_sew)) - 64'(1));
 
-  // Legal SEW and EEW
+  // Legal SEW EEW
   logic sew_ok;
   logic checked;
   assign sew_ok  = is_narrow(chk_op) ? (chk_sew < SewTop) : (chk_sew <= SewTop);

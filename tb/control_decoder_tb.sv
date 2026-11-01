@@ -1,59 +1,98 @@
 `default_nettype none
 
-module control_decoder_tb ();
+module control_decoder_tb
+  import opcode_pkg::*;
+  import csr_pkg::Funct3Priv, csr_pkg::Funct3Csrrw, csr_pkg::Funct3Csrrs, csr_pkg::Funct3Csrrc;
+  import csr_pkg::Funct3Csrrwi, csr_pkg::Funct3Csrrsi, csr_pkg::Funct3Csrrci;
+  import csr_pkg::Funct3SysRsvd;
+  import csr_pkg::Funct12Ecall, csr_pkg::Funct12Ebreak, csr_pkg::Funct12Mret;
+  import csr_pkg::MstatusAddr, csr_pkg::MepcAddr, csr_pkg::FflagsAddr, csr_pkg::VlAddr;
+  import muldiv_pkg::*;
+  import fp_pkg::Funct5FcvtWS, fp_pkg::Funct5FmvXW, fp_pkg::Funct5Fcmp, fp_pkg::FmtS;
+  import fp_pkg::RmRne, fp_pkg::RmRtz, fp_pkg::RmRdn, fp_pkg::RmDyn;
+();
 
-  int          checks = 0;
-  int          errors = 0;
-  int          max_errors = 0;
+  localparam int OpW = OpcodeW;
+  localparam int Funct12W = $bits(Funct12Ecall);
+  localparam int Funct7W = $bits(Funct7MulDiv);
+  localparam int Funct5W = $bits(Funct5Fcmp);
+  localparam int Rs2W = arch_pkg::RegAddrW;
+  localparam int ImmSrcW = 3;
+  localparam int SelW = 2;
+  localparam int FieldW = ImmSrcW;
+  localparam int SoakOps = 20000;
+  localparam int MinChecks = 180000;
 
-  logic [ 6:0] op;
-  logic [ 2:0] funct3 = 3'b000;
-  logic [11:0] funct12 = 12'h000;
-  logic        reg_write;
-  logic [ 2:0] imm_src;
-  logic [ 1:0] alu_a_src;
-  logic        pc_target_src;
-  logic        alu_src;
-  logic        mem_write;
-  logic [ 1:0] result_src;
-  logic        branch;
-  logic        jump;
-  logic [ 1:0] alu_op;
+  localparam logic [ImmSrcW-1:0] ImmI = ImmSrcW'(0);
+  localparam logic [ImmSrcW-1:0] ImmS = ImmSrcW'(1);
+  localparam logic [ImmSrcW-1:0] ImmB = ImmSrcW'(2);
+  localparam logic [ImmSrcW-1:0] ImmU = ImmSrcW'(3);
+  localparam logic [ImmSrcW-1:0] ImmJ = ImmSrcW'(4);
 
-  localparam logic [6:0] OpcodeOp = 7'b0110011;
-  localparam logic [6:0] OpcodeOpImm = 7'b0010011;
-  localparam logic [6:0] OpcodeLoad = 7'b0000011;
-  localparam logic [6:0] OpcodeStore = 7'b0100011;
-  localparam logic [6:0] OpcodeBranch = 7'b1100011;
-  localparam logic [6:0] OpcodeJal = 7'b1101111;
-  localparam logic [6:0] OpcodeJalr = 7'b1100111;
-  localparam logic [6:0] OpcodeLui = 7'b0110111;
-  localparam logic [6:0] OpcodeAuipc = 7'b0010111;
-  localparam logic [6:0] OpcodeOpFp = 7'b1010011;
-  localparam logic [6:0] OpcodeLoadFp = 7'b0000111;
-  localparam logic [6:0] OpcodeStoreFp = 7'b0100111;
-  localparam logic [6:0] OpcodeFmadd = 7'b1000011;
-  localparam logic [6:0] OpcodeFmsub = 7'b1000111;
-  localparam logic [6:0] OpcodeFnmsub = 7'b1001011;
-  localparam logic [6:0] OpcodeFnmadd = 7'b1001111;
+  localparam logic [SelW-1:0] SrcARs1 = SelW'(0);
+  localparam logic [SelW-1:0] SrcAPc = SelW'(1);
+  localparam logic [SelW-1:0] SrcAZero = SelW'(2);
 
-  localparam logic [2:0] ImmI = 3'd0;
-  localparam logic [2:0] ImmS = 3'd1;
-  localparam logic [2:0] ImmB = 3'd2;
-  localparam logic [2:0] ImmU = 3'd3;
-  localparam logic [2:0] ImmJ = 3'd4;
+  localparam logic [SelW-1:0] ResAlu = SelW'(0);
+  localparam logic [SelW-1:0] ResMem = SelW'(1);
+  localparam logic [SelW-1:0] ResPc4 = SelW'(2);
 
-  localparam logic [1:0] SrcARs1 = 2'd0;
-  localparam logic [1:0] SrcAPc = 2'd1;
-  localparam logic [1:0] SrcAZero = 2'd2;
+  localparam logic [SelW-1:0] AluAdd = SelW'(0);
+  localparam logic [SelW-1:0] AluBranch = SelW'(1);
+  localparam logic [SelW-1:0] AluFunct = SelW'(2);
 
-  localparam logic [1:0] ResAlu = 2'd0;
-  localparam logic [1:0] ResMem = 2'd1;
-  localparam logic [1:0] ResPc4 = 2'd2;
+  int checks = 0;
+  int errors = 0;
+  int max_errors = 0;
 
-  localparam logic [1:0] AluAdd = 2'b00;
-  localparam logic [1:0] AluBranch = 2'b01;
-  localparam logic [1:0] AluFunct = 2'b10;
+  logic [OpW-1:0] op;
+  logic [Funct3W-1:0] funct3;
+  logic [Funct12W-1:0] funct12;
+  logic reg_write;
+  logic [ImmSrcW-1:0] imm_src;
+  logic [SelW-1:0] alu_a_src;
+  logic pc_target_src;
+  logic alu_src;
+  logic mem_write;
+  logic [SelW-1:0] result_src;
+  logic branch;
+  logic jump;
+  logic [SelW-1:0] alu_op;
+  logic csr_access;
+  logic is_ecall;
+  logic is_ebreak;
+  logic is_mret;
+  logic illegal;
+  logic is_muldiv;
+  muldiv_op_e muldiv_op;
+
+  logic [Funct3W-1:0] csr_funct3s[6] = '{
+      Funct3Csrrw,
+      Funct3Csrrs,
+      Funct3Csrrc,
+      Funct3Csrrwi,
+      Funct3Csrrsi,
+      Funct3Csrrci
+  };
+  logic [Funct12W-1:0] csr_funct12s[7] = '{
+      Funct12Ecall,
+      Funct12Ebreak,
+      Funct12Mret,
+      MstatusAddr,
+      MepcAddr,
+      FflagsAddr,
+      VlAddr
+  };
+  muldiv_op_e muldiv_ops[2**Funct3W] = '{
+      MD_MUL,
+      MD_MULH,
+      MD_MULHSU,
+      MD_MULHU,
+      MD_DIV,
+      MD_DIVU,
+      MD_REM,
+      MD_REMU
+  };
 
   control_decoder dut (
       .op           (op),
@@ -69,277 +108,390 @@ module control_decoder_tb ();
       .branch       (branch),
       .jump         (jump),
       .alu_op       (alu_op),
-      .csr_access   (),
-      .is_ecall     (),
-      .is_ebreak    (),
-      .is_mret      (),
-      .is_muldiv    (),
-      .muldiv_op    ()
+      .csr_access   (csr_access),
+      .is_ecall     (is_ecall),
+      .is_ebreak    (is_ebreak),
+      .is_mret      (is_mret),
+      .illegal      (illegal),
+      .is_muldiv    (is_muldiv),
+      .muldiv_op    (muldiv_op)
   );
 
-  task automatic check1(input string name, input logic got, input logic exp);
-    checks++;
-    if (got !== exp) begin
-      errors++;
-      $display("%s mismatch: got %b, exp %b", name, got, exp);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-  endtask
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
-  task automatic check2(input string name, input logic [1:0] got, input logic [1:0] exp);
+  task automatic check(input string name, input logic [FieldW-1:0] got,
+                       input logic [FieldW-1:0] exp);
     checks++;
     if (got !== exp) begin
       errors++;
-      $display("%s mismatch: got %b, exp %b", name, got, exp);
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
       if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
     end
-  endtask
+  endtask  // Automatic
 
-  task automatic check3(input string name, input logic [2:0] got, input logic [2:0] exp);
-    checks++;
-    if (got !== exp) begin
-      errors++;
-      $display("%s mismatch: got %b, exp %b", name, got, exp);
-      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-    end
-  endtask
+  task automatic do_reset();
+    op = '0;
+    funct3 = '0;
+    funct12 = '0;
+    #1;
+  endtask  // Automatic
+
+  task automatic decode(input logic [OpW-1:0] o, input logic [Funct3W-1:0] f3,
+                        input logic [Funct12W-1:0] f12);
+    op = o;
+    funct3 = f3;
+    funct12 = f12;
+    #1;
+  endtask  // Automatic
+
+  task automatic check_system(input string name);
+    logic exp_muldiv;
+    exp_muldiv = muldiv_ref(op, funct12);
+    check({name, " csr_access"}, FieldW'(csr_access), FieldW'(csr_ref(op, funct3)));
+    check({name, " is_ecall"}, FieldW'(is_ecall), priv_ref(op, funct3, funct12, Funct12Ecall));
+    check({name, " is_ebreak"}, FieldW'(is_ebreak), priv_ref(op, funct3, funct12, Funct12Ebreak));
+    check({name, " is_mret"}, FieldW'(is_mret), priv_ref(op, funct3, funct12, Funct12Mret));
+    check({name, " illegal"}, FieldW'(illegal),
+          FieldW'(op == OpcodeSystem && funct3 == Funct3SysRsvd));
+    check({name, " is_muldiv"}, FieldW'(is_muldiv), FieldW'(exp_muldiv));
+    if (exp_muldiv) check({name, " muldiv_op"}, muldiv_op, muldiv_ops[funct3]);
+  endtask  // Automatic
 
   task automatic chk_default(input string name);
-    #1;
-    check1({name, " reg_write"}, reg_write, 1'b0);
-    check3({name, " imm_src"}, imm_src, ImmI);
-    check2({name, " alu_a_src"}, alu_a_src, SrcARs1);
-    check1({name, " pc_target_src"}, pc_target_src, 1'b0);
-    check1({name, " alu_src"}, alu_src, 1'b0);
-    check1({name, " mem_write"}, mem_write, 1'b0);
-    check2({name, " result_src"}, result_src, ResAlu);
-    check1({name, " branch"}, branch, 1'b0);
-    check1({name, " jump"}, jump, 1'b0);
-    check2({name, " alu_op"}, alu_op, AluAdd);
-  endtask
+    check({name, " reg_write"}, FieldW'(reg_write), FieldW'(1'b0));
+    check({name, " imm_src"}, imm_src, ImmI);
+    check({name, " alu_a_src"}, FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check({name, " pc_target_src"}, FieldW'(pc_target_src), FieldW'(1'b0));
+    check({name, " alu_src"}, FieldW'(alu_src), FieldW'(1'b0));
+    check({name, " mem_write"}, FieldW'(mem_write), FieldW'(1'b0));
+    check({name, " result_src"}, FieldW'(result_src), FieldW'(ResAlu));
+    check({name, " branch"}, FieldW'(branch), FieldW'(1'b0));
+    check({name, " jump"}, FieldW'(jump), FieldW'(1'b0));
+    check({name, " alu_op"}, FieldW'(alu_op), FieldW'(AluAdd));
+    check_system(name);
+  endtask  // Automatic
+
+  task automatic chk_op();
+    decode(OpcodeOp, '0, '0);
+    check("op reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("op alu_src", FieldW'(alu_src), FieldW'(1'b0));
+    check("op mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("op result_src", FieldW'(result_src), FieldW'(ResAlu));
+    check("op branch", FieldW'(branch), FieldW'(1'b0));
+    check("op jump", FieldW'(jump), FieldW'(1'b0));
+    check("op alu_op", FieldW'(alu_op), FieldW'(AluFunct));
+    check("op alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("op pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
+    check_system("op");
+  endtask  // Automatic
+
+  task automatic chk_opimm();
+    decode(OpcodeOpImm, '0, '0);
+    check("opimm reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("opimm imm_src", imm_src, ImmI);
+    check("opimm alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("opimm mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("opimm result_src", FieldW'(result_src), FieldW'(ResAlu));
+    check("opimm branch", FieldW'(branch), FieldW'(1'b0));
+    check("opimm jump", FieldW'(jump), FieldW'(1'b0));
+    check("opimm alu_op", FieldW'(alu_op), FieldW'(AluFunct));
+    check("opimm alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("opimm pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
+    check_system("opimm");
+  endtask  // Automatic
+
+  task automatic chk_load();
+    decode(OpcodeLoad, '0, '0);
+    check("load reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("load imm_src", imm_src, ImmI);
+    check("load alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("load mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("load result_src", FieldW'(result_src), FieldW'(ResMem));
+    check("load branch", FieldW'(branch), FieldW'(1'b0));
+    check("load jump", FieldW'(jump), FieldW'(1'b0));
+    check("load alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("load alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("load pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
+    check_system("load");
+  endtask  // Automatic
+
+  task automatic chk_store();
+    decode(OpcodeStore, '0, '0);
+    check("store reg_write", FieldW'(reg_write), FieldW'(1'b0));
+    check("store imm_src", imm_src, ImmS);
+    check("store alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("store mem_write", FieldW'(mem_write), FieldW'(1'b1));
+    check("store branch", FieldW'(branch), FieldW'(1'b0));
+    check("store jump", FieldW'(jump), FieldW'(1'b0));
+    check("store alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("store alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("store pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
+    check_system("store");
+  endtask  // Automatic
+
+  task automatic chk_branch();
+    decode(OpcodeBranch, '0, '0);
+    check("branch reg_write", FieldW'(reg_write), FieldW'(1'b0));
+    check("branch imm_src", imm_src, ImmB);
+    check("branch alu_src", FieldW'(alu_src), FieldW'(1'b0));
+    check("branch mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("branch branch", FieldW'(branch), FieldW'(1'b1));
+    check("branch jump", FieldW'(jump), FieldW'(1'b0));
+    check("branch alu_op", FieldW'(alu_op), FieldW'(AluBranch));
+    check("branch alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("branch pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
+    check_system("branch");
+  endtask  // Automatic
+
+  task automatic chk_jal();
+    decode(OpcodeJal, '0, '0);
+    check("jal reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("jal imm_src", imm_src, ImmJ);
+    check("jal mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("jal result_src", FieldW'(result_src), FieldW'(ResPc4));
+    check("jal branch", FieldW'(branch), FieldW'(1'b0));
+    check("jal jump", FieldW'(jump), FieldW'(1'b1));
+    check("jal alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("jal pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
+    check_system("jal");
+  endtask  // Automatic
+
+  task automatic chk_jalr();
+    decode(OpcodeJalr, '0, '0);
+    check("jalr reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("jalr imm_src", imm_src, ImmI);
+    check("jalr alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("jalr mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("jalr result_src", FieldW'(result_src), FieldW'(ResPc4));
+    check("jalr branch", FieldW'(branch), FieldW'(1'b0));
+    check("jalr jump", FieldW'(jump), FieldW'(1'b1));
+    check("jalr alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("jalr alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("jalr pc_target_src", FieldW'(pc_target_src), FieldW'(1'b1));
+    check_system("jalr");
+  endtask  // Automatic
+
+  task automatic chk_lui();
+    decode(OpcodeLui, '0, '0);
+    check("lui reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("lui imm_src", imm_src, ImmU);
+    check("lui alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("lui mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("lui result_src", FieldW'(result_src), FieldW'(ResAlu));
+    check("lui branch", FieldW'(branch), FieldW'(1'b0));
+    check("lui jump", FieldW'(jump), FieldW'(1'b0));
+    check("lui alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("lui alu_a_src", FieldW'(alu_a_src), FieldW'(SrcAZero));
+    check("lui pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
+    check_system("lui");
+  endtask  // Automatic
+
+  task automatic chk_auipc();
+    decode(OpcodeAuipc, '0, '0);
+    check("auipc reg_write", FieldW'(reg_write), FieldW'(1'b1));
+    check("auipc imm_src", imm_src, ImmU);
+    check("auipc alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("auipc mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("auipc result_src", FieldW'(result_src), FieldW'(ResAlu));
+    check("auipc branch", FieldW'(branch), FieldW'(1'b0));
+    check("auipc jump", FieldW'(jump), FieldW'(1'b0));
+    check("auipc alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("auipc alu_a_src", FieldW'(alu_a_src), FieldW'(SrcAPc));
+    check("auipc pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
+    check_system("auipc");
+  endtask  // Automatic
+
+  task automatic chk_illegal();
+    decode('1, '0, '0);
+    check("illegal reg_write", FieldW'(reg_write), FieldW'(1'b0));
+    check("illegal mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check_system("illegal");
+  endtask  // Automatic
 
   task automatic chk_op_fp();
-    logic [2:0] f3s[4] = '{3'b000, 3'b001, 3'b010, 3'b111};
-    logic exp;
-    op = OpcodeOpFp;
-    for (int f5 = 0; f5 < 32; f5++) begin
-      for (int i = 0; i < 4; i++) begin
-        funct12 = {5'(f5), 2'b00, 5'(i)};
-        funct3 = f3s[i];
-        exp = (5'(f5) == 5'b11000) || (5'(f5) == 5'b11100) || (5'(f5) == 5'b10100);
-        #1;
-        check1($sformatf("opfp %b reg_write", 5'(f5)), reg_write, exp);
-        check1("opfp mem_write", mem_write, 1'b0);
-        check1("opfp branch", branch, 1'b0);
-        check1("opfp jump", jump, 1'b0);
+    logic [Funct3W-1:0] f3s[4] = '{RmRne, RmRtz, RmRdn, RmDyn};
+    logic [Funct5W-1:0] f5;
+    for (int f = 0; f < 2 ** Funct5W; f++) begin
+      f5 = Funct5W'(f);
+      for (int i = 0; i < $size(f3s); i++) begin
+        decode(OpcodeOpFp, f3s[i], {f5, FmtS, Rs2W'(i)});
+        check($sformatf("opfp %b reg_write", f5), FieldW'(reg_write),
+              FieldW'(f5 == Funct5FcvtWS || f5 == Funct5FmvXW || f5 == Funct5Fcmp));
+        check("opfp mem_write", FieldW'(mem_write), FieldW'(1'b0));
+        check("opfp branch", FieldW'(branch), FieldW'(1'b0));
+        check("opfp jump", FieldW'(jump), FieldW'(1'b0));
+        check_system($sformatf("opfp %b", f5));
       end
     end
-  endtask
+  endtask  // Automatic
 
   task automatic chk_flw();
-    op = OpcodeLoadFp;
-    funct3 = 3'b010;
-    funct12 = 12'hffc;
-    #1;
-    check1("flw reg_write", reg_write, 1'b0);
-    check3("flw imm_src", imm_src, ImmI);
-    check1("flw alu_src", alu_src, 1'b1);
-    check1("flw mem_write", mem_write, 1'b0);
-    check2("flw result_src", result_src, ResMem);
-    check1("flw branch", branch, 1'b0);
-    check1("flw jump", jump, 1'b0);
-    check2("flw alu_op", alu_op, AluAdd);
-    check2("flw alu_a_src", alu_a_src, SrcARs1);
-    check1("flw pc_target_src", pc_target_src, 1'b0);
-  endtask
+    decode(OpcodeLoadFp, Funct3FpWord, Funct12W'('hffc));
+    check("flw reg_write", FieldW'(reg_write), FieldW'(1'b0));
+    check("flw imm_src", imm_src, ImmI);
+    check("flw alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("flw mem_write", FieldW'(mem_write), FieldW'(1'b0));
+    check("flw result_src", FieldW'(result_src), FieldW'(ResMem));
+    check("flw branch", FieldW'(branch), FieldW'(1'b0));
+    check("flw jump", FieldW'(jump), FieldW'(1'b0));
+    check("flw alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("flw alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("flw pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
+    check_system("flw");
+  endtask  // Automatic
 
   task automatic chk_fsw();
-    op = OpcodeStoreFp;
-    funct3 = 3'b010;
-    funct12 = 12'h7e5;
-    #1;
-    check1("fsw reg_write", reg_write, 1'b0);
-    check3("fsw imm_src", imm_src, ImmS);
-    check1("fsw alu_src", alu_src, 1'b1);
-    check1("fsw mem_write", mem_write, 1'b1);
-    check1("fsw branch", branch, 1'b0);
-    check1("fsw jump", jump, 1'b0);
-    check2("fsw alu_op", alu_op, AluAdd);
-    check2("fsw alu_a_src", alu_a_src, SrcARs1);
-    check1("fsw pc_target_src", pc_target_src, 1'b0);
-  endtask
+    decode(OpcodeStoreFp, Funct3FpWord, Funct12W'('h7e5));
+    check("fsw reg_write", FieldW'(reg_write), FieldW'(1'b0));
+    check("fsw imm_src", imm_src, ImmS);
+    check("fsw alu_src", FieldW'(alu_src), FieldW'(1'b1));
+    check("fsw mem_write", FieldW'(mem_write), FieldW'(1'b1));
+    check("fsw branch", FieldW'(branch), FieldW'(1'b0));
+    check("fsw jump", FieldW'(jump), FieldW'(1'b0));
+    check("fsw alu_op", FieldW'(alu_op), FieldW'(AluAdd));
+    check("fsw alu_a_src", FieldW'(alu_a_src), FieldW'(SrcARs1));
+    check("fsw pc_target_src", FieldW'(pc_target_src), FieldW'(1'b0));
+    check_system("fsw");
+  endtask  // Automatic
 
   task automatic chk_fused();
-    logic [6:0] ops[4] = '{OpcodeFmadd, OpcodeFmsub, OpcodeFnmsub, OpcodeFnmadd};
-    for (int o = 0; o < 4; o++) begin
-      for (int f3 = 0; f3 < 8; f3++) begin
-        op = ops[o];
-        funct3 = 3'(f3);
-        funct12 = 12'(o * 1000 + f3);
-        chk_default($sformatf("fused %b rm %b", ops[o], 3'(f3)));
+    logic [OpW-1:0] ops[4] = '{OpcodeFmadd, OpcodeFmsub, OpcodeFnmsub, OpcodeFnmadd};
+    for (int o = 0; o < $size(ops); o++) begin
+      for (int f3 = 0; f3 < 2 ** Funct3W; f3++) begin
+        decode(ops[o], Funct3W'(f3), Funct12W'(o * 1000 + f3));
+        chk_default($sformatf("fused %b rm %b", ops[o], Funct3W'(f3)));
       end
     end
-  endtask
+  endtask  // Automatic
 
   task automatic chk_vec_mem();
-    logic [2:0] f3s[4] = '{3'b000, 3'b101, 3'b110, 3'b111};
-    for (int i = 0; i < 4; i++) begin
-      funct3 = f3s[i];
-      funct12 = 12'h020;
-      op = OpcodeLoadFp;
+    logic [Funct3W-1:0] f3s[4] = '{
+        Funct3W'('b000),
+        Funct3W'('b101),
+        Funct3W'('b110),
+        Funct3W'('b111)
+    };
+    for (int i = 0; i < $size(f3s); i++) begin
+      decode(OpcodeLoadFp, f3s[i], Funct12W'('h020));
       chk_default($sformatf("vload %b", f3s[i]));
-      op = OpcodeStoreFp;
+      decode(OpcodeStoreFp, f3s[i], Funct12W'('h020));
       chk_default($sformatf("vstore %b", f3s[i]));
     end
-  endtask
+  endtask  // Automatic
 
-  task automatic verdict();
+  task automatic chk_priv();
+    for (int f = 0; f < 2 ** Funct12W; f++) begin
+      decode(OpcodeSystem, Funct3Priv, Funct12W'(f));
+      chk_default($sformatf("priv %h", Funct12W'(f)));
+    end
+  endtask  // Automatic
+
+  task automatic chk_csr();
+    string name;
+    for (int i = 0; i < $size(csr_funct3s); i++) begin
+      for (int j = 0; j < $size(csr_funct12s); j++) begin
+        decode(OpcodeSystem, csr_funct3s[i], csr_funct12s[j]);
+        name = $sformatf("csr %b %h", funct3, funct12);
+        check({name, " reg_write"}, FieldW'(reg_write), FieldW'(1'b1));
+        check({name, " mem_write"}, FieldW'(mem_write), FieldW'(1'b0));
+        check({name, " branch"}, FieldW'(branch), FieldW'(1'b0));
+        check({name, " jump"}, FieldW'(jump), FieldW'(1'b0));
+        check_system(name);
+      end
+    end
+  endtask  // Automatic
+
+  task automatic chk_sys_rsvd();
+    for (int j = 0; j < $size(csr_funct12s); j++) begin
+      decode(OpcodeSystem, Funct3SysRsvd, csr_funct12s[j]);
+      chk_default($sformatf("sys rsvd %h", funct12));
+    end
+  endtask  // Automatic
+
+  task automatic chk_muldiv(input logic [OpW-1:0] o);
+    string name;
+    for (int f7 = 0; f7 < 2 ** Funct7W; f7++) begin
+      for (int f3 = 0; f3 < 2 ** Funct3W; f3++) begin
+        decode(o, Funct3W'(f3), {Funct7W'(f7), Rs2W'($urandom)});
+        name = $sformatf("muldiv %b %b %b", o, Funct7W'(f7), Funct3W'(f3));
+        check({name, " reg_write"}, FieldW'(reg_write), FieldW'(1'b1));
+        check({name, " mem_write"}, FieldW'(mem_write), FieldW'(1'b0));
+        check({name, " alu_op"}, FieldW'(alu_op), FieldW'(AluFunct));
+        check_system(name);
+      end
+    end
+  endtask  // Automatic
+
+  task automatic soak(input int n);
+    logic [OpW-1:0] o;
+    logic [Funct3W-1:0] f3;
+    repeat (n) begin
+      o  = OpW'($urandom);
+      f3 = Funct3W'($urandom);
+      decode(o, f3, Funct12W'($urandom));
+      check_system($sformatf("soak %b %b %h", op, funct3, funct12));
+    end
+  endtask  // Automatic
+
+  task automatic do_verdict();
+    if (checks < MinChecks)
+      $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
     if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
     else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
-  endtask
-
-  initial void'($value$plusargs("max_errors=%d", max_errors));
+  endtask  // Automatic
 
   initial begin
     $dumpfile("control_decoder_tb.vcd");
     $dumpvars(0, control_decoder_tb);
+    do_reset();
 
-    // R-type
-    op = OpcodeOp;
-    #1;
-    check1("op reg_write", reg_write, 1'b1);
-    check1("op alu_src", alu_src, 1'b0);
-    check1("op mem_write", mem_write, 1'b0);
-    check2("op result_src", result_src, ResAlu);
-    check1("op branch", branch, 1'b0);
-    check1("op jump", jump, 1'b0);
-    check2("op alu_op", alu_op, AluFunct);
-    check2("op alu_a_src", alu_a_src, SrcARs1);
-    check1("op pc_target_src", pc_target_src, 1'b0);
+    // Base opcodes
+    chk_op();
+    chk_opimm();
+    chk_load();
+    chk_store();
+    chk_branch();
+    chk_jal();
+    chk_jalr();
+    chk_lui();
+    chk_auipc();
+    chk_illegal();
 
-    // I-type ALU
-    op = OpcodeOpImm;
-    #1;
-    check1("opimm reg_write", reg_write, 1'b1);
-    check3("opimm imm_src", imm_src, ImmI);
-    check1("opimm alu_src", alu_src, 1'b1);
-    check1("opimm mem_write", mem_write, 1'b0);
-    check2("opimm result_src", result_src, ResAlu);
-    check1("opimm branch", branch, 1'b0);
-    check1("opimm jump", jump, 1'b0);
-    check2("opimm alu_op", alu_op, AluFunct);
-    check2("opimm alu_a_src", alu_a_src, SrcARs1);
-    check1("opimm pc_target_src", pc_target_src, 1'b0);
-
-    // Load
-    op = OpcodeLoad;
-    #1;
-    check1("load reg_write", reg_write, 1'b1);
-    check3("load imm_src", imm_src, ImmI);
-    check1("load alu_src", alu_src, 1'b1);
-    check1("load mem_write", mem_write, 1'b0);
-    check2("load result_src", result_src, ResMem);
-    check1("load branch", branch, 1'b0);
-    check1("load jump", jump, 1'b0);
-    check2("load alu_op", alu_op, AluAdd);
-    check2("load alu_a_src", alu_a_src, SrcARs1);
-    check1("load pc_target_src", pc_target_src, 1'b0);
-
-    // Store
-    op = OpcodeStore;
-    #1;
-    check1("store reg_write", reg_write, 1'b0);
-    check3("store imm_src", imm_src, ImmS);
-    check1("store alu_src", alu_src, 1'b1);
-    check1("store mem_write", mem_write, 1'b1);
-    check1("store branch", branch, 1'b0);
-    check1("store jump", jump, 1'b0);
-    check2("store alu_op", alu_op, AluAdd);
-    check2("store alu_a_src", alu_a_src, SrcARs1);
-    check1("store pc_target_src", pc_target_src, 1'b0);
-
-    // Branch
-    op = OpcodeBranch;
-    #1;
-    check1("branch reg_write", reg_write, 1'b0);
-    check3("branch imm_src", imm_src, ImmB);
-    check1("branch alu_src", alu_src, 1'b0);
-    check1("branch mem_write", mem_write, 1'b0);
-    check1("branch branch", branch, 1'b1);
-    check1("branch jump", jump, 1'b0);
-    check2("branch alu_op", alu_op, AluBranch);
-    check2("branch alu_a_src", alu_a_src, SrcARs1);
-    check1("branch pc_target_src", pc_target_src, 1'b0);
-
-    // jal
-    op = OpcodeJal;
-    #1;
-    check1("jal reg_write", reg_write, 1'b1);
-    check3("jal imm_src", imm_src, ImmJ);
-    check1("jal mem_write", mem_write, 1'b0);
-    check2("jal result_src", result_src, ResPc4);
-    check1("jal branch", branch, 1'b0);
-    check1("jal jump", jump, 1'b1);
-    check2("jal alu_a_src", alu_a_src, SrcARs1);
-    check1("jal pc_target_src", pc_target_src, 1'b0);
-
-    // jalr
-    op = OpcodeJalr;
-    #1;
-    check1("jalr reg_write", reg_write, 1'b1);
-    check3("jalr imm_src", imm_src, ImmI);
-    check1("jalr alu_src", alu_src, 1'b1);
-    check1("jalr mem_write", mem_write, 1'b0);
-    check2("jalr result_src", result_src, ResPc4);
-    check1("jalr branch", branch, 1'b0);
-    check1("jalr jump", jump, 1'b1);
-    check2("jalr alu_op", alu_op, AluAdd);
-    check2("jalr alu_a_src", alu_a_src, SrcARs1);
-    check1("jalr pc_target_src", pc_target_src, 1'b1);
-
-    // lui
-    op = OpcodeLui;
-    #1;
-    check1("lui reg_write", reg_write, 1'b1);
-    check3("lui imm_src", imm_src, ImmU);
-    check1("lui alu_src", alu_src, 1'b1);
-    check1("lui mem_write", mem_write, 1'b0);
-    check2("lui result_src", result_src, ResAlu);
-    check1("lui branch", branch, 1'b0);
-    check1("lui jump", jump, 1'b0);
-    check2("lui alu_op", alu_op, AluAdd);
-    check2("lui alu_a_src", alu_a_src, SrcAZero);
-    check1("lui pc_target_src", pc_target_src, 1'b0);
-
-    // auipc
-    op = OpcodeAuipc;
-    #1;
-    check1("auipc reg_write", reg_write, 1'b1);
-    check3("auipc imm_src", imm_src, ImmU);
-    check1("auipc alu_src", alu_src, 1'b1);
-    check1("auipc mem_write", mem_write, 1'b0);
-    check2("auipc result_src", result_src, ResAlu);
-    check1("auipc branch", branch, 1'b0);
-    check1("auipc jump", jump, 1'b0);
-    check2("auipc alu_op", alu_op, AluAdd);
-    check2("auipc alu_a_src", alu_a_src, SrcAPc);
-    check1("auipc pc_target_src", pc_target_src, 1'b0);
-
-    // Illegal opcode
-    op = 7'b1111111;
-    #1;
-    check1("illegal reg_write", reg_write, 1'b0);
-    check1("illegal mem_write", mem_write, 1'b0);
-
+    // Float and vector
     chk_op_fp();
     chk_flw();
     chk_fsw();
     chk_fused();
     chk_vec_mem();
 
-    verdict();
+    // System and M
+    chk_priv();
+    chk_csr();
+    chk_sys_rsvd();
+    chk_muldiv(OpcodeOp);
+    chk_muldiv(OpcodeOpImm);
+    soak(SoakOps);
+
+    do_verdict();
   end
+
+  function automatic logic csr_ref(input logic [OpW-1:0] o, input logic [Funct3W-1:0] f3);
+    csr_ref = 1'b0;
+    for (int i = 0; i < $size(csr_funct3s); i++) begin
+      if (o == OpcodeSystem && f3 == csr_funct3s[i]) csr_ref = 1'b1;
+    end
+  endfunction
+
+  function automatic logic [FieldW-1:0] priv_ref(
+      input logic [OpW-1:0] o, input logic [Funct3W-1:0] f3, input logic [Funct12W-1:0] f12,
+      input logic [Funct12W-1:0] code);
+    priv_ref = FieldW'(o == OpcodeSystem && f3 == Funct3Priv && f12 == code);
+  endfunction
+
+  function automatic logic muldiv_ref(input logic [OpW-1:0] o, input logic [Funct12W-1:0] f12);
+    muldiv_ref = o == OpcodeOp && f12[Funct12W-1-:Funct7W] == Funct7MulDiv;
+  endfunction
 
 endmodule
 

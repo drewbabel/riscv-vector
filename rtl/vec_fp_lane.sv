@@ -7,19 +7,24 @@ module vec_fp_lane
   import fp_pkg::Funct3Fmin, fp_pkg::Funct3Fmax;
   import fp_pkg::Funct3Fle, fp_pkg::Funct3Flt, fp_pkg::Funct3Feq, fp_pkg::Funct3Fclass;
   import fp_pkg::FpAddLatency, fp_pkg::FpMulLatency, fp_pkg::FpFmaLatency;
-(
-    input  wire                  clk,
-    input  wire                  rst_n,
-    input  wire                  core_en,
-    input  wire                  valid,
-    input  wire vec_fop_e        op,
-    input  wire           [ 2:0] rm,
-    input  wire           [31:0] a,
-    input  wire           [31:0] b,
-    input  wire           [31:0] c,
-    output logic          [31:0] result,
-    output logic          [ 4:0] fflags,
-    output logic                 result_valid
+  import fp_pkg::FlagW, fp_pkg::RmW;
+#(
+    parameter  int ExpW  = fp_pkg::ExpW,
+    parameter  int FracW = fp_pkg::FracW,
+    localparam int FLEN  = 1 + ExpW + FracW
+) (
+    input  wire                       clk,
+    input  wire                       rst_n,
+    input  wire                       core_en,
+    input  wire                       valid,
+    input  wire vec_fop_e             op,
+    input  wire           [  RmW-1:0] rm,
+    input  wire           [ FLEN-1:0] a,
+    input  wire           [ FLEN-1:0] b,
+    input  wire           [ FLEN-1:0] c,
+    output logic          [ FLEN-1:0] result,
+    output logic          [FlagW-1:0] fflags,
+    output logic                      result_valid
 );
 
   localparam int Latency = VecFpLatency;
@@ -35,19 +40,19 @@ module vec_fp_lane
     SEL_MISC,
     SEL_MOVE,
     SEL_EST
-  } sel_e;
+  } sel_t;
 
-  sel_e        sel_d;
-  logic        sub_d;
-  logic        neg_prod_d;
-  logic        neg_add_d;
-  logic        inv_d;
-  logic        root_d;
-  logic [ 4:0] funct5_d;
-  logic [ 2:0] funct3_d;
-  logic [31:0] x_d;
-  logic [31:0] y_d;
-  logic [31:0] z_d;
+  sel_t            sel_d;
+  logic            sub_d;
+  logic            neg_prod_d;
+  logic            neg_add_d;
+  logic            inv_d;
+  logic            root_d;
+  logic [     4:0] funct5_d;
+  logic [     2:0] funct3_d;
+  logic [FLEN-1:0] x_d;
+  logic [FLEN-1:0] y_d;
+  logic [FLEN-1:0] z_d;
 
   always_comb begin
     sel_d      = SEL_MISC;
@@ -135,18 +140,18 @@ module vec_fp_lane
     endcase
   end
 
-  sel_e        sel_q;
-  logic        sub_q;
-  logic        neg_prod_q;
-  logic        neg_add_q;
-  logic        inv_q;
-  logic        root_q;
-  logic [ 4:0] funct5_q;
-  logic [ 2:0] funct3_q;
-  logic [ 2:0] rm_q;
-  logic [31:0] x_q;
-  logic [31:0] y_q;
-  logic [31:0] z_q;
+  sel_t            sel_q;
+  logic            sub_q;
+  logic            neg_prod_q;
+  logic            neg_add_q;
+  logic            inv_q;
+  logic            root_q;
+  logic [     4:0] funct5_q;
+  logic [     2:0] funct3_q;
+  logic [ RmW-1:0] rm_q;
+  logic [FLEN-1:0] x_q;
+  logic [FLEN-1:0] y_q;
+  logic [FLEN-1:0] z_q;
 
   always_ff @(posedge clk) begin
     if (core_en) begin
@@ -165,20 +170,20 @@ module vec_fp_lane
     end
   end
 
-  logic [31:0] add_res;
-  logic [31:0] mul_res;
-  logic [31:0] fma_res;
-  logic [31:0] misc_res;
-  logic [ 4:0] add_flags;
-  logic [ 4:0] mul_flags;
-  logic [ 4:0] fma_flags;
-  logic [ 4:0] misc_flags;
-  logic [31:0] est_res;
-  logic [ 4:0] est_flags;
+  logic [ FLEN-1:0] add_res;
+  logic [ FLEN-1:0] mul_res;
+  logic [ FLEN-1:0] fma_res;
+  logic [ FLEN-1:0] misc_res;
+  logic [FlagW-1:0] add_flags;
+  logic [FlagW-1:0] mul_flags;
+  logic [FlagW-1:0] fma_flags;
+  logic [FlagW-1:0] misc_flags;
+  logic [ FLEN-1:0] est_res;
+  logic [FlagW-1:0] est_flags;
 
   fp_add #(
-      .ExpW (8),
-      .FracW(23)
+      .ExpW (ExpW),
+      .FracW(FracW)
   ) u_add (
       .clk(clk),
       .rst_n(rst_n),
@@ -192,8 +197,8 @@ module vec_fp_lane
   );
 
   fp_mul #(
-      .ExpW (8),
-      .FracW(23)
+      .ExpW (ExpW),
+      .FracW(FracW)
   ) u_mul (
       .clk(clk),
       .rst_n(rst_n),
@@ -206,8 +211,8 @@ module vec_fp_lane
   );
 
   fp_fma #(
-      .ExpW (8),
-      .FracW(23)
+      .ExpW (ExpW),
+      .FracW(FracW)
   ) u_fma (
       .clk(clk),
       .rst_n(rst_n),
@@ -223,8 +228,8 @@ module vec_fp_lane
   );
 
   fp_misc #(
-      .ExpW (8),
-      .FracW(23)
+      .ExpW (ExpW),
+      .FracW(FracW)
   ) u_misc (
       .funct5(funct5_q),
       .funct3(funct3_q),
@@ -235,8 +240,8 @@ module vec_fp_lane
   );
 
   fp_rec7 #(
-      .ExpW (8),
-      .FracW(23)
+      .ExpW (ExpW),
+      .FracW(FracW)
   ) u_est (
       .sqrt(root_q),
       .rm(rm_q),
@@ -245,23 +250,34 @@ module vec_fp_lane
       .fflags(est_flags)
   );
 
-  logic [31:0] misc_out;
-  logic        is_move;
-  logic        is_est;
-  logic [31:0] side_res;
-  logic [ 4:0] side_flags;
+  logic [ FLEN-1:0] misc_out;
+  logic [ FLEN-1:0] side_res;
+  logic [FlagW-1:0] side_flags;
 
-  assign misc_out   = misc_res ^ 32'(inv_q);
-  assign is_move    = sel_q == SEL_MOVE;
-  assign is_est     = sel_q == SEL_EST;
-  assign side_res   = is_move ? x_q : (is_est ? est_res : misc_out);
-  assign side_flags = is_move ? 5'b0 : (is_est ? est_flags : misc_flags);
+  assign misc_out = misc_res ^ FLEN'(inv_q);
 
-  logic [36:0] add_pipe [     AddPad+1];
-  logic [36:0] mul_pipe [     MulPad+1];
-  logic [36:0] fma_pipe [     FmaPad+1];
-  logic [36:0] side_pipe[UnitLatency+1];
-  sel_e        sel_pipe [UnitLatency+1];
+  always_comb begin
+    case (sel_q)
+      SEL_MOVE: begin
+        side_res   = x_q;
+        side_flags = '0;
+      end
+      SEL_EST: begin
+        side_res   = est_res;
+        side_flags = est_flags;
+      end
+      default: begin
+        side_res   = misc_out;
+        side_flags = misc_flags;
+      end
+    endcase
+  end
+
+  logic [FlagW+FLEN-1:0] add_pipe [     AddPad+1];
+  logic [FlagW+FLEN-1:0] mul_pipe [     MulPad+1];
+  logic [FlagW+FLEN-1:0] fma_pipe [     FmaPad+1];
+  logic [FlagW+FLEN-1:0] side_pipe[UnitLatency+1];
+  sel_t                  sel_pipe [UnitLatency+1];
 
   always_comb begin
     add_pipe[0]  = {add_flags, add_res};
@@ -283,7 +299,7 @@ module vec_fp_lane
     end
   end
 
-  logic [36:0] aligned;
+  logic [FlagW+FLEN-1:0] aligned;
 
   always_comb begin
     case (sel_pipe[UnitLatency])

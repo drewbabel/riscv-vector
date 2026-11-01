@@ -2,36 +2,43 @@
 
 module sc_datapath
   import alu_pkg::*;
+  import opcode_pkg::*;
 #(
-    parameter int XLEN = arch_pkg::XLEN
+    parameter  int XLEN       = arch_pkg::XLEN,
+    localparam int InstrBytes = arch_pkg::InstrBytes,
+    localparam int ILEN       = arch_pkg::ILEN
 ) (
-    input  wire                              clk,
-    input  wire                              core_en,
-    input  wire                              rst_n,
-    input  wire                              reg_write,
-    input  wire                   [     2:0] imm_src,
-    input  wire                   [     1:0] alu_a_src,
-    input  wire                              alu_src,
-    input  wire                   [     1:0] result_src,
-    input  wire                              csr_access,
-    input  wire                   [XLEN-1:0] csr_rdata,
-    input  wire alu_pkg::alu_op_e            alu_ctrl,
-    input  wire                              pc_src,
-    input  wire                              pc_target_src,
-    input  wire                              trap_taken,
-    input  wire                   [XLEN-1:0] trap_vector,
-    input  wire                              mret_taken,
-    input  wire                   [XLEN-1:0] mepc_out,
-    input  wire                   [XLEN-1:0] instr,
-    input  wire                   [XLEN-1:0] read_data,
-    output logic                  [XLEN-1:0] pc,
-    output logic                  [XLEN-1:0] alu_result,
-    output logic                  [XLEN-1:0] write_data,
-    output logic                  [XLEN-1:0] rs1_data,
-    output logic                             zero,
-    output logic                             lt,
-    output logic                             ltu
+    input  wire                                 clk,
+    input  wire                                 core_en,
+    input  wire                                 rst_n,
+    input  wire                                 reg_write,
+    input  wire                   [ImmSrcW-1:0] imm_src,
+    input  wire                   [  SrcAW-1:0] alu_a_src,
+    input  wire                                 alu_src,
+    input  wire                   [ResSrcW-1:0] result_src,
+    input  wire                                 csr_access,
+    input  wire                   [   XLEN-1:0] csr_rdata,
+    input  wire alu_pkg::alu_op_e               alu_ctrl,
+    input  wire                                 pc_src,
+    input  wire                                 pc_target_src,
+    input  wire                                 trap_taken,
+    input  wire                   [   XLEN-1:0] trap_vector,
+    input  wire                                 mret_taken,
+    input  wire                   [   XLEN-1:0] mepc_out,
+    input  wire                   [   ILEN-1:0] instr,
+    input  wire                   [   XLEN-1:0] read_data,
+    output logic                  [   XLEN-1:0] pc,
+    output logic                  [   XLEN-1:0] alu_result,
+    output logic                  [   XLEN-1:0] write_data,
+    output logic                  [   XLEN-1:0] rs1_data,
+    output logic                                zero,
+    output logic                                lt,
+    output logic                                ltu
 );
+
+  if (XLEN != 32) begin : g_xlen
+    $error("sc_datapath implements RV32 only");
+  end
 
   logic [XLEN-1:0] pc_next;
   logic [XLEN-1:0] pc_plus4;
@@ -44,7 +51,7 @@ module sc_datapath
 
   pc #(
       .XLEN(XLEN),
-      .RESET_ADDR('h0000_0000)
+      .RESET_ADDR(XLEN'(arch_pkg::ResetAddr))
   ) pc_inst (
       .clk(clk),
       .core_en(core_en),
@@ -88,17 +95,17 @@ module sc_datapath
       .ltu(ltu)
   );
 
-  assign pc_plus4   = pc + 4;
+  assign pc_plus4   = pc + XLEN'(InstrBytes);
   assign write_data = rs2_data;
 
   // Muxes
   always_comb begin
     // src_a
     case (alu_a_src)
-      2'd0: src_a = rs1_data;
-      2'd1: src_a = pc;
-      2'd2: src_a = '0;
-      default: src_a = '0;
+      SrcARs1:  src_a = rs1_data;
+      SrcAPc:   src_a = pc;
+      SrcAZero: src_a = '0;
+      default:  src_a = '0;
     endcase
 
     // src_b
@@ -109,9 +116,9 @@ module sc_datapath
       result = csr_rdata;
     end else begin
       case (result_src)
-        2'd0: result = alu_result;
-        2'd1: result = read_data;
-        2'd2: result = pc_plus4;
+        ResAlu:  result = alu_result;
+        ResMem:  result = read_data;
+        ResPc4:  result = pc_plus4;
         default: result = '0;
       endcase
     end

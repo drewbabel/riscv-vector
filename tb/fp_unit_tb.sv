@@ -6,13 +6,20 @@ module fp_unit_tb
 
   localparam int Xlen = arch_pkg::XLEN;
   localparam int NRegs = arch_pkg::NumRegs;
-  localparam int ShowErrors = 20;
-  localparam int RandOps = 1200;
-  localparam int MinChecks = 30000;
+  localparam int AWIDTH = arch_pkg::RegAddrW;
+  localparam int WordMax = (FLEN > Xlen) ? FLEN : Xlen;
+  localparam int DataW = (NRegs > WordMax) ? NRegs : WordMax;
+  localparam int FlagW = fp_pkg::FlagW;
+  localparam int RmW = fp_pkg::RmW;
+  localparam int F5W = $bits(Funct5Fadd);
+  localparam int F3W = $bits(Funct3Fsgnj);
+  localparam int RandOps = 1400;
+  localparam int MinChecks = 150000;
   localparam int MinStalls = 500;
   localparam int Timeout = 100000;
-  localparam logic [31:0] Qnan = 32'h7FC0_0000;
-  localparam logic [31:0] SignBit = 32'h8000_0000;
+  localparam logic [FLEN-1:0] Qnan = {1'b0, {ExpW{1'b1}}, 1'b1, {(FracW - 1) {1'b0}}};
+  localparam logic [FLEN-1:0] PosInf = {1'b0, {ExpW{1'b1}}, {FracW{1'b0}}};
+  localparam logic [FLEN-1:0] SignBit = {1'b1, {(FLEN - 1) {1'b0}}};
 
   int checks = 0;
   int errors = 0;
@@ -22,47 +29,53 @@ module fp_unit_tb
   int cycle = 0;
 
   logic clk = 1'b0;
-  logic rst_n = 1'b0;
-  logic core_en = 1'b1;
+  logic rst_n;
+  logic core_en;
 
-  logic start = 1'b0;
-  logic xstart = 1'b0;
-  logic xack = 1'b0;
-  fp_unit_e unit = FP_NONE;
-  logic sub = 1'b0;
-  logic neg_prod = 1'b0;
-  logic neg_add = 1'b0;
-  logic to_int = 1'b0;
-  logic is_unsigned = 1'b0;
-  logic sqrt = 1'b0;
-  logic [4:0] funct5 = '0;
-  logic [2:0] funct3 = '0;
-  logic [2:0] rm = '0;
-  logic [4:0] rd = '0;
-  logic [31:0] a = '0;
-  logic [31:0] b = '0;
-  logic [31:0] c = '0;
-  logic [Xlen-1:0] xa = '0;
+  logic start;
+  logic xstart;
+  logic xack;
+  fp_unit_e unit;
+  logic sub;
+  logic neg_prod;
+  logic neg_add;
+  logic to_int;
+  logic is_unsigned;
+  logic sqrt;
+  logic [F5W-1:0] funct5;
+  logic [F3W-1:0] funct3;
+  logic [RmW-1:0] rm;
+  logic [AWIDTH-1:0] rd;
+  logic [FLEN-1:0] a;
+  logic [FLEN-1:0] b;
+  logic [FLEN-1:0] c;
+  logic [Xlen-1:0] xa;
 
   logic ready;
   logic idle;
   logic [NRegs-1:0] reg_busy;
   logic wb_valid;
-  logic [4:0] wb_rd;
-  logic [31:0] wb_data;
-  logic [4:0] wb_flags;
+  logic [AWIDTH-1:0] wb_rd;
+  logic [FLEN-1:0] wb_data;
+  logic [FlagW-1:0] wb_flags;
   logic xvalid;
   logic [Xlen-1:0] xresult;
-  logic [4:0] xflags;
+  logic [FlagW-1:0] xflags;
 
-  logic [31:0] shadow[NRegs];
+  logic [FLEN-1:0] shadow[NRegs];
   logic exp_pend[NRegs];
-  logic [31:0] exp_data[NRegs];
-  logic [4:0] exp_flags[NRegs];
+  logic [FLEN-1:0] exp_data[NRegs];
+  logic [FlagW-1:0] exp_flags[NRegs];
   int exp_issue[NRegs];
   int exp_lat[NRegs];
-  logic [4:0] flags_model;
-  logic [4:0] flags_dut;
+  logic [FlagW-1:0] flags_model;
+  logic [FlagW-1:0] flags_dut;
+
+  int fd[13];
+  string rms[5] = '{"rne", "rtz", "rdn", "rup", "rmm"};
+  logic [RmW-1:0] rmv[5] = '{RmRne, RmRtz, RmRdn, RmRup, RmRmm};
+
+  initial void'($value$plusargs("max_errors=%d", max_errors));
 
   always #5 clk = ~clk;
 
@@ -100,64 +113,30 @@ module fp_unit_tb
       .xflags     (xflags)
   );
 
-  task automatic fail(input string msg);
-    errors++;
-    if (errors <= ShowErrors) $display("FAIL cycle %0d: %s", cycle, msg);
-    if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
-  endtask  // Automatic
-
-  task automatic check(input string name, input logic [31:0] got, input logic [31:0] exp);
+  task automatic check(input string name, input logic [DataW-1:0] got, input logic [DataW-1:0] exp);
     checks++;
-    if (got !== exp) fail($sformatf("%s got %h exp %h", name, got, exp));
+    if (got !== exp) begin
+      errors++;
+      $display("FAIL %s: got %h, expected %h", name, got, exp);
+      if (errors == max_errors) $fatal(1, "TB STOPPED: %0d mismatches", errors);
+    end
   endtask  // Automatic
 
-  function automatic logic [NRegs-1:0] pend_mask();
-    logic [NRegs-1:0] m;
-    for (int r = 0; r < NRegs; r++) m[r] = exp_pend[r];
-    return m;
+  function automatic string at(input string name);
+    at = $sformatf("cycle %0d %s", cycle, name);
   endfunction
 
-  task automatic idle_inputs();
-    start  = 1'b0;
-    xstart = 1'b0;
-    xack   = 1'b0;
-    unit   = fp_unit_e'($urandom_range(0, 10));
-    rm     = 3'($urandom);
-    rd     = 5'($urandom);
-    a      = $urandom;
-    b      = $urandom;
-    c      = $urandom;
-    xa     = $urandom;
-  endtask  // Automatic
-
-  task automatic tick();
-    @(posedge clk);
-    cycle++;
-    #1;
-    idle_inputs();
-    @(negedge clk);
-    if (wb_valid) begin
-      if (!exp_pend[wb_rd]) begin
-        fail($sformatf("write to f%0d with nothing pending", wb_rd));
-      end else begin
-        check($sformatf("f%0d data", wb_rd), wb_data, exp_data[wb_rd]);
-        check($sformatf("f%0d flags", wb_rd), 32'(wb_flags), 32'(exp_flags[wb_rd]));
-        if (exp_lat[wb_rd] != 0)
-          check($sformatf("f%0d latency", wb_rd), cycle - exp_issue[wb_rd], exp_lat[wb_rd]);
-        exp_pend[wb_rd] = 1'b0;
-        shadow[wb_rd]   = wb_data;
-        flags_dut       = flags_dut | wb_flags;
-        flags_model     = flags_model | exp_flags[wb_rd];
-      end
-    end
-    check("reg_busy", 32'(reg_busy), 32'(pend_mask() & ~(wb_valid ? (32'd1 << wb_rd) : 32'd0)));
-    check("idle", 32'(idle), 32'((pend_mask() | (wb_valid ? (32'd1 << wb_rd) : 32'd0)) == '0));
-    check("flags_accrued", 32'(flags_dut), 32'(flags_model));
-  endtask  // Automatic
-
   task automatic do_reset();
-    @(negedge clk);
     rst_n = 1'b0;
+    core_en = 1'b1;
+    sub = 1'b0;
+    neg_prod = 1'b0;
+    neg_add = 1'b0;
+    to_int = 1'b0;
+    is_unsigned = 1'b0;
+    sqrt = 1'b0;
+    funct5 = '0;
+    funct3 = '0;
     idle_inputs();
     for (int r = 0; r < NRegs; r++) begin
       shadow[r]   = '0;
@@ -170,22 +149,59 @@ module fp_unit_tb
     rst_n = 1'b1;
   endtask  // Automatic
 
-  function automatic int lat_of(input fp_unit_e u);
-    case (u)
-      FP_ADD:      return FpAddLatency;
-      FP_MUL:      return FpMulLatency;
-      FP_FMA:      return FpFmaLatency;
-      FP_DIV_SQRT: return 0;
-      default:     return 1;
-    endcase
+  function automatic logic [NRegs-1:0] pend_mask();
+    logic [NRegs-1:0] m;
+    for (int r = 0; r < NRegs; r++) m[r] = exp_pend[r];
+    return m;
   endfunction
 
-  task automatic fop(input fp_unit_e u, input logic [4:0] f5, input logic [2:0] f3,
-                     input logic [2:0] mode, input logic [4:0] dst, input logic [4:0] s1,
-                     input logic [4:0] s2, input logic [4:0] s3, input logic [Xlen-1:0] xin,
-                     input logic [31:0] exp_res, input logic [4:0] exp_fl);
+  task automatic idle_inputs();
+    start  = 1'b0;
+    xstart = 1'b0;
+    xack   = 1'b0;
+    unit   = fp_unit_e'($urandom_range(int'(FP_MV_W_X)));
+    rm     = RmW'($urandom);
+    rd     = AWIDTH'($urandom);
+    a      = FLEN'($urandom);
+    b      = FLEN'($urandom);
+    c      = FLEN'($urandom);
+    xa     = Xlen'($urandom);
+  endtask  // Automatic
+
+  task automatic tick();
+    logic [NRegs-1:0] wb_bit;
+    @(posedge clk);
+    cycle++;
+    #1;
+    idle_inputs();
+    @(negedge clk);
+    wb_bit = wb_valid ? (NRegs'(1) << wb_rd) : '0;
+    if (wb_valid) begin
+      check(at($sformatf("write to f%0d pending", wb_rd)), DataW'(exp_pend[wb_rd]), DataW'(1'b1));
+      if (exp_pend[wb_rd]) begin
+        check(at($sformatf("f%0d data", wb_rd)), DataW'(wb_data), DataW'(exp_data[wb_rd]));
+        check(at($sformatf("f%0d flags", wb_rd)), DataW'(wb_flags), DataW'(exp_flags[wb_rd]));
+        if (exp_lat[wb_rd] != 0)
+          check(at($sformatf("f%0d latency", wb_rd)), DataW'(cycle - exp_issue[wb_rd]),
+                DataW'(exp_lat[wb_rd]));
+        exp_pend[wb_rd] = 1'b0;
+        shadow[wb_rd]   = wb_data;
+        flags_dut       = flags_dut | wb_flags;
+        flags_model     = flags_model | exp_flags[wb_rd];
+      end
+    end
+    check(at("reg_busy"), DataW'(reg_busy), DataW'(pend_mask() & ~wb_bit));
+    check(at("idle"), DataW'(idle), DataW'((pend_mask() | wb_bit) == '0));
+    check(at("flags_accrued"), DataW'(flags_dut), DataW'(flags_model));
+  endtask  // Automatic
+
+  task automatic fop(input fp_unit_e u, input logic [F5W-1:0] f5, input logic [F3W-1:0] f3,
+                     input logic [RmW-1:0] mode, input logic [AWIDTH-1:0] dst,
+                     input logic [AWIDTH-1:0] s1, input logic [AWIDTH-1:0] s2,
+                     input logic [AWIDTH-1:0] s3, input logic [Xlen-1:0] xin,
+                     input logic [FLEN-1:0] exp_res, input logic [FlagW-1:0] exp_fl);
     logic [NRegs-1:0] need;
-    need = (32'd1 << dst) | (32'd1 << s1) | (32'd1 << s2) | (32'd1 << s3);
+    need = (NRegs'(1) << dst) | (NRegs'(1) << s1) | (NRegs'(1) << s2) | (NRegs'(1) << s3);
     forever begin
       if ((reg_busy & need) != '0) begin
         busy_stalls++;
@@ -221,16 +237,17 @@ module fp_unit_tb
     tick();
   endtask  // Automatic
 
-  task automatic load(input logic [4:0] dst, input logic [31:0] val);
-    fop(FP_MV_W_X, Funct5FmvWX, 3'd0, 3'($urandom), dst, dst, dst, dst, val, val, '0);
+  task automatic load(input logic [AWIDTH-1:0] dst, input logic [FLEN-1:0] val);
+    fop(FP_MV_W_X, Funct5FmvWX, Funct3Fmv, RmW'($urandom), dst, dst, dst, dst, Xlen'(val), val, '0);
   endtask  // Automatic
 
-  task automatic xop(input fp_unit_e u, input logic [4:0] f5, input logic [2:0] f3, input logic ti,
-                     input logic uns, input logic [2:0] mode, input logic [4:0] s1,
-                     input logic [4:0] s2, input logic [31:0] exp_res, input logic [4:0] exp_fl,
+  task automatic xop(input fp_unit_e u, input logic [F5W-1:0] f5, input logic [F3W-1:0] f3,
+                     input logic ti, input logic uns, input logic [RmW-1:0] mode,
+                     input logic [AWIDTH-1:0] s1, input logic [AWIDTH-1:0] s2,
+                     input logic [Xlen-1:0] exp_res, input logic [FlagW-1:0] exp_fl,
                      input logic retire);
     logic [NRegs-1:0] need;
-    need = (32'd1 << s1) | (32'd1 << s2);
+    need = (NRegs'(1) << s1) | (NRegs'(1) << s2);
     while ((reg_busy & need) != '0) begin
       busy_stalls++;
       tick();
@@ -245,16 +262,16 @@ module fp_unit_tb
     b           = shadow[s2];
     xstart      = 1'b1;
     #1;
-    check("xvalid_before", 32'(xvalid), 32'd0);
+    check(at("xvalid_before"), DataW'(xvalid), DataW'(1'b0));
     tick();
-    check("xvalid", 32'(xvalid), 32'd1);
-    check("xresult", xresult, exp_res);
-    check("xflags", 32'(xflags), 32'(exp_fl));
+    check(at("xvalid"), DataW'(xvalid), DataW'(1'b1));
+    check(at("xresult"), DataW'(xresult), DataW'(exp_res));
+    check(at("xflags"), DataW'(xflags), DataW'(exp_fl));
     if (retire) flags_model = flags_model | exp_fl;
     if (retire) flags_dut = flags_dut | xflags;
     xack = 1'b1;
     tick();
-    check("xvalid_after", 32'(xvalid), 32'd0);
+    check(at("xvalid_after"), DataW'(xvalid), DataW'(1'b0));
   endtask  // Automatic
 
   task automatic drain();
@@ -264,109 +281,80 @@ module fp_unit_tb
       tick();
       n++;
     end
-    check("drained", 32'(pend_mask()), 32'd0);
+    check(at("drained"), DataW'(pend_mask()), '0);
   endtask  // Automatic
-
-  function automatic logic is_nan(input logic [31:0] x);
-    return (x[30:23] == 8'hFF) && (x[22:0] != 0);
-  endfunction
-
-  function automatic logic is_snan(input logic [31:0] x);
-    return is_nan(x) && !x[22];
-  endfunction
-
-  function automatic logic [31:0] fclass_of(input logic [31:0] x);
-    logic sign;
-    logic [7:0] e;
-    logic [22:0] f;
-    sign = x[31];
-    e = x[30:23];
-    f = x[22:0];
-    if (e == 8'hFF && f == 0) return sign ? 32'd1 : 32'd128;
-    if (e == 8'hFF) return f[22] ? 32'd512 : 32'd256;
-    if (e == 0 && f == 0) return sign ? 32'd8 : 32'd16;
-    if (e == 0) return sign ? 32'd4 : 32'd32;
-    return sign ? 32'd2 : 32'd64;
-  endfunction
-
-  function automatic logic lt_total(input logic [31:0] x, input logic [31:0] y);
-    if (x[31] != y[31]) return x[31];
-    if (x[31]) return x[30:0] > y[30:0];
-    return x[30:0] < y[30:0];
-  endfunction
-
-  task automatic minmax_model(input logic is_max, input logic [31:0] x, input logic [31:0] y,
-                              output logic [31:0] res, output logic [4:0] fl);
-    fl = (is_snan(x) || is_snan(y)) ? FlagNv : '0;
-    if (is_nan(x) && is_nan(y)) res = Qnan;
-    else if (is_nan(x)) res = y;
-    else if (is_nan(y)) res = x;
-    else if (is_max) res = lt_total(x, y) ? y : x;
-    else res = lt_total(x, y) ? x : y;
-  endtask  // Automatic
-
-  function automatic logic [31:0] sgnj_model(input logic [2:0] f3, input logic [31:0] x,
-                                             input logic [31:0] y);
-    case (f3)
-      Funct3Fsgnj:  return {y[31], x[30:0]};
-      Funct3Fsgnjn: return {!y[31], x[30:0]};
-      default:      return {x[31] ^ y[31], x[30:0]};
-    endcase
-  endfunction
 
   task automatic test_directed();
-    load(5'd1, 32'h3F80_0000);
-    load(5'd2, 32'h4040_0000);
-    load(5'd3, 32'hBFC0_0000);
-    load(5'd4, 32'h3EAA_AAAB);
+    load(AWIDTH'(1), 32'h3F80_0000);
+    load(AWIDTH'(2), 32'h4040_0000);
+    load(AWIDTH'(3), 32'hBFC0_0000);
+    load(AWIDTH'(4), 32'h3EAA_AAAB);
 
-    fop(FP_ADD, Funct5Fadd, RmRne, RmRne, 5'd10, 5'd1, 5'd2, 5'd0, '0, 32'h4080_0000, '0);
-    fop(FP_ADD, Funct5Fsub, RmRne, RmRne, 5'd11, 5'd1, 5'd2, 5'd0, '0, 32'hC000_0000, '0);
-    fop(FP_MUL, Funct5Fmul, RmRne, RmRne, 5'd12, 5'd2, 5'd3, 5'd0, '0, 32'hC090_0000, '0);
-    fop(FP_FMA, 5'd0, RmRne, RmRne, 5'd13, 5'd1, 5'd2, 5'd3, '0, 32'h3FC0_0000, '0);
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, 5'd14, 5'd1, 5'd2, 5'd0, '0, 32'h3EAA_AAAB, FlagNx);
-    fop(FP_DIV_SQRT, Funct5Fsqrt, RmRne, RmRne, 5'd15, 5'd2, 5'd0, 5'd0, '0, 32'h3FDD_B3D7, FlagNx);
-    fop(FP_MISC, Funct5Fsgnj, Funct3Fsgnjn, 3'd0, 5'd16, 5'd2, 5'd3, 5'd0, '0, 32'h4040_0000, '0);
-    fop(FP_MISC, Funct5Fminmax, Funct3Fmin, 3'd0, 5'd17, 5'd1, 5'd3, 5'd0, '0, 32'hBFC0_0000, '0);
-    fop(FP_CVT, Funct5FcvtSW, 3'd0, RmRne, 5'd18, 5'd0, 5'd0, 5'd0, 32'hFFFF_FFF9, 32'hC0E0_0000,
-        '0);
-    fop(FP_CVT, Funct5FcvtSW, 3'd1, RmRne, 5'd19, 5'd0, 5'd0, 5'd0, 32'hFFFF_FFF9, 32'h4F80_0000,
-        FlagNx);
+    fop(FP_ADD, Funct5Fadd, RmRne, RmRne, AWIDTH'(5), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h4080_0000, '0);
+    fop(FP_ADD, Funct5Fsub, RmRne, RmRne, AWIDTH'(6), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        32'hC000_0000, '0);
+    fop(FP_MUL, Funct5Fmul, RmRne, RmRne, AWIDTH'(7), AWIDTH'(2), AWIDTH'(3), AWIDTH'(0), '0,
+        32'hC090_0000, '0);
+    fop(FP_FMA, F5W'(0), RmRne, RmRne, AWIDTH'(8), AWIDTH'(1), AWIDTH'(2), AWIDTH'(3), '0,
+        32'h3FC0_0000, '0);
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(9), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h3EAA_AAAB, FlagNx);
+    fop(FP_DIV_SQRT, Funct5Fsqrt, RmRne, RmRne, AWIDTH'(10), AWIDTH'(2), AWIDTH'(0), AWIDTH'(0), '0,
+        32'h3FDD_B3D7, FlagNx);
+    fop(FP_MISC, Funct5Fsgnj, Funct3Fsgnjn, RmRne, AWIDTH'(11), AWIDTH'(2), AWIDTH'(3), AWIDTH'(0),
+        '0, 32'h4040_0000, '0);
+    fop(FP_MISC, Funct5Fminmax, Funct3Fmin, RmRne, AWIDTH'(12), AWIDTH'(1), AWIDTH'(3), AWIDTH'(0),
+        '0, 32'hBFC0_0000, '0);
+    fop(FP_CVT, Funct5FcvtSW, F3W'(0), RmRne, AWIDTH'(13), AWIDTH'(0), AWIDTH'(0), AWIDTH'(0),
+        32'hFFFF_FFF9, 32'hC0E0_0000, '0);
+    fop(FP_CVT, Funct5FcvtSW, F3W'(1), RmRne, AWIDTH'(14), AWIDTH'(0), AWIDTH'(0), AWIDTH'(0),
+        32'hFFFF_FFF9, 32'h4F80_0000, FlagNx);
     drain();
 
-    xop(FP_MISC, Funct5Fcmp, Funct3Flt, 1'b0, 1'b0, 3'd0, 5'd1, 5'd2, 32'd1, '0, 1'b1);
-    xop(FP_MISC, Funct5FmvXW, Funct3Fclass, 1'b0, 1'b0, 3'd0, 5'd3, 5'd0, 32'd2, '0, 1'b1);
-    xop(FP_MV_X_W, Funct5FmvXW, Funct3Fmv, 1'b0, 1'b0, 3'd0, 5'd4, 5'd0, 32'h3EAA_AAAB, '0, 1'b1);
-    xop(FP_CVT, Funct5FcvtWS, 3'd0, 1'b1, 1'b0, RmRtz, 5'd3, 5'd0, 32'hFFFF_FFFF, FlagNx, 1'b1);
-    xop(FP_CVT, Funct5FcvtWS, 3'd0, 1'b1, 1'b1, RmRne, 5'd3, 5'd0, 32'd0, FlagNv, 1'b1);
+    xop(FP_MISC, Funct5Fcmp, Funct3Flt, 1'b0, 1'b0, RmRne, AWIDTH'(1), AWIDTH'(2), Xlen'(1), '0,
+        1'b1);
+    xop(FP_MISC, Funct5FmvXW, Funct3Fclass, 1'b0, 1'b0, RmRne, AWIDTH'(3), AWIDTH'(0), Xlen'(2), '0,
+        1'b1);
+    xop(FP_MV_X_W, Funct5FmvXW, Funct3Fmv, 1'b0, 1'b0, RmRne, AWIDTH'(4), AWIDTH'(0), 32'h3EAA_AAAB,
+        '0, 1'b1);
+    xop(FP_CVT, Funct5FcvtWS, F3W'(0), 1'b1, 1'b0, RmRtz, AWIDTH'(3), AWIDTH'(0), '1, FlagNx, 1'b1);
+    xop(FP_CVT, Funct5FcvtWS, F3W'(0), 1'b1, 1'b1, RmRne, AWIDTH'(3), AWIDTH'(0), Xlen'(0), FlagNv,
+        1'b1);
   endtask  // Automatic
 
   task automatic test_dependent();
     int t0;
-    load(5'd1, 32'h3F80_0000);
-    load(5'd2, 32'h4000_0000);
+    load(AWIDTH'(1), 32'h3F80_0000);
+    load(AWIDTH'(2), 32'h4000_0000);
     t0 = busy_stalls;
-    fop(FP_MUL, Funct5Fmul, RmRne, RmRne, 5'd5, 5'd2, 5'd2, 5'd0, '0, 32'h4080_0000, '0);
-    fop(FP_ADD, Funct5Fadd, RmRne, RmRne, 5'd6, 5'd5, 5'd1, 5'd0, '0, 32'h40A0_0000, '0);
-    check("dependent_add_stalled", 32'(busy_stalls - t0 >= FpMulLatency - 1), 32'd1);
-    fop(FP_FMA, 5'd0, RmRne, RmRne, 5'd5, 5'd6, 5'd6, 5'd5, '0, 32'h41E8_0000, '0);
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, 5'd7, 5'd5, 5'd2, 5'd0, '0, 32'h4168_0000, '0);
-    fop(FP_ADD, Funct5Fadd, RmRne, RmRne, 5'd7, 5'd7, 5'd7, 5'd0, '0, 32'h41E8_0000, '0);
+    fop(FP_MUL, Funct5Fmul, RmRne, RmRne, AWIDTH'(5), AWIDTH'(2), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h4080_0000, '0);
+    fop(FP_ADD, Funct5Fadd, RmRne, RmRne, AWIDTH'(6), AWIDTH'(5), AWIDTH'(1), AWIDTH'(0), '0,
+        32'h40A0_0000, '0);
+    check(at("dependent_add_stalled"), DataW'(busy_stalls - t0 >= FpMulLatency - 1), DataW'(1'b1));
+    fop(FP_FMA, F5W'(0), RmRne, RmRne, AWIDTH'(5), AWIDTH'(6), AWIDTH'(6), AWIDTH'(5), '0,
+        32'h41E8_0000, '0);
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(7), AWIDTH'(5), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h4168_0000, '0);
+    fop(FP_ADD, Funct5Fadd, RmRne, RmRne, AWIDTH'(7), AWIDTH'(7), AWIDTH'(7), AWIDTH'(0), '0,
+        32'h41E8_0000, '0);
     drain();
-    xop(FP_MV_X_W, Funct5FmvXW, Funct3Fmv, 1'b0, 1'b0, 3'd0, 5'd7, 5'd0, 32'h41E8_0000, '0, 1'b1);
+    xop(FP_MV_X_W, Funct5FmvXW, Funct3Fmv, 1'b0, 1'b0, RmRne, AWIDTH'(7), AWIDTH'(0), 32'h41E8_0000,
+        '0, 1'b1);
   endtask  // Automatic
 
   task automatic test_booking();
-    load(5'd1, 32'h3F80_0000);
-    load(5'd2, 32'h4000_0000);
+    load(AWIDTH'(1), 32'h3F80_0000);
+    load(AWIDTH'(2), 32'h4000_0000);
     drain();
     unit = FP_MUL;
-    rd = 5'd8;
+    rd = AWIDTH'(8);
     a = shadow[1];
     b = shadow[2];
     rm = RmRne;
     #1;
-    check("mul_ready_idle", 32'(ready), 32'd1);
+    check(at("mul_ready_idle"), DataW'(ready), DataW'(1'b1));
     start        = 1'b1;
     exp_pend[8]  = 1'b1;
     exp_data[8]  = 32'h4000_0000;
@@ -376,119 +364,133 @@ module fp_unit_tb
     tick();
     unit = FP_ADD;
     #1;
-    check("add_behind_mul_clash", 32'(ready), (FpAddLatency == FpMulLatency - 1) ? 32'd0 : 32'd1);
+    check(at("add_behind_mul_clash"), DataW'(ready), DataW'(FpAddLatency != FpMulLatency - 1));
     unit = FP_MUL;
     #1;
-    check("mul_behind_mul_free", 32'(ready), 32'd1);
+    check(at("mul_behind_mul_free"), DataW'(ready), DataW'(1'b1));
     unit = FP_DIV_SQRT;
     #1;
-    check("div_free_beside_mul", 32'(ready), 32'd1);
+    check(at("div_free_beside_mul"), DataW'(ready), DataW'(1'b1));
     drain();
 
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, 5'd9, 5'd1, 5'd2, 5'd0, '0, 32'h3F00_0000, '0);
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(9), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h3F00_0000, '0);
     unit = FP_DIV_SQRT;
     #1;
-    check("div_busy_not_ready", 32'(ready), 32'd0);
+    check(at("div_busy_not_ready"), DataW'(ready), DataW'(1'b0));
     for (int i = 0; i < 6; i++) begin
-      fop(FP_ADD, Funct5Fadd, RmRne, RmRne, 5'(10 + i), 5'd1, 5'd1, 5'd0, '0, 32'h4000_0000, '0);
-      check("div_still_pending", 32'(exp_pend[9]), 32'd1);
+      fop(FP_ADD, Funct5Fadd, RmRne, RmRne, AWIDTH'(10 + i), AWIDTH'(1), AWIDTH'(1), AWIDTH'(0), '0,
+          32'h4000_0000, '0);
+      check(at("div_still_pending"), DataW'(exp_pend[9]), DataW'(1'b1));
     end
     drain();
   endtask  // Automatic
 
   task automatic test_rm_at_start();
-    load(5'd1, 32'h4B80_0001);
-    load(5'd2, 32'h3F80_0000);
-    load(5'd3, 32'hBF80_0000);
-    fop(FP_ADD, Funct5Fadd, RmRup, RmRup, 5'd4, 5'd1, 5'd2, 5'd0, '0, 32'h4B80_0002, FlagNx);
-    fop(FP_ADD, Funct5Fadd, RmRne, RmRne, 5'd5, 5'd1, 5'd2, 5'd0, '0, 32'h4B80_0002, FlagNx);
-    fop(FP_ADD, Funct5Fadd, RmRtz, RmRtz, 5'd6, 5'd1, 5'd2, 5'd0, '0, 32'h4B80_0001, FlagNx);
-    fop(FP_ADD, Funct5Fadd, RmRdn, RmRdn, 5'd7, 5'd1, 5'd3, 5'd0, '0, 32'h4B80_0000, FlagNx);
-    fop(FP_MUL, Funct5Fmul, RmRtz, RmRtz, 5'd8, 5'd1, 5'd2, 5'd0, '0, 32'h4B80_0001, '0);
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRup, RmRup, 5'd9, 5'd2, 5'd1, 5'd0, '0, 32'h337F_FFFF, FlagNx);
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRtz, RmRtz, 5'd10, 5'd2, 5'd1, 5'd0, '0, 32'h337F_FFFE, FlagNx);
+    load(AWIDTH'(1), 32'h4B80_0001);
+    load(AWIDTH'(2), 32'h3F80_0000);
+    load(AWIDTH'(3), 32'hBF80_0000);
+    fop(FP_ADD, Funct5Fadd, RmRup, RmRup, AWIDTH'(4), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h4B80_0002, FlagNx);
+    fop(FP_ADD, Funct5Fadd, RmRne, RmRne, AWIDTH'(5), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h4B80_0002, FlagNx);
+    fop(FP_ADD, Funct5Fadd, RmRtz, RmRtz, AWIDTH'(6), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h4B80_0001, FlagNx);
+    fop(FP_ADD, Funct5Fadd, RmRdn, RmRdn, AWIDTH'(7), AWIDTH'(1), AWIDTH'(3), AWIDTH'(0), '0,
+        32'h4B80_0000, FlagNx);
+    fop(FP_MUL, Funct5Fmul, RmRtz, RmRtz, AWIDTH'(8), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h4B80_0001, '0);
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRup, RmRup, AWIDTH'(9), AWIDTH'(2), AWIDTH'(1), AWIDTH'(0), '0,
+        32'h337F_FFFF, FlagNx);
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRtz, RmRtz, AWIDTH'(10), AWIDTH'(2), AWIDTH'(1), AWIDTH'(0), '0,
+        32'h337F_FFFE, FlagNx);
     drain();
   endtask  // Automatic
 
   task automatic test_cancel();
-    logic [4:0] prior;
-    load(5'd1, 32'h3F80_0000);
-    load(5'd2, 32'h0000_0000);
+    logic [FlagW-1:0] prior;
+    load(AWIDTH'(1), 32'h3F80_0000);
+    load(AWIDTH'(2), 32'h0000_0000);
     drain();
     prior = flags_dut;
     unit = FP_DIV_SQRT;
     funct5 = Funct5Fdiv;
-    rd = 5'd20;
+    rd = AWIDTH'(12);
     a = shadow[1];
     b = shadow[2];
     #1;
-    check("cancel_ready", 32'(ready), 32'd1);
+    check(at("cancel_ready"), DataW'(ready), DataW'(1'b1));
     tick();
     unit = FP_ADD;
-    rd = 5'd21;
+    rd = AWIDTH'(13);
     a = 32'h7F80_0001;
     #1;
     tick();
     repeat (40) tick();
-    check("cancel_no_flags", 32'(flags_dut), 32'(prior));
-    check("cancel_idle", 32'(idle), 32'd1);
-    xop(FP_MISC, Funct5Fcmp, Funct3Flt, 1'b0, 1'b0, 3'd0, 5'd1, 5'd1, 32'd0, '0, 1'b0);
-    load(5'd3, 32'h7F80_0001);
-    xop(FP_MISC, Funct5Fcmp, Funct3Feq, 1'b0, 1'b0, 3'd0, 5'd3, 5'd1, 32'd0, FlagNv, 1'b0);
-    check("cancelled_xop_no_flags", 32'(flags_dut), 32'(prior));
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, 5'd20, 5'd1, 5'd2, 5'd0, '0, 32'h7F80_0000, FlagDz);
+    check(at("cancel_no_flags"), DataW'(flags_dut), DataW'(prior));
+    check(at("cancel_idle"), DataW'(idle), DataW'(1'b1));
+    xop(FP_MISC, Funct5Fcmp, Funct3Flt, 1'b0, 1'b0, RmRne, AWIDTH'(1), AWIDTH'(1), Xlen'(0), '0,
+        1'b0);
+    load(AWIDTH'(3), 32'h7F80_0001);
+    xop(FP_MISC, Funct5Fcmp, Funct3Feq, 1'b0, 1'b0, RmRne, AWIDTH'(3), AWIDTH'(1), Xlen'(0), FlagNv,
+        1'b0);
+    check(at("cancelled_xop_no_flags"), DataW'(flags_dut), DataW'(prior));
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(12), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        PosInf, FlagDz);
     drain();
-    check("retired_div_flags", 32'(flags_dut), 32'(prior | FlagDz));
+    check(at("retired_div_flags"), DataW'(flags_dut), DataW'(prior | FlagDz));
   endtask  // Automatic
 
   task automatic test_stall_core_en();
-    load(5'd1, 32'h3F80_0000);
-    load(5'd2, 32'h4000_0000);
-    fop(FP_MUL, Funct5Fmul, RmRne, RmRne, 5'd3, 5'd2, 5'd2, 5'd0, '0, 32'h4080_0000, '0);
+    load(AWIDTH'(1), 32'h3F80_0000);
+    load(AWIDTH'(2), 32'h4000_0000);
+    fop(FP_MUL, Funct5Fmul, RmRne, RmRne, AWIDTH'(3), AWIDTH'(2), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h4080_0000, '0);
     exp_lat[3] = 0;
-    @(posedge clk);
-    #1;
+    @(negedge clk);
     core_en = 1'b0;
     repeat (5) @(posedge clk);
-    #1;
+    @(negedge clk);
     core_en = 1'b1;
     drain();
-    xop(FP_MV_X_W, Funct5FmvXW, Funct3Fmv, 1'b0, 1'b0, 3'd0, 5'd3, 5'd0, 32'h4080_0000, '0, 1'b1);
+    xop(FP_MV_X_W, Funct5FmvXW, Funct3Fmv, 1'b0, 1'b0, RmRne, AWIDTH'(3), AWIDTH'(0), 32'h4080_0000,
+        '0, 1'b1);
   endtask  // Automatic
 
   task automatic test_div_done_cycle();
     int lat;
     int t9;
-    load(5'd1, 32'h3F80_0000);
-    load(5'd2, 32'h4040_0000);
+    load(AWIDTH'(1), 32'h3F80_0000);
+    load(AWIDTH'(2), 32'h4040_0000);
     drain();
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, 5'd9, 5'd1, 5'd2, 5'd0, '0, 32'h3EAA_AAAB, FlagNx);
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(9), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h3EAA_AAAB, FlagNx);
     t9 = exp_issue[9];
     while (exp_pend[9]) tick();
     lat = cycle - t9;
 
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, 5'd9, 5'd1, 5'd2, 5'd0, '0, 32'h3EAA_AAAB, FlagNx);
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(9), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h3EAA_AAAB, FlagNx);
     t9 = exp_issue[9];
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, 5'd10, 5'd2, 5'd1, 5'd0, '0, 32'h4040_0000, '0);
-    check("div_starts_in_done_cycle", exp_issue[10] - t9, lat);
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(10), AWIDTH'(2), AWIDTH'(1), AWIDTH'(0), '0,
+        32'h4040_0000, '0);
+    check(at("div_starts_in_done_cycle"), DataW'(exp_issue[10] - t9), DataW'(lat));
     drain();
 
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, 5'd9, 5'd1, 5'd2, 5'd0, '0, 32'h3EAA_AAAB, FlagNx);
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(9), AWIDTH'(1), AWIDTH'(2), AWIDTH'(0), '0,
+        32'h3EAA_AAAB, FlagNx);
     t9 = exp_issue[9];
     while (cycle < t9 + lat - 1) tick();
-    load(5'd11, 32'h4000_0000);
-    check("mv_writes_in_done_cycle", exp_issue[11] - t9, lat - 1);
-    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, 5'd10, 5'd2, 5'd1, 5'd0, '0, 32'h4040_0000, '0);
-    check("div_waits_for_pended_write", exp_issue[10] - t9, lat + 1);
+    load(AWIDTH'(11), 32'h4000_0000);
+    check(at("mv_writes_in_done_cycle"), DataW'(exp_issue[11] - t9), DataW'(lat - 1));
+    fop(FP_DIV_SQRT, Funct5Fdiv, RmRne, RmRne, AWIDTH'(10), AWIDTH'(2), AWIDTH'(1), AWIDTH'(0), '0,
+        32'h4040_0000, '0);
+    check(at("div_waits_for_pended_write"), DataW'(exp_issue[10] - t9), DataW'(lat + 1));
     drain();
   endtask  // Automatic
 
-  int fd[13];
-  string rms[5] = '{"rne", "rtz", "rdn", "rup", "rmm"};
-  logic [2:0] rmv[5] = '{RmRne, RmRtz, RmRdn, RmRup, RmRmm};
-
   task automatic open_files(input int k);
-    string names[13];
+    string names[$size(fd)];
     string skip;
     names[0]  = {"f32_add_", rms[k]};
     names[1]  = {"f32_sub_", rms[k]};
@@ -503,15 +505,15 @@ module fp_unit_tb
     names[10] = "f32_eq";
     names[11] = "f32_lt";
     names[12] = "f32_le";
-    for (int i = 0; i < 13; i++) begin
+    for (int i = 0; i < $size(fd); i++) begin
       fd[i] = $fopen({"build/testfloat/", names[i], ".txt"}, "r");
       if (fd[i] == 0) $fatal(1, "TB MISSING FILE: %s (run make testfloat)", names[i]);
-      for (int s = $urandom_range(0, 300); s > 0; s--) void'($fgets(skip, fd[i]));
+      for (int s = $urandom_range(300); s > 0; s--) void'($fgets(skip, fd[i]));
     end
   endtask  // Automatic
 
   task automatic close_files();
-    for (int i = 0; i < 13; i++) $fclose(fd[i]);
+    for (int i = 0; i < $size(fd); i++) $fclose(fd[i]);
   endtask  // Automatic
 
   task automatic refill(input int k);
@@ -521,20 +523,20 @@ module fp_unit_tb
     else void'($ungetc(ch, fd[k]));
   endtask  // Automatic
 
-  function automatic logic [4:0] pick_reg();
-    return 5'($urandom_range(0, NRegs - 1));
+  function automatic logic [AWIDTH-1:0] pick_reg();
+    return AWIDTH'($urandom_range(NRegs - 1));
   endfunction
 
-  task automatic rand_op(input logic [2:0] mode);
+  task automatic rand_op(input logic [RmW-1:0] mode);
     int kind;
-    logic [31:0] va, vb, vc, vr;
-    logic [31:0] vflag;
-    logic [4:0] s1, s2, s3, dst;
-    logic [31:0] res;
-    logic [4:0] fl;
-    logic [2:0] f3;
+    logic [FLEN-1:0] va, vb, vc, vr;
+    logic [DataW-1:0] vflag;
+    logic [AWIDTH-1:0] s1, s2, s3, dst;
+    logic [FLEN-1:0] res;
+    logic [FlagW-1:0] fl;
+    logic [F3W-1:0] f3;
     int n;
-    kind = $urandom_range(0, 15);
+    kind = $urandom_range(15);
     s1   = pick_reg();
     do s2 = pick_reg(); while (s2 == s1);
     do s3 = pick_reg(); while (s3 == s1 || s3 == s2);
@@ -547,10 +549,11 @@ module fp_unit_tb
         load(s1, va);
         load(s2, vb);
         case (kind)
-          0: fop(FP_ADD, Funct5Fadd, mode, mode, dst, s1, s2, 5'd0, '0, vr, 5'(vflag));
-          1: fop(FP_ADD, Funct5Fsub, mode, mode, dst, s1, s2, 5'd0, '0, vr, 5'(vflag));
-          2: fop(FP_MUL, Funct5Fmul, mode, mode, dst, s1, s2, 5'd0, '0, vr, 5'(vflag));
-          default: fop(FP_DIV_SQRT, Funct5Fdiv, mode, mode, dst, s1, s2, 5'd0, '0, vr, 5'(vflag));
+          0: fop(FP_ADD, Funct5Fadd, mode, mode, dst, s1, s2, AWIDTH'(0), '0, vr, FlagW'(vflag));
+          1: fop(FP_ADD, Funct5Fsub, mode, mode, dst, s1, s2, AWIDTH'(0), '0, vr, FlagW'(vflag));
+          2: fop(FP_MUL, Funct5Fmul, mode, mode, dst, s1, s2, AWIDTH'(0), '0, vr, FlagW'(vflag));
+          default:
+          fop(FP_DIV_SQRT, Funct5Fdiv, mode, mode, dst, s1, s2, AWIDTH'(0), '0, vr, FlagW'(vflag));
         endcase
       end
       3, 13: begin
@@ -561,63 +564,71 @@ module fp_unit_tb
         load(s1, form[1] ? va ^ SignBit : va);
         load(s2, vb);
         load(s3, form[0] ? vc ^ SignBit : vc);
-        fop(FP_FMA, {3'b000, form}, mode, mode, dst, s1, s2, s3, '0, vr, 5'(vflag));
+        fop(FP_FMA, F5W'(form), mode, mode, dst, s1, s2, s3, '0, vr, FlagW'(vflag));
       end
       5: begin
         n = $fscanf(fd[5], "%h %h %h\n", va, vr, vflag);
         if (n != 3) $fatal(1, "TB BAD LINE: file 5");
         load(s1, va);
-        fop(FP_DIV_SQRT, Funct5Fsqrt, mode, mode, dst, s1, s1, 5'd0, '0, vr, 5'(vflag));
+        fop(FP_DIV_SQRT, Funct5Fsqrt, mode, mode, dst, s1, s1, AWIDTH'(0), '0, vr, FlagW'(vflag));
       end
       6, 7: begin
         n = $fscanf(fd[kind], "%h %h %h\n", va, vr, vflag);
         if (n != 3) $fatal(1, "TB BAD LINE: file %0d", kind);
-        fop(FP_CVT, Funct5FcvtSW, (kind == 7) ? 3'd1 : 3'd0, mode, dst, dst, dst, dst, va, vr,
-            5'(vflag));
+        fop(FP_CVT, Funct5FcvtSW, F3W'(kind == 7), mode, dst, dst, dst, dst, Xlen'({
+            32'($urandom), va}), vr, FlagW'(vflag));
       end
       8, 9: begin
         n = $fscanf(fd[kind], "%h %h %h\n", va, vr, vflag);
         if (n != 3) $fatal(1, "TB BAD LINE: file %0d", kind);
         load(s1, va);
-        xop(FP_CVT, Funct5FcvtWS, 3'd0, 1'b1, kind == 9, mode, s1, s1, vr, 5'(vflag), 1'b1);
+        xop(FP_CVT, Funct5FcvtWS, F3W'(0), 1'b1, kind == 9, mode, s1, s1, Xlen'($signed(vr)),
+            FlagW'(vflag), 1'b1);
       end
       10, 11, 12: begin
         n = $fscanf(fd[kind], "%h %h %h %h\n", va, vb, vr, vflag);
         if (n != 4) $fatal(1, "TB BAD LINE: file %0d", kind);
         load(s1, va);
         load(s2, vb);
-        f3 = (kind == 10) ? Funct3Feq : (kind == 11) ? Funct3Flt : Funct3Fle;
-        xop(FP_MISC, Funct5Fcmp, f3, 1'b0, 1'b0, 3'd0, s1, s2, vr, 5'(vflag), 1'b1);
+        case (kind)
+          10: f3 = Funct3Feq;
+          11: f3 = Funct3Flt;
+          default: f3 = Funct3Fle;
+        endcase
+        xop(FP_MISC, Funct5Fcmp, f3, 1'b0, 1'b0, RmRne, s1, s2, Xlen'(vr), FlagW'(vflag), 1'b1);
       end
       default: begin
-        va = $urandom_range(0, 3) == 0 ? (32'h7F80_0000 | 32'($urandom_range(1, 8))) : $urandom;
-        vb = $urandom_range(0, 3) == 0 ? {1'($urandom), 31'h0} : $urandom;
+        va = ($urandom_range(3) == 0) ? (PosInf | FLEN'($urandom_range(1, 8))) : FLEN'($urandom);
+        vb = ($urandom_range(3) == 0) ? {1'($urandom), (FLEN - 1)'(0)} : FLEN'($urandom);
         load(s1, va);
         load(s2, vb);
-        n = $urandom_range(0, 3);
+        n = $urandom_range(3);
         case (n)
           0: begin
-            f3  = 3'($urandom_range(0, 2));
+            f3  = F3W'($urandom_range(2));
             res = sgnj_model(f3, va, vb);
-            fop(FP_MISC, Funct5Fsgnj, f3, 3'($urandom), dst, s1, s2, 5'd0, '0, res, '0);
+            fop(FP_MISC, Funct5Fsgnj, f3, RmW'($urandom), dst, s1, s2, AWIDTH'(0), '0, res, '0);
           end
           1: begin
-            f3 = 3'($urandom_range(0, 1));
+            f3 = F3W'(1'($urandom));
             minmax_model(f3[0], va, vb, res, fl);
-            fop(FP_MISC, Funct5Fminmax, f3, 3'($urandom), dst, s1, s2, 5'd0, '0, res, fl);
+            fop(FP_MISC, Funct5Fminmax, f3, RmW'($urandom), dst, s1, s2, AWIDTH'(0), '0, res, fl);
           end
           2: begin
             res = fclass_of(va);
-            xop(FP_MISC, Funct5FmvXW, Funct3Fclass, 1'b0, 1'b0, 3'd0, s1, s1, res, '0, 1'b1);
+            xop(FP_MISC, Funct5FmvXW, Funct3Fclass, 1'b0, 1'b0, RmRne, s1, s1, Xlen'(res), '0,
+                1'b1);
           end
-          default: xop(FP_MV_X_W, Funct5FmvXW, Funct3Fmv, 1'b0, 1'b0, 3'd0, s2, s2, vb, '0, 1'b1);
+          default:
+          xop(FP_MV_X_W, Funct5FmvXW, Funct3Fmv, 1'b0, 1'b0, RmRne, s2, s2, Xlen'($signed(vb)), '0,
+              1'b1);
         endcase
       end
     endcase
   endtask  // Automatic
 
   task automatic test_random();
-    for (int k = 0; k < 5; k++) begin
+    for (int k = 0; k < $size(rmv); k++) begin
       open_files(k);
       for (int i = 0; i < RandOps; i++) rand_op(rmv[k]);
       close_files();
@@ -625,23 +636,22 @@ module fp_unit_tb
     end
   endtask  // Automatic
 
-  task automatic verdict();
+  task automatic do_verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
     if (busy_stalls < MinStalls)
       $fatal(1, "TB UNDER-RAN: %0d busy-bit stalls, expected at least %0d", busy_stalls, MinStalls);
-    if (errors != 0) $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
-    $display("PASS: %0d checks, %0d busy-bit stalls, %0d write-port stalls, %0d mismatches",
-             checks, busy_stalls, port_stalls, errors);
+    if (errors == 0) $display("PASS: %0d checks, %0d mismatches", checks, errors);
+    else $fatal(1, "FAIL: %0d mismatches, %0d checks", errors, checks);
     $finish;
   endtask  // Automatic
 
-  initial void'($value$plusargs("max_errors=%d", max_errors));
-
-  initial begin
+  task automatic watchdog();
     repeat (Timeout) @(posedge clk);
     $fatal(1, "FAIL: timeout, %0d mismatches, %0d checks", errors, checks);
-  end
+  endtask  // Automatic
+
+  initial watchdog();
 
   initial begin
     $dumpfile("fp_unit_tb.vcd");
@@ -656,8 +666,66 @@ module fp_unit_tb
     test_div_done_cycle();
     test_random();
     drain();
-    verdict();
+    do_verdict();
   end
+
+  function automatic int lat_of(input fp_unit_e u);
+    case (u)
+      FP_ADD:      return FpAddLatency;
+      FP_MUL:      return FpMulLatency;
+      FP_FMA:      return FpFmaLatency;
+      FP_DIV_SQRT: return 0;
+      default:     return 1;
+    endcase
+  endfunction
+
+  function automatic logic is_nan(input logic [FLEN-1:0] x);
+    return (x[FLEN-2:FracW] == '1) && (x[FracW-1:0] != '0);
+  endfunction
+
+  function automatic logic is_snan(input logic [FLEN-1:0] x);
+    return is_nan(x) && !x[FracW-1];
+  endfunction
+
+  function automatic logic [FLEN-1:0] fclass_of(input logic [FLEN-1:0] x);
+    logic sign;
+    logic [ExpW-1:0] e;
+    logic [FracW-1:0] f;
+    sign = x[FLEN-1];
+    e = x[FLEN-2:FracW];
+    f = x[FracW-1:0];
+    if (e == '1 && f == '0) return FLEN'(1) << (sign ? 0 : 7);
+    if (e == '1) return FLEN'(1) << (f[FracW-1] ? 9 : 8);
+    if (e == '0 && f == '0) return FLEN'(1) << (sign ? 3 : 4);
+    if (e == '0) return FLEN'(1) << (sign ? 2 : 5);
+    return FLEN'(1) << (sign ? 1 : 6);
+  endfunction
+
+  function automatic logic lt_total(input logic [FLEN-1:0] x, input logic [FLEN-1:0] y);
+    if (x[FLEN-1] != y[FLEN-1]) return x[FLEN-1];
+    if (x[FLEN-1]) return x[FLEN-2:0] > y[FLEN-2:0];
+    return x[FLEN-2:0] < y[FLEN-2:0];
+  endfunction
+
+  task automatic minmax_model(input logic is_max, input logic [FLEN-1:0] x,
+                              input logic [FLEN-1:0] y, output logic [FLEN-1:0] res,
+                              output logic [FlagW-1:0] fl);
+    fl = (is_snan(x) || is_snan(y)) ? FlagNv : '0;
+    if (is_nan(x) && is_nan(y)) res = Qnan;
+    else if (is_nan(x)) res = y;
+    else if (is_nan(y)) res = x;
+    else if (is_max) res = lt_total(x, y) ? y : x;
+    else res = lt_total(x, y) ? x : y;
+  endtask  // Automatic
+
+  function automatic logic [FLEN-1:0] sgnj_model(input logic [F3W-1:0] f3, input logic [FLEN-1:0] x,
+                                                 input logic [FLEN-1:0] y);
+    case (f3)
+      Funct3Fsgnj:  return {y[FLEN-1], x[FLEN-2:0]};
+      Funct3Fsgnjn: return {!y[FLEN-1], x[FLEN-2:0]};
+      default:      return {x[FLEN-1] ^ y[FLEN-1], x[FLEN-2:0]};
+    endcase
+  endfunction
 
 endmodule
 

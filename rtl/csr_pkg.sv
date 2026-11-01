@@ -38,13 +38,19 @@ package csr_pkg;
   localparam int MstatusMppLo = 11;  // Previous Privilege Low
   localparam int MstatusFsLo = 13;  // Float Status Low
   localparam int MstatusSd = 31;  // State Dirty
-  localparam logic [1:0] PrivMachine = 2'b11;
 
   // Vector Status encodings
   localparam logic [1:0] VsOff = 2'b00;  // disabled
   localparam logic [1:0] VsInitial = 2'b01;  // registers zero
   localparam logic [1:0] VsClean = 2'b10;  // matches saved copy
   localparam logic [1:0] VsDirty = 2'b11;  // written since save
+
+  // Vxrm encodings
+  localparam int VxrmW = 2;
+  localparam logic [VxrmW-1:0] VxrmRnu = VxrmW'(0);
+  localparam logic [VxrmW-1:0] VxrmRne = VxrmW'(1);
+  localparam logic [VxrmW-1:0] VxrmRdn = VxrmW'(2);
+  localparam logic [VxrmW-1:0] VxrmRod = VxrmW'(3);
 
   // Float Status encodings
   localparam logic [1:0] FsOff = VsOff;
@@ -63,9 +69,6 @@ package csr_pkg;
   localparam int Meie = 11;
   localparam int Meip = 11;
 
-  // mtvec[1:0]
-  localparam logic [1:0] MtvecDirect = 2'b00;  // Every trap jumps to same address
-  localparam logic [1:0] MtvecVectored = 2'b01;  // Exceptions & interrupts treated differently
 
   // Exception codes
   localparam logic [3:0] CauseInstrMisaligned = 4'd0;
@@ -84,6 +87,7 @@ package csr_pkg;
   localparam logic [2:0] Funct3Csrrw = 3'b001;  // CSR Read, then Write
   localparam logic [2:0] Funct3Csrrs = 3'b010;  // CSR Read, then Set bits
   localparam logic [2:0] Funct3Csrrc = 3'b011;  // CSR Read, then Clear bits
+  localparam logic [2:0] Funct3SysRsvd = 3'b100;
   localparam logic [2:0] Funct3Csrrwi = 3'b101;  // CSR Read, then Write from Immediate
   localparam logic [2:0] Funct3Csrrsi = 3'b110;  // CSR Read, then Set from Immediate
   localparam logic [2:0] Funct3Csrrci = 3'b111;  // CSR Read, then Clear from Immediate
@@ -93,9 +97,11 @@ package csr_pkg;
   localparam logic [11:0] Funct12Ebreak = 12'h001;  // Stops execution for debugging tools
   localparam logic [11:0] Funct12Mret = 12'h302;  // Exits m-mode trap handler, returns to program
 
-  // CLINT offsets
-  localparam logic [15:0] ClintMtimecmpOffset = 16'h4000;
-  localparam logic [15:0] ClintMtimeOffset = 16'hBFF8;
+  // Field widths
+  localparam int CsrAddrW = 12;
+  localparam int MtvecModeW = 2;
+  localparam int CsrRoW = 2;
+  localparam logic [CsrRoW-1:0] CsrRoAccess = 2'b11;
 
 endpackage
 
