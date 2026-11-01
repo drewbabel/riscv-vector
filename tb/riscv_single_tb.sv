@@ -11,8 +11,8 @@ module riscv_single_tb ();
   localparam int Programs = 40;
   localparam int MaxCycles = 30000;
   localparam int MinChecks = 60000;
-  localparam logic [XLEN-1:0] DataBase = XLEN'('h8000);
-  localparam logic [XLEN-1:0] Handler = XLEN'('h3000);
+  localparam logic [15:0] DataLow = 16'h8000;
+  localparam logic [11:0] TrapSlot = 12'h100;
   localparam logic [4:0] BaseReg = 5'd31;
   localparam logic [4:0] CauseReg = 5'd30;
   localparam logic [4:0] EpcReg = 5'd29;
@@ -52,7 +52,9 @@ module riscv_single_tb ();
   logic [XLEN-1:0] m_mcause;
   logic [XLEN-1:0] m_mtval;
   int prog_words;
-  logic far_jalr[Words];
+  logic [XLEN-1:0] data_base;
+  logic [XLEN-1:0] handler;
+  logic no_entry[Words];
 
   logic [11:0] csrs[NumCsrs] = '{12'h300, 12'h304, 12'h305, 12'h340, 12'h341, 12'h342, 12'h343};
 
@@ -142,7 +144,6 @@ module riscv_single_tb ();
     logic [11:0] a;
     a  = csrs[$urandom_range(NumCsrs-1)];
     f3 = 3'($urandom_range(1, 7));
-    if (f3 == 3'b100) f3 = 3'b010;
     if (a == 12'h305) return enc_i(a, 5'd0, 3'b010, rand_reg(), 7'b1110011);
     return enc_i(a, $urandom_range(3) == 0 ? 5'd0 : rand_reg(), f3, rand_reg(), 7'b1110011);
   endfunction
@@ -156,7 +157,7 @@ module riscv_single_tb ();
     boff = 13'(4 * $urandom_range(1, 16));
     if ($urandom_range(15) == 0) boff[1] = 1'b1;
     case ($urandom_range(
-        13
+        14
     ))
       0, 1:
       return enc_r(
@@ -206,6 +207,12 @@ module riscv_single_tb ();
           default: return {25'($urandom), 7'b1111111};
         endcase
       end
+      11: begin
+        f3 = 3'($urandom_range(3, 7));
+        if (1'($urandom)) return enc_s(mem_off(3'b010), rand_reg(), BaseReg, f3);
+        if (f3 == 3'b100 || f3 == 3'b101) f3 = 3'b011;
+        return enc_i(mem_off(3'b010), BaseReg, f3, rd, 7'b0000011);
+      end
       default: return 32'h0000000f;
     endcase
   endfunction
@@ -217,19 +224,24 @@ module riscv_single_tb ();
     if (w[6:0] == 7'b1100011) off = {w[31], w[7], w[30:25], w[11:8], 1'b0};
     else if (w[6:0] == 7'b1101111) off = 13'({w[31], w[19:12], w[20], w[30:21], 1'b0});
     else return;
-    if (off[1:0] != 0 || !far_jalr[i+int'(off[12:2])]) return;
-    if (w[6:0] == 7'b1101111) mem[i] = enc_j(21'(off + 13'd4), w[11:7]);
-    else mem[i] = enc_b(off + 13'd4, w[24:20], w[19:15], w[14:12]);
+    if (off[1:0] != 0 || !no_entry[i+int'(off[12:2])]) return;
+    while (no_entry[i+int'(off[12:2])]) off += 13'd4;
+    if (w[6:0] == 7'b1101111) mem[i] = enc_j(21'(off), w[11:7]);
+    else mem[i] = enc_b(off, w[24:20], w[19:15], w[14:12]);
   endtask  // Automatic
 
   task automatic build_program(input logic irq_on);
     int n;
     int h;
     int b;
+    logic [2:0] f3;
     for (int i = 0; i < Words; i++) mem[i] = XLEN'($urandom);
-    n = 0;
-    mem[n++] = {DataBase[31:12], BaseReg, 7'b0110111};
-    mem[n++] = {Handler[31:12], 5'd1, 7'b0110111};
+    data_base = {16'($urandom), DataLow};
+    handler = {16'($urandom), 2'b01, 2'($urandom), 12'h000};
+    n = $urandom_range(1, 'h600);
+    mem[0] = enc_j(21'(4 * n), 5'd0);
+    mem[n++] = {data_base[31:12], BaseReg, 7'b0110111};
+    mem[n++] = {handler[31:12], 5'd1, 7'b0110111};
     mem[n++] = enc_i(12'h305, 5'd1, 3'b001, 5'd0, 7'b1110011);
     if (irq_on) begin
       mem[n++] = enc_i(12'h300, 5'd8, 3'b110, 5'd0, 7'b1110011);
@@ -237,13 +249,27 @@ module riscv_single_tb ();
       mem[n++] = enc_i(12'h304, 5'd1, 3'b010, 5'd0, 7'b1110011);
     end
     for (int r = 1; r < 28; r++) mem[n++] = enc_i(12'($urandom), 5'd0, 3'b000, 5'(r), 7'b0010011);
-    for (int i = 0; i < Words; i++) far_jalr[i] = 1'b0;
+    for (int i = 0; i < Words; i++) no_entry[i] = 1'b0;
     b = n;
     repeat (Body) begin
       if ($urandom_range(40) == 0) begin
-        mem[n++] = {4'($urandom), 16'b0, FarReg, 7'b0010111};
-        far_jalr[n] = 1'b1;
+        mem[n++] = {16'($urandom), 4'b0, FarReg, 7'b0010111};
+        no_entry[n] = 1'b1;
         mem[n++] = enc_i(12'd8, FarReg, 3'b000, rand_reg(), 7'b1100111);
+      end else if ($urandom_range(40) == 0) begin
+        mem[n++] = enc_j(21'd8, rand_reg());
+        mem[n++] = enc_j(21'd8, rand_reg());
+        f3 = 3'($urandom);
+        while (f3 == 3'b010 || f3 == 3'b011) f3 = 3'($urandom);
+        mem[n++] = enc_b(($urandom_range(3) == 0) ? -13'sd2 : -13'sd4, rand_reg(), rand_reg(), f3);
+      end else if (!irq_on && $urandom_range(40) == 0) begin
+        mem[n++] = {20'd0, FarReg, 7'b0010111};
+        no_entry[n] = 1'b1;
+        no_entry[n+1] = 1'b1;
+        no_entry[n+2] = 1'b1;
+        mem[n++] = enc_i(12'(16 + $urandom_range(3)), FarReg, 3'b000, FarReg, 7'b0010011);
+        mem[n++] = enc_i(12'h341, FarReg, 3'b001, 5'd0, 7'b1110011);
+        mem[n++] = 32'h30200073;
       end else mem[n++] = rand_instr();
     end
     for (int i = b; i < n; i++) skip_far(i);
@@ -251,7 +277,9 @@ module riscv_single_tb ();
     for (int r = 1; r < 32; r++) mem[n++] = enc_s(12'(4 * r), 5'(r), BaseReg, 3'b010);
     mem[n++] = enc_j(21'd0, 5'd0);
     prog_words = n;
-    h = int'(Handler >> 2);
+    h = int'(handler[15:2]);
+    mem[h++] = enc_i(12'h343, 5'd0, 3'b010, EpcReg, 7'b1110011);
+    mem[h++] = enc_s(TrapSlot, EpcReg, BaseReg, 3'b010);
     mem[h++] = enc_i(12'h342, 5'd0, 3'b010, CauseReg, 7'b1110011);
     mem[h++] = enc_i(12'h341, 5'd0, 3'b010, EpcReg, 7'b1110011);
     mem[h++] = enc_b(13'd8, 5'd0, CauseReg, 3'b100);
@@ -283,7 +311,7 @@ module riscv_single_tb ();
       12'h304: m_mie = v;
       12'h305: m_mtvec = v;
       12'h340: m_mscratch = v;
-      12'h341: m_mepc = v;
+      12'h341: m_mepc = {v[XLEN-1:2], 2'b00};
       12'h342: m_mcause = v;
       default: m_mtval = v;
     endcase
@@ -353,6 +381,10 @@ module riscv_single_tb ();
       end
       7'b0001111: ;
       7'b0000011: begin
+        if (f3 == 3'b011 || f3[2:1] == 2'b11) begin
+          take_trap(XLEN'(2), '0);
+          return;
+        end
         addr = a + XLEN'($signed(i[31:20]));
         if ((f3[1:0] == 2'b01 && addr[0]) || (f3[1:0] == 2'b10 && addr[1:0] != 0)) begin
           take_trap(XLEN'(4), addr);
@@ -369,6 +401,10 @@ module riscv_single_tb ();
         endcase
       end
       7'b0100011: begin
+        if (f3 > 3'b010) begin
+          take_trap(XLEN'(2), '0);
+          return;
+        end
         addr = a + XLEN'($signed({i[31:25], i[11:7]}));
         if ((f3 == 3'b001 && addr[0]) || (f3 == 3'b010 && addr[1:0] != 0)) begin
           take_trap(XLEN'(6), addr);
@@ -503,7 +539,8 @@ module riscv_single_tb ();
     timer_irq = 1'b0;
     check({tag, " reached end"}, XLEN'(m_pc[15:2]), XLEN'(done_idx));
     for (int r = 1; r < 32; r++)
-      check($sformatf("prog %0d dump x%0d", p, r), mem[(DataBase>>2)+r], m_mem[(DataBase>>2)+r]);
+      check($sformatf("prog %0d dump x%0d", p, r), mem[(32'(DataLow)>>2)+r],
+            m_mem[(32'(DataLow)>>2)+r]);
   endtask  // Automatic
 
   task automatic run_all();
