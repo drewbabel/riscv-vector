@@ -5,6 +5,7 @@ import argparse
 import os
 import sys
 
+from shrink import shrink
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -176,11 +177,16 @@ def clean(name):
         if os.path.exists(path):
             os.remove(path)
 
+def signature(line):
+    # shrink only while the same register diverges - no drift to a different bug
+    words = line.split()
+    return words[1] if len(words) > 1 else line
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--count", type=int, default=10)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--shrink", action="store_true")
     args = ap.parse_args()
     os.makedirs(os.path.join(ROOT, "build"), exist_ok=True)
 
@@ -196,6 +202,20 @@ def main():
             continue
         print(f"FAIL seed={seed} " + line.replace("\n", "\n  "))
         fails.append(seed)
+        if args.shrink:
+            sig = signature(line)
+
+            def still_fails(b):
+                ok, out = run(name + "_try", render(seed_lines, b))
+                return not ok and signature(out) == sig
+
+            small = shrink(body, still_fails)
+            clean(name + "_try")
+            with open(os.path.join(ROOT, "build", name + "_min.s"), "w") as f:
+                f.write(render(seed_lines, small))
+            print(f"  shrunk {len(body)} -> {len(small)} instructions, build/{name}_min.s:")
+            for insn in small:
+                print(f"    {insn}")
 
     print(f"{args.count - len(fails)}/{args.count} passed")
     if fails:
