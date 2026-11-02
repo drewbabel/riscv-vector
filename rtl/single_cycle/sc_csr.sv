@@ -67,6 +67,7 @@ module sc_csr
   logic [XLEN-1:0] csr_wdata;
   logic            csr_write_en;
   logic            set_clear;
+  logic            timer_ready;
 
   assign csr_wsrc = (funct3[2]) ? XLEN'(zimm) : rs1_data;
   always_comb begin
@@ -77,8 +78,9 @@ module sc_csr
       default:                   csr_wdata = csr_rdata;
     endcase
   end
+  assign timer_ready = timer_irq & mstatus[MstatusMie] & mie[Mtie];
   assign trap_taken = exc_illegal | exc_ecall | exc_ebreak | exc_instr_misaligned |
-      exc_load_misaligned | exc_store_misaligned | (timer_irq & mstatus[MstatusMie] & mie[Mtie]);
+      exc_load_misaligned | exc_store_misaligned | timer_ready;
   always_comb begin
     case (funct3)
       Funct3Csrrs, Funct3Csrrc, Funct3Csrrsi, Funct3Csrrci: set_clear = 1'b1;
@@ -157,7 +159,10 @@ module sc_csr
         mstatus[MstatusMpie] <= mstatus[MstatusMie];
         mstatus[MstatusMie] <= 1'b0;
         mepc <= pc;
-        if (exc_instr_misaligned) begin
+        if (timer_ready) begin
+          mcause <= {1'b1, (XLEN - 1)'(CauseMachineTimerIrq)};
+          mtval  <= '0;
+        end else if (exc_instr_misaligned) begin
           mcause <= {1'b0, (XLEN - 1)'(CauseInstrMisaligned)};
           mtval  <= bad_addr;
         end else if (exc_illegal) begin
@@ -172,12 +177,9 @@ module sc_csr
         end else if (exc_load_misaligned) begin
           mcause <= {1'b0, (XLEN - 1)'(CauseLoadMisaligned)};
           mtval  <= bad_addr;
-        end else if (exc_store_misaligned) begin
+        end else begin
           mcause <= {1'b0, (XLEN - 1)'(CauseStoreMisaligned)};
           mtval  <= bad_addr;
-        end else begin
-          mcause <= {1'b1, (XLEN - 1)'(CauseMachineTimerIrq)};
-          mtval  <= '0;
         end
       end else if (is_mret) begin
         mstatus[MstatusMie]  <= mstatus[MstatusMpie];
