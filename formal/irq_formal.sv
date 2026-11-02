@@ -182,7 +182,7 @@ module irq_formal
       if (!exc_any && !irq_ready) assert (!trap_taken);
 
       // Entry state
-      if ($past(irq_ready && !exc_any && core_en)) begin
+      if ($past(irq_ready && core_en)) begin
         assert (dbg_mepc == $past(pc));
 
         assert (dbg_mcause == ($past(
@@ -196,7 +196,7 @@ module irq_formal
       end
 
       // Priority
-      if ($past(exc_any && (timer_irq || ext_irq) && core_en)) assert (!dbg_mcause[XLEN-1]);
+      if ($past(exc_any && !irq_ready && core_en)) assert (!dbg_mcause[XLEN-1]);
 
       // Mret
       if ($past(is_mret && !trap_taken && core_en))

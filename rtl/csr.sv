@@ -263,7 +263,11 @@ module csr
         mstatus[MstatusMpie] <= mstatus[MstatusMie];
         mstatus[MstatusMie] <= 1'b0;
         mepc <= pc;
-        if (exc_instr_misaligned) begin
+        if (ext_ready || timer_ready) begin
+          mcause <= ext_ready ? {1'b1, (XLEN - 1)'(CauseMachineExternalIrq)} :
+              {1'b1, (XLEN - 1)'(CauseMachineTimerIrq)};
+          mtval <= '0;
+        end else if (exc_instr_misaligned) begin
           mcause <= {1'b0, (XLEN - 1)'(CauseInstrMisaligned)};
           mtval  <= bad_addr;
         end else if (illegal_any) begin
@@ -278,13 +282,9 @@ module csr
         end else if (exc_load_misaligned) begin
           mcause <= {1'b0, (XLEN - 1)'(CauseLoadMisaligned)};
           mtval  <= bad_addr;
-        end else if (exc_store_misaligned) begin
+        end else begin
           mcause <= {1'b0, (XLEN - 1)'(CauseStoreMisaligned)};
           mtval  <= bad_addr;
-        end else begin
-          mcause <= ext_ready ? {1'b1, (XLEN - 1)'(CauseMachineExternalIrq)} :
-              {1'b1, (XLEN - 1)'(CauseMachineTimerIrq)};
-          mtval <= '0;
         end
       end else begin
         if (is_mret) begin
