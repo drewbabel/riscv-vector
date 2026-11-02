@@ -12,7 +12,8 @@ module vec_issue_tb
   localparam int SbDepth = 8;
   localparam int IdleTimeout = 200;
   localparam int ReleaseTimeout = 50;
-  localparam int MinChecks = 23000;
+  localparam int SoakCycles = 4000;
+  localparam int MinChecks = 23000 + 5 * SoakCycles;
 
   int checks = 0;
   int errors = 0;
@@ -74,6 +75,14 @@ module vec_issue_tb
   int run_len;
   int seq_ticks;
   logic taken;
+  logic soak_on = 1'b0;
+  logic [AWIDTH:0] wr_regs;
+  logic [AWIDTH-1:0] rd1;
+  logic [AWIDTH:0] rd1_regs;
+  logic [AWIDTH:0] rd2_regs;
+  logic clear;
+  logic [AWIDTH-1:0] clear_addr;
+  logic pipe_busy;
 
   vec_op_e sb_op[SbDepth];
   vec_src_e sb_src[SbDepth];
@@ -122,12 +131,12 @@ module vec_issue_tb
       .xdata(xdata),
       .xstride(xstride),
       .fop(fop),
-      .wr_regs('0),
-      .rd1('0),
-      .rd1_regs('0),
-      .rd2_regs('0),
-      .clear(1'b0),
-      .clear_addr('0),
+      .wr_regs(wr_regs),
+      .rd1(rd1),
+      .rd1_regs(rd1_regs),
+      .rd2_regs(rd2_regs),
+      .clear(clear),
+      .clear_addr(clear_addr),
       .vl(vl),
       .vsew(vsew),
       .vlmul(vlmul),
@@ -135,7 +144,7 @@ module vec_issue_tb
       .frm(frm),
       .seq_busy(seq_busy),
       .seq_done(seq_done),
-      .pipe_busy(1'b0),
+      .pipe_busy(pipe_busy),
       .x_done(seq_done),
       .seq_start(seq_start),
       .seq_op(seq_op),
@@ -196,6 +205,13 @@ module vec_issue_tb
     frm         = fp_pkg::RmRne;
     run_len     = 3;
     taken       = 1'b0;
+    wr_regs     = '0;
+    rd1         = '0;
+    rd1_regs    = '0;
+    rd2_regs    = '0;
+    clear       = 1'b0;
+    clear_addr  = '0;
+    pipe_busy   = 1'b0;
     repeat (3) @(negedge clk);
     rst_n = 1'b1;
     @(negedge clk);
@@ -506,6 +522,185 @@ module vec_issue_tb
     settle();
   endtask  // Automatic
 
+  function automatic logic [(1<<AWIDTH)-1:0] ref_group(input int base, input int regs);
+    logic [(1<<AWIDTH)-1:0] bits;
+    for (int i = 0; i < (1 << AWIDTH); i++) bits[i] = (i >= base) && (i < base + regs);
+    return bits;
+  endfunction
+
+  function automatic vec_op_e soak_op();
+    case ($urandom_range(
+        7
+    ))
+      0: return VEC_LOAD;
+      1: return VEC_STORE;
+      2: return VEC_SLIDEUP;
+      3: return VEC_SLIDEDOWN;
+      4: return VEC_SLIDE1UP;
+      5: return VEC_SLIDE1DOWN;
+      default: return vec_op_e'($urandom_range(15));
+    endcase
+  endfunction
+
+  // Every input random
+  task automatic test_cycle_soak(input int cycles);
+    logic [(1<<AWIDTH)-1:0] m_busy, need;
+    logic mq_valid, mq_xreg, mq_vm, me_valid, me_load, me_store, mx_pend, mx_spent, m_start;
+    vec_op_e mq_op, ms_op;
+    vec_src_e mq_src, ms_src;
+    vec_eew_e mq_eew, ms_eew;
+    vec_fop_e mq_fop, ms_fop;
+    logic [AWIDTH-1:0] mq_vs1, mq_vs2, mq_vd, mq_rd1, ms_vs1, ms_vs2, ms_vd;
+    logic [AWIDTH:0] mq_wr, mq_r1n, mq_r2n;
+    logic mq_rvd, ms_rvd, ms_vm;
+    logic [4:0] mq_simm, ms_simm;
+    logic [XLEN-1:0] mq_xd, mq_xs, ms_xd, ms_xs;
+    logic [VlW-1:0] mq_vl, ms_vl;
+    logic [2:0] mq_vsew, mq_vlmul, ms_vsew, ms_vlmul;
+    logic [1:0] mq_vxrm, ms_vxrm;
+    logic [RmW-1:0] mq_frm, ms_frm;
+    logic ready, port, launch, xwait, accept, hold, seqb, seqd, adv, m_any;
+    soak_on = 1'b1;
+    do_reset();
+    m_busy   = '0;
+    mq_valid = 1'b0;
+    me_valid = 1'b0;
+    mx_pend  = 1'b0;
+    mx_spent = 1'b0;
+    m_start  = 1'b0;
+    m_any    = 1'b0;
+    for (int c = 0; c < cycles; c++) begin
+      core_en     = $urandom_range(4) != 0;
+      instr_valid = $urandom_range(3) != 0;
+      cancel      = $urandom_range(7) == 0;
+      ex_adv      = 1'($urandom);
+      op          = soak_op();
+      src         = vec_src_e'($urandom_range(3));
+      eew         = vec_eew_e'($urandom_range(3));
+      writes_xreg = $urandom_range(5) == 0;
+      vs1         = AWIDTH'($urandom);
+      vs2         = AWIDTH'($urandom);
+      vd          = AWIDTH'($urandom);
+      vm          = 1'($urandom);
+      reads_vd    = 1'($urandom);
+      simm        = 5'($urandom);
+      xdata       = XLEN'($urandom);
+      xstride     = XLEN'($urandom);
+      wr_regs     = (AWIDTH + 1)'($urandom_range(8));
+      rd1         = AWIDTH'($urandom);
+      rd1_regs    = (AWIDTH + 1)'($urandom_range(8));
+      rd2_regs    = (AWIDTH + 1)'($urandom_range(8));
+      pipe_busy   = $urandom_range(2) == 0;
+      clear       = 1'($urandom);
+      clear_addr  = AWIDTH'($urandom);
+      for (int t = 0; t < 4; t++) if (!m_busy[clear_addr]) clear_addr = AWIDTH'($urandom);
+      run_len = $urandom_range(5);
+      scramble_config();
+      #1;
+      seqb = seq_busy;
+      seqd = seq_done;
+      need = ref_group(int'(mq_vd), int'(mq_wr)) | ref_group(int'(mq_rd1), int'(mq_r1n)) |
+          ref_group(int'(mq_vs2), int'(mq_r2n)) | (1 << AWIDTH)'(!mq_vm);
+      ready = (m_busy & need) == '0;
+      port   = (mq_op == VEC_LOAD) || (mq_op == VEC_SLIDEUP) || (mq_op == VEC_SLIDEDOWN) ||
+          (mq_op == VEC_SLIDE1UP) || (mq_op == VEC_SLIDE1DOWN);
+      launch = mq_valid && !me_valid && ready && !(port && pipe_busy);
+      xwait = (mq_valid && mq_xreg) || mx_pend;
+      accept = instr_valid && !cancel && !xwait && !mx_spent && (!mq_valid || launch);
+      hold   = (instr_valid && (xwait || writes_xreg) && !mx_spent) ||
+          (instr_valid && mq_valid && !launch);
+      adv = ex_adv && !hold;
+      check("soak hold", XLEN'(vec_hold), XLEN'(hold));
+      check("soak idle", XLEN'(vec_idle), XLEN'(!mq_valid && !me_valid && !seqb && (m_busy == '0)));
+      check("soak load pending", XLEN'(load_pending),
+            XLEN'((mq_valid && mq_op == VEC_LOAD) || (me_valid && me_load)));
+      check("soak store pending", XLEN'(store_pending),
+            XLEN'((mq_valid && mq_op == VEC_STORE) || (me_valid && me_store)));
+      check("soak start", XLEN'(seq_start), XLEN'(m_start));
+      if (m_any) begin
+        check("soak op", XLEN'(seq_op), XLEN'(ms_op));
+        check("soak src", XLEN'(seq_src), XLEN'(ms_src));
+        check("soak eew", XLEN'(seq_eew), XLEN'(ms_eew));
+        check("soak vs1", XLEN'(seq_vs1), XLEN'(ms_vs1));
+        check("soak vs2", XLEN'(seq_vs2), XLEN'(ms_vs2));
+        check("soak vd", XLEN'(seq_vd), XLEN'(ms_vd));
+        check("soak vm", XLEN'(seq_vm), XLEN'(ms_vm));
+        check("soak reads_vd", XLEN'(seq_reads_vd), XLEN'(ms_rvd));
+        check("soak simm", XLEN'(seq_simm), XLEN'(ms_simm));
+        check("soak xdata", seq_xdata, ms_xd);
+        check("soak xstride", seq_xstride, ms_xs);
+        check("soak vl", XLEN'(seq_vl), XLEN'(ms_vl));
+        check("soak vsew", XLEN'(seq_vsew), XLEN'(ms_vsew));
+        check("soak vlmul", XLEN'(seq_vlmul), XLEN'(ms_vlmul));
+        check("soak vxrm", XLEN'(seq_vxrm), XLEN'(ms_vxrm));
+        check("soak fop", XLEN'(seq_fop), XLEN'(ms_fop));
+        check("soak frm", XLEN'(seq_frm), XLEN'(ms_frm));
+      end
+      if (core_en) begin
+        m_start  = 1'b0;
+        mx_spent = (seqd && mx_pend) || (mx_spent && !adv);
+        if (launch && mq_xreg) mx_pend = 1'b1;
+        else if (seqd) mx_pend = 1'b0;
+        m_busy = m_busy & ~((1 << AWIDTH)'(clear) << clear_addr);
+        if (launch) begin
+          m_busy   = m_busy | ref_group(int'(mq_vd), int'(mq_wr));
+          m_start  = 1'b1;
+          m_any    = 1'b1;
+          me_valid = 1'b1;
+          me_load  = mq_op == VEC_LOAD;
+          me_store = mq_op == VEC_STORE;
+          ms_op    = mq_op;
+          ms_src   = mq_src;
+          ms_eew   = mq_eew;
+          ms_vs1   = mq_vs1;
+          ms_vs2   = mq_vs2;
+          ms_vd    = mq_vd;
+          ms_vm    = mq_vm;
+          ms_rvd   = mq_rvd;
+          ms_simm  = mq_simm;
+          ms_xd    = mq_xd;
+          ms_xs    = mq_xs;
+          ms_vl    = mq_vl;
+          ms_vsew  = mq_vsew;
+          ms_vlmul = mq_vlmul;
+          ms_vxrm  = mq_vxrm;
+          ms_fop   = mq_fop;
+          ms_frm   = mq_frm;
+          mq_valid = 1'b0;
+        end
+        if (accept) begin
+          mq_valid = 1'b1;
+          mq_op    = op;
+          mq_src   = src;
+          mq_eew   = eew;
+          mq_xreg  = writes_xreg;
+          mq_vs1   = vs1;
+          mq_vs2   = vs2;
+          mq_vd    = vd;
+          mq_vm    = vm;
+          mq_rvd   = reads_vd;
+          mq_simm  = simm;
+          mq_xd    = xdata;
+          mq_xs    = xstride;
+          mq_vl    = vl;
+          mq_vsew  = vsew;
+          mq_vlmul = vlmul;
+          mq_vxrm  = vxrm;
+          mq_fop   = fop;
+          mq_frm   = frm;
+          mq_wr    = wr_regs;
+          mq_rd1   = rd1;
+          mq_r1n   = rd1_regs;
+          mq_r2n   = rd2_regs;
+        end
+        if (seqd) me_valid = 1'b0;
+      end
+      @(negedge clk);
+    end
+    do_reset();
+    soak_on = 1'b0;
+  endtask  // Automatic
+
   task automatic do_verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
@@ -530,6 +725,7 @@ module vec_issue_tb
     soak(400);
 
     check_launches();
+    test_cycle_soak(SoakCycles);
     do_verdict();
   end
 
@@ -539,7 +735,7 @@ module vec_issue_tb
       seq_busy  <= 1'b0;
       seq_done  <= 1'b0;
       seq_ticks <= 0;
-    end else begin
+    end else if (core_en) begin
       seq_done <= 1'b0;
       if (!seq_busy) begin
         if (seq_start) begin
@@ -561,7 +757,7 @@ module vec_issue_tb
 
   // Entry from handshake
   always @(posedge clk) begin
-    if (rst_n && core_en) begin
+    if (rst_n && core_en && !soak_on) begin
       check_invariants();
       check_pending();
       if (seq_done) void'(inflight.pop_front());

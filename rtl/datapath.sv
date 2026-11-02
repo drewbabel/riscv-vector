@@ -1293,35 +1293,38 @@ module datapath
 
   // Follows stage enables
   always_ff @(posedge clk) begin
-    if (idex_en) rvfi_insn_ex <= instr_id;
+    if (core_en) begin
+      if (idex_en) rvfi_insn_ex <= instr_id;
 
-    if (exmem_en) begin
-      rvfi_insn_mem <= rvfi_insn_ex;
-      rvfi_pc_mem   <= pc_ex;
-      rvfi_rs1d_mem <= forwarded_rs1;
-      rvfi_rs2d_mem <= forwarded_rs2;
-      rvfi_trap_mem <= trap_taken;
-      if (trap_taken) rvfi_pcw_mem <= trap_vector;
-      else if (mret_taken) rvfi_pcw_mem <= mepc_out;
-      else if (pc_src_ex) rvfi_pcw_mem <= pc_target_ex;
-      else rvfi_pcw_mem <= pc_ex + XLEN'(InstrBytes);
-    end
+      if (exmem_en) begin
+        rvfi_insn_mem <= rvfi_insn_ex;
+        rvfi_pc_mem   <= pc_ex;
+        rvfi_rs1d_mem <= forwarded_rs1;
+        rvfi_rs2d_mem <= forwarded_rs2;
+        rvfi_trap_mem <= trap_taken;
+        if (trap_taken) rvfi_pcw_mem <= trap_vector;
+        else if (mret_taken) rvfi_pcw_mem <= mepc_out;
+        else if (pc_src_ex) rvfi_pcw_mem <= pc_target_ex;
+        else rvfi_pcw_mem <= pc_ex + XLEN'(InstrBytes);
+      end
 
-    if (memwb_en) begin
-      rvfi_insn_wb  <= rvfi_insn_mem;
-      rvfi_pc_wb    <= rvfi_pc_mem;
-      rvfi_pcw_wb   <= rvfi_pcw_mem;
-      rvfi_rs1d_wb  <= rvfi_rs1d_mem;
-      rvfi_rs2d_wb  <= rvfi_rs2d_mem;
-      rvfi_trap_wb  <= rvfi_trap_mem;
-      rvfi_memrd_wb <= read_data;
-      rvfi_wstrb_wb <= store_wstrb;
-      rvfi_wdata_wb <= store_data;
-      // Vector snapshot
-      rvfi_vl_wb <= vl_q;
-      rvfi_vtype_bits_wb <= csr_vtype_bits;
-      rvfi_vtype_ill_wb <= csr_vtype_ill;
-      rvfi_vstart_wb <= csr_vstart;
+      if (memwb_en) begin
+        rvfi_insn_wb  <= rvfi_insn_mem;
+        rvfi_pc_wb    <= rvfi_pc_mem;
+        rvfi_pcw_wb   <= rvfi_pcw_mem;
+        rvfi_rs1d_wb  <= rvfi_rs1d_mem;
+        rvfi_rs2d_wb  <= rvfi_rs2d_mem;
+        rvfi_trap_wb  <= rvfi_trap_mem;
+        rvfi_memrd_wb <= read_data;
+        rvfi_wstrb_wb <= store_wstrb;
+        rvfi_wdata_wb <= store_data;
+        // Vector snapshot
+        rvfi_vl_wb <= vl_q;
+        rvfi_vtype_bits_wb <= csr_vtype_bits;
+        rvfi_vtype_ill_wb <= csr_vtype_ill;
+        rvfi_vstart_wb <= csr_vstart;
+      end
+
     end
   end
 

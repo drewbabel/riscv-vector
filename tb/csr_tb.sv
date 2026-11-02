@@ -17,7 +17,9 @@ module csr_tb
   localparam int FcsrW = RmW + FlagW;
   localparam int StateW = $bits(VsOff);
   localparam logic [FlagW-1:0] FlagAll = FlagNv | FlagDz | FlagOf | FlagUf | FlagNx;
-  localparam int MinChecks = 13000;
+  localparam logic [Xlen-1:0] MieBits = (Xlen'(1) << 3) | (Xlen'(1) << Mtie) | (Xlen'(1) << Meie);
+  localparam int TrapOps = 6000;
+  localparam int MinChecks = 15000 + 4 * TrapOps;
 
   int checks = 0;
   int errors = 0;
@@ -75,6 +77,30 @@ module csr_tb
   logic [VstartW-1:0] exp_vstart;
   logic [FlagW-1:0] exp_fflags;
   logic [RmW-1:0] exp_frm;
+  logic m_mie_b;
+  logic m_mpie;
+  logic [Xlen-1:0] m_mie;
+  logic [Xlen-1:0] m_mtvec;
+  logic [Xlen-1:0] m_mscratch;
+  logic [Xlen-1:0] m_mepc;
+  logic [Xlen-1:0] m_mcause;
+  logic [Xlen-1:0] m_mtval;
+  logic [63:0] m_cycle;
+  logic [63:0] m_instret;
+  logic [3:0] m_known;
+  logic [AddrW-1:0] trap_csrs[11] = '{
+      MstatusAddr,
+      MieAddr,
+      MtvecAddr,
+      MscratchAddr,
+      MepcAddr,
+      McauseAddr,
+      MtvalAddr,
+      McycleAddr,
+      McyclehAddr,
+      MinstretAddr,
+      MinstrethAddr
+  };
 
   logic [Funct3W-1:0] csr_ops[6] = '{
       Funct3Csrrw,
@@ -85,6 +111,46 @@ module csr_tb
       Funct3Csrrci
   };
   logic [AddrW-1:0] fp_addrs[3] = '{FflagsAddr, FrmAddr, FcsrAddr};
+  logic [AddrW-1:0] vec_addrs[7] = '{
+      VstartAddr,
+      VxsatAddr,
+      VxrmAddr,
+      VcsrAddr,
+      VlAddr,
+      VtypeAddr,
+      VlenbAddr
+  };
+  logic [AddrW-1:0] bases[15] = '{
+      MstatusAddr,
+      MieAddr,
+      MtvecAddr,
+      MscratchAddr,
+      MepcAddr,
+      McauseAddr,
+      MtvalAddr,
+      MipAddr,
+      VstartAddr,
+      VxsatAddr,
+      VxrmAddr,
+      VcsrAddr,
+      FflagsAddr,
+      FrmAddr,
+      FcsrAddr
+  };
+  logic [AddrW-1:0] snap_addrs[10] = '{
+      MstatusAddr,
+      MieAddr,
+      MtvecAddr,
+      MscratchAddr,
+      MepcAddr,
+      McauseAddr,
+      MtvalAddr,
+      MipAddr,
+      VstartAddr,
+      FcsrAddr
+  };
+  logic [Xlen-1:0] snap_before[10];
+  logic [Xlen-1:0] snap_after[10];
 
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
@@ -431,7 +497,7 @@ module csr_tb
 
   task automatic test_mtvec();
     csr_op(Funct3Csrrw, MtvecAddr, '1);
-    check("mtvec_wlrl", csr_rdata, '1);
+    check("mtvec_mode_zero", csr_rdata, Xlen'('hFFFF_FFFC));
     check("mtvec_vector_aligned", trap_vector, Xlen'('hFFFF_FFFC));
   endtask  // Automatic
 
@@ -907,6 +973,287 @@ module csr_tb
     test_fp_reset();
   endtask  // Automatic
 
+  function automatic logic [Xlen-1:0] m_read(input logic [AddrW-1:0] a);
+    case (a)
+      MstatusAddr:  return (Xlen'(m_mie_b) << MstatusMie) | (Xlen'(m_mpie) << MstatusMpie);
+      MieAddr:      return m_mie;
+      MtvecAddr:    return m_mtvec;
+      MscratchAddr: return m_mscratch;
+      MepcAddr:     return m_mepc;
+      McauseAddr:   return m_mcause;
+      MtvalAddr:    return m_mtval;
+      McycleAddr:   return m_cycle[Xlen-1:0];
+      McyclehAddr:  return m_cycle[2*Xlen-1:Xlen];
+      MinstretAddr: return m_instret[Xlen-1:0];
+      default:      return m_instret[2*Xlen-1:Xlen];
+    endcase
+  endfunction
+
+  function automatic logic m_counter_known(input logic [AddrW-1:0] a);
+    case (a)
+      McycleAddr, McyclehAddr: return &m_known[1:0];
+      MinstretAddr, MinstrethAddr: return &m_known[3:2];
+      default: return 1'b1;
+    endcase
+  endfunction
+
+  task automatic m_write(input logic [AddrW-1:0] a, input logic [Xlen-1:0] v);
+    case (a)
+      MstatusAddr: begin
+        m_mie_b = v[MstatusMie];
+        m_mpie  = v[MstatusMpie];
+      end
+      MieAddr: m_mie = v & MieBits;
+      MtvecAddr: m_mtvec = v & ~Xlen'(3);
+      MscratchAddr: m_mscratch = v;
+      MepcAddr: m_mepc = v & ~Xlen'(3);
+      McauseAddr: m_mcause = v;
+      MtvalAddr: m_mtval = v;
+      McycleAddr: begin
+        m_cycle[Xlen-1:0] = v;
+        m_known[0] = 1'b1;
+      end
+      McyclehAddr: begin
+        m_cycle[2*Xlen-1:Xlen] = v;
+        m_known[1] = 1'b1;
+      end
+      MinstretAddr: begin
+        m_instret[Xlen-1:0] = v;
+        m_known[2] = 1'b1;
+      end
+      default: begin
+        m_instret[2*Xlen-1:Xlen] = v;
+        m_known[3] = 1'b1;
+      end
+    endcase
+  endtask  // Automatic
+
+  function automatic logic [Xlen-1:0] trap_value();
+    logic [Xlen-1:0] v;
+    v = Xlen'($urandom);
+    case ($urandom_range(
+        5
+    ))
+      0: v = '1 - Xlen'($urandom_range(40));
+      1: v = Xlen'($urandom_range(8));
+      default: ;
+    endcase
+    return v;
+  endfunction
+
+  // Trap and counter soak
+  task automatic soak_traps(input int n);
+    int exc;
+    logic trap;
+    logic irq_ok;
+    logic wr;
+    logic [Xlen-1:0] src;
+    logic [Xlen-1:0] nv;
+    do_reset();
+    {m_mie_b, m_mpie} = '0;
+    {m_mie, m_mtvec, m_mscratch, m_mepc, m_mcause, m_mtval} = '0;
+    m_cycle = '0;
+    m_instret = '0;
+    m_known = '0;
+    for (int i = 0; i < n; i++) begin
+      @(negedge clk);
+      csr_access = 1'b0;
+      is_mret = 1'b0;
+      {exc_illegal, exc_ecall, exc_ebreak} = '0;
+      {exc_instr_misaligned, exc_load_misaligned, exc_store_misaligned} = '0;
+      pc = Xlen'($urandom) & ~Xlen'(3);
+      bad_addr = Xlen'($urandom);
+      timer_irq = $urandom_range(3) == 0;
+      ext_irq = $urandom_range(3) == 0;
+      csr_addr = trap_csrs[i < 4 ? 7 + i : $urandom_range(10)];
+      funct3 = csr_ops[$urandom_range(5)];
+      rs1_data = trap_value();
+      zimm = funct3[2] ? 5'($urandom) : src_spec;
+      exc = int'($urandom_range(9));
+      if (i < 4) begin
+        funct3 = Funct3Csrrw;
+        exc = 9;
+      end
+      if (csr_addr == MstatusAddr) begin
+        funct3 = funct3[2] ? (funct3 & 3'b011) : funct3;
+        if (funct3 == Funct3Csrrw) funct3 = Funct3Csrrs;
+        rs1_data = rs1_data & ((Xlen'(1) << MstatusMie) | (Xlen'(1) << MstatusMpie));
+        zimm = src_spec;
+      end
+      case (exc)
+        0: exc_illegal = 1'b1;
+        1: exc_ecall = 1'b1;
+        2: exc_ebreak = 1'b1;
+        3: exc_instr_misaligned = 1'b1;
+        4: exc_load_misaligned = 1'b1;
+        5: exc_store_misaligned = 1'b1;
+        6: is_mret = 1'b1;
+        default: csr_access = 1'b1;
+      endcase
+      irq_ok = m_mie_b && ((timer_irq && m_mie[Mtie]) || (ext_irq && m_mie[Meie]));
+      trap   = exc < 6 || irq_ok;
+      #1;
+      check("soak trap taken", Xlen'(trap_taken), Xlen'(trap));
+      check("soak trap vector", trap_vector, m_mtvec & ~Xlen'(3));
+      check("soak mepc out", mepc_out, m_mepc);
+      check("soak mret taken", Xlen'(mret_taken), Xlen'(is_mret));
+      if (m_counter_known(csr_addr)) begin
+        nv = m_read(csr_addr);
+        if (csr_addr == MstatusAddr)
+          check("soak mstatus", csr_rdata & ((Xlen'(1) << MstatusMie) | (Xlen'(1) << MstatusMpie)),
+                nv);
+        else check($sformatf("soak csr %h", csr_addr), csr_rdata, nv);
+      end
+      @(posedge clk);
+      src = funct3[2] ? Xlen'(zimm) : rs1_data;
+      wr = csr_access && !trap && (!funct3[1] || zimm != 0);
+      nv = op_result(funct3, m_read(csr_addr), src);
+      m_cycle = m_cycle + 64'd1;
+      if (!trap) m_instret = m_instret + 64'd1;
+      if (trap) begin
+        m_mpie  = m_mie_b;
+        m_mie_b = 1'b0;
+        m_mepc  = pc;
+        if (irq_ok) exc = 6;
+        case (exc)
+          0: {m_mcause, m_mtval} = {Xlen'(CauseIllegalInstr), Xlen'(0)};
+          1: {m_mcause, m_mtval} = {Xlen'(CauseEcallM), Xlen'(0)};
+          2: {m_mcause, m_mtval} = {Xlen'(CauseBreakpoint), Xlen'(0)};
+          3: {m_mcause, m_mtval} = {Xlen'(CauseInstrMisaligned), bad_addr};
+          4: {m_mcause, m_mtval} = {Xlen'(CauseLoadMisaligned), bad_addr};
+          5: {m_mcause, m_mtval} = {Xlen'(CauseStoreMisaligned), bad_addr};
+          default: begin
+            m_mcause = {
+              1'b1,
+              (Xlen - 1)'((ext_irq && m_mie[Meie]) ? CauseMachineExternalIrq : CauseMachineTimerIrq)
+            };
+            m_mtval = '0;
+          end
+        endcase
+      end else if (is_mret) begin
+        m_mie_b = m_mpie;
+        m_mpie  = 1'b1;
+      end
+      if (wr) m_write(csr_addr, nv);
+    end
+    @(negedge clk);
+    csr_access = 1'b0;
+    is_mret = 1'b0;
+    {exc_illegal, exc_ecall, exc_ebreak} = '0;
+    {exc_instr_misaligned, exc_load_misaligned, exc_store_misaligned} = '0;
+    timer_irq = 1'b0;
+    ext_irq = 1'b0;
+  endtask  // Automatic
+
+  task automatic test_mstatus_reset();
+    csr_peek(MstatusAddr);
+    check("mstatus_reset_fixed_zero", csr_rdata & ~MstatusMask, '0);
+    check("mstatus_reset_mpp", Xlen'(csr_rdata[MstatusMppLo+:2]), Xlen'(3));
+    csr_op(Funct3Csrrc, MstatusAddr, Xlen'(3) << MstatusMppLo);
+    csr_peek(MstatusAddr);
+    check("mstatus_mpp_fixed", Xlen'(csr_rdata[MstatusMppLo+:2]), Xlen'(3));
+  endtask  // Automatic
+
+  // Platform mip bits
+  task automatic test_mip_platform();
+    logic [Xlen-1:0] exp;
+    exp = '0;
+    for (int t = 0; t < 64; t++) begin
+      logic [Funct3W-1:0] op;
+      logic [Xlen-1:0] val;
+      op  = t == 0 ? Funct3Csrrw : rand_op();
+      val = Xlen'($urandom);
+      exp = op_result(op, exp, val);
+      csr_op(op, MipAddr, val);
+      check("mip_platform_rw", csr_rdata, '0);
+      csr_peek(MipAddr);
+      check("mip_platform_hold", csr_rdata, '0);
+    end
+  endtask  // Automatic
+
+  task automatic test_vec_csr_status();
+    set_vs(VsOff);
+    foreach (vec_addrs[i])
+      csr_trap($sformatf("vec_%h_off_traps", vec_addrs[i]), Funct3Csrrsi, vec_addrs[i], '0, 1'b1);
+    for (int i = 0; i < 4; i++) begin
+      set_vs(VsClean);
+      csr_trap($sformatf("vec_%h_write_ok", vec_addrs[i]), Funct3Csrrw, vec_addrs[i], '0, 1'b0);
+      csr_peek(MstatusAddr);
+      check($sformatf("vec_%h_write_dirties", vec_addrs[i]), Xlen'(csr_rdata[MstatusVsLo+:StateW]),
+            Xlen'(VsDirty));
+    end
+    set_vs(VsClean);
+    foreach (vec_addrs[i])
+      csr_trap($sformatf("vec_%h_clean_reads", vec_addrs[i]), Funct3Csrrsi, vec_addrs[i], '0, 1'b0);
+  endtask  // Automatic
+
+  // Held vector config
+  task automatic test_vtype_hold();
+    set_vs(VsClean);
+    for (int t = 0; t < 64; t++) begin
+      logic [ VlW-1:0] nvl;
+      logic [Xlen-1:0] nvt;
+      nvl = VlW'($urandom);
+      nvt = Xlen'($urandom_range(255));
+      vec_instr(1'b1, nvl, nvt);
+      repeat (3) begin
+        csr_peek(VtypeAddr);
+        check("vtype_hold", csr_rdata, nvt);
+        check("vtype_port_hold", vtype_q, nvt);
+        csr_peek(VlAddr);
+        check("vl_hold", csr_rdata, Xlen'(nvl));
+      end
+    end
+  endtask  // Automatic
+
+  function automatic logic csr_known(input logic [AddrW-1:0] a);
+    case (a)
+      MstatusAddr, MstatushAddr, MisaAddr, MieAddr, MtvecAddr, MscratchAddr, MepcAddr,
+          McauseAddr, MtvalAddr, MipAddr, CycleAddr, InstretAddr, CyclehAddr, InstrethAddr,
+          McycleAddr, MinstretAddr, McyclehAddr, MinstrethAddr, VstartAddr, VxsatAddr, VxrmAddr,
+          VcsrAddr, VlAddr, VtypeAddr, VlenbAddr, FflagsAddr, FrmAddr, FcsrAddr:
+      return 1'b1;
+      default: return 1'b0;
+    endcase
+  endfunction
+
+  function automatic logic trap_field(input logic [AddrW-1:0] a);
+    return a == MstatusAddr || a == MepcAddr || a == McauseAddr || a == MtvalAddr;
+  endfunction
+
+  task automatic snapshot();
+    foreach (snap_addrs[i]) begin
+      snap_before[i] = snap_after[i];
+      csr_peek(snap_addrs[i]);
+      snap_after[i] = csr_rdata;
+    end
+  endtask  // Automatic
+
+  // Writes to unknown neighbours
+  task automatic test_neighbour_writes();
+    set_status(FsClean, VsClean);
+    foreach (bases[i]) csr_op(Funct3Csrrw, bases[i], Xlen'($urandom));
+    set_status(FsClean, VsClean);
+    foreach (bases[i]) begin
+      for (int b = 0; b < AddrW; b++) begin
+        logic [AddrW-1:0] a;
+        a = bases[i] ^ (AddrW'(1) << b);
+        if (csr_known(a) || (a[AddrW-1-:CsrRoW] == CsrRoAccess)) continue;
+        snapshot();
+        csr_drive(Funct3Csrrw, a, Xlen'($urandom));
+        @(posedge clk);
+        check($sformatf("unknown_%h_traps", a), Xlen'(trap_taken), 1);
+        check($sformatf("unknown_%h_forwards", a), Xlen'(vec_csr_we), 0);
+        csr_release();
+        snapshot();
+        foreach (snap_after[k])
+        if (!trap_field(snap_addrs[k]))
+          check($sformatf("unknown_%h_keeps_%0d", a, k), snap_after[k], snap_before[k]);
+        check($sformatf("unknown_%h_cause", a), snap_after[5], Xlen'(CauseIllegalInstr));
+      end
+    end
+  endtask  // Automatic
+
   task automatic do_verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
@@ -919,6 +1266,7 @@ module csr_tb
     $dumpfile("csr_tb.vcd");
     $dumpvars(0, csr_tb);
     do_reset();
+    test_mstatus_reset();
     test_fp_reset();
     test_mscratch();
     test_mip();
@@ -939,6 +1287,11 @@ module csr_tb
     test_fp_late_flags();
     test_vec_flags();
     test_fp_reset_clears();
+    test_mip_platform();
+    test_vec_csr_status();
+    test_vtype_hold();
+    test_neighbour_writes();
+    soak_traps(TrapOps);
     do_verdict();
   end
 

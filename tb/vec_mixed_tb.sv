@@ -56,8 +56,8 @@ module vec_mixed_tb ();
     logic [WideW-1:0] want;
     logic [WideW-1:0] got;
     #1;
-    for (int e = 0; e < lanes(); e++) begin
-      want = ref_elem(e) & ((WideW'(1'b1) << dest_bits()) - WideW'(1'b1));
+    for (int e = 0; e < DLEN / dest_bits(); e++) begin
+      want = (e < lanes()) ? ref_elem(e) & ((WideW'(1'b1) << dest_bits()) - WideW'(1'b1)) : '0;
       got  = slice(result, dest_bits(), e);
       check($sformatf("%s lane %0d sew %0d", tag, e, sew_bits()), got, want);
     end
@@ -98,6 +98,13 @@ module vec_mixed_tb ();
           check_lanes("waddu wv");
           drive(VEC_WSUB, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN_W, 3'(sew));
           check_lanes("wsub wv");
+          drive(VEC_WADD, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN_W, 3'(sew));
+          check_lanes("wadd wv");
+          drive(VEC_WSUBU, f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_WIDEN_W, 3'(sew));
+          check_lanes("wsubu wv");
+          drive(vec_op_e'(int'(VEC_WADDU) + t % 4), f == 0 ? VEC_SRC_VV : VEC_SRC_VX, VEC_EEW_SAME,
+                3'(sew));
+          check_lanes("widen eew same");
         end
       end
     end
@@ -154,6 +161,18 @@ module vec_mixed_tb ();
     check_lanes("directed nsra");
   endtask  // Automatic
 
+  // Other units ops
+  task automatic test_other();
+    vec_op_e o;
+    for (int i = 0; i < int'(VEC_ILLEGAL) + 1; i++) begin
+      o = vec_op_e'(i);
+      if (vec_class(o) == VEC_CLS_MIXED) continue;
+      drive(o, vec_src_e'(i % 3), VEC_EEW_SAME, 3'(i % 3));
+      #1;
+      for (int w = 0; w < DLEN / WideW; w++) check("other op zero", result[w*WideW+:WideW], '0);
+    end
+  endtask  // Automatic
+
   // Inputs at rest
   task automatic do_reset();
     op       = VEC_WADD;
@@ -186,6 +205,7 @@ module vec_mixed_tb ();
     test_widen();
     test_narrow();
     test_ext();
+    test_other();
 
     do_verdict();
   end

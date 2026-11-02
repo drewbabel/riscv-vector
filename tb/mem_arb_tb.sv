@@ -2,7 +2,7 @@
 
 module mem_arb_tb ();
 
-  localparam int MinChecks = 14650 + 330 * cache_pkg::LineWords;
+  localparam int MinChecks = 14650 + 330 * cache_pkg::LineWords + 2000;
 
   int checks;
   int errors;
@@ -66,6 +66,9 @@ module mem_arb_bench
   localparam int BootGap = 40;
   localparam int MaxWait = 4000;
   localparam int TimeoutCycles = 400_000;
+  localparam int SoakOps = 1000;
+  localparam int AddrPool = 16;
+  localparam int SoakGuard = 2000;
 
   localparam logic [2:0] AppWrite = 3'b000;
   localparam logic [2:0] AppRead = 3'b001;
@@ -120,6 +123,17 @@ module mem_arb_bench
   logic [LineBits-1:0] ic_got;
   logic [LineBits-1:0] dc_got;
   logic [LineBits-1:0] got;
+
+  // Soak scoreboard
+  logic soak_on = 1'b0;
+  logic soak_en = 1'b1;
+  logic [Xlen-1:0] addr_pool[AddrPool];
+  int s_kind[$];
+  logic [AppAddrW-1:0] s_addr[$];
+  logic [LineBits-1:0] s_data[$];
+  logic [MaskW-1:0] s_mask[$];
+  logic s_cmd;
+  logic s_wdf;
 
   // Controller model
   logic [LineBits-1:0] mem[MemLines];
@@ -496,6 +510,148 @@ module mem_arb_bench
     end
   endtask  // Automatic
 
+  task automatic expect_txn(input int kind, input logic [Xlen-1:0] addr,
+                            input logic [LineBits-1:0] data, input logic [MaskW-1:0] mask);
+    s_kind.push_back(kind);
+    s_addr.push_back({addr[AppAddrW-1:IdxLsb], {IdxLsb{1'b0}}});
+    s_data.push_back(data);
+    s_mask.push_back(mask);
+  endtask  // Automatic
+
+  task automatic issue_ic();
+    ic_req_valid = 1'b1;
+    ic_req_addr  = soak_addr();
+    expect_txn(0, ic_req_addr, '0, '0);
+  endtask  // Automatic
+
+  task automatic issue_dc();
+    logic [MaskW-1:0] mask;
+    dc_req_valid = 1'b1;
+    dc_req_rw    = 1'($urandom);
+    dc_req_addr  = soak_addr();
+    dc_req_wdata = rand_line();
+    dc_req_wstrb = ($urandom_range(3) == 0) ? '0 : MaskW'($urandom);
+    mask = (dc_req_wstrb == '0) ? '0 : ~dc_req_wstrb;
+    expect_txn(dc_req_rw ? 2 : 1, dc_req_addr, dc_req_wdata, mask);
+  endtask  // Automatic
+
+  task automatic issue_boot();
+    boot_we    = 1'b1;
+    boot_addr  = soak_addr();
+    boot_wdata = Xlen'($urandom);
+    expect_txn(3, boot_addr, {LineWords{boot_wdata}},
+               ~(MaskW'({WordBytes{1'b1}}) << (WordBytes * word_of(boot_addr))));
+  endtask  // Automatic
+
+  task automatic soak_issue();
+    int pick;
+    s_cmd   = 1'b0;
+    s_wdf   = 1'b0;
+    rd_lat  = int'($urandom_range(RdLat));
+    rdy_pct = 1'($urandom) ? 100 : int'($urandom_range(10, 90));
+    wdf_pct = 1'($urandom) ? 100 : int'($urandom_range(10, 90));
+    pick    = int'($urandom_range(9));
+    if (pick < 3) begin
+      issue_ic();
+    end else if (pick < 6) begin
+      issue_dc();
+    end else if (pick < 8) begin
+      issue_boot();
+    end else begin
+      issue_dc();
+      issue_ic();
+    end
+  endtask  // Automatic
+
+  task automatic soak_pop();
+    if (s_kind[0] == 0) ic_req_valid = 1'b0;
+    if (is_dc(s_kind[0])) dc_req_valid = 1'b0;
+    void'(s_kind.pop_front());
+    void'(s_addr.pop_front());
+    void'(s_data.pop_front());
+    void'(s_mask.pop_front());
+    s_cmd = 1'b0;
+    s_wdf = 1'b0;
+  endtask  // Automatic
+
+  task automatic soak_check();
+    logic busy;
+    logic boot_done;
+    busy = s_kind.size() != 0;
+    boot_done = busy && (s_kind[0] == 3) && s_cmd && s_wdf && core_en;
+    if (app_en && app_rdy) begin
+      check("soak command with nothing pending", LineBits'(busy && !s_cmd), LineBits'(1'b1));
+      if (busy) begin
+        check("soak command type", LineBits'(app_cmd),
+              LineBits'((s_kind[0] >= 2) ? AppWrite : AppRead));
+        check("soak command address", LineBits'(app_addr), LineBits'(s_addr[0]));
+      end
+      s_cmd = 1'b1;
+    end
+    if (app_wdf_wren && app_wdf_rdy) begin
+      check("soak write beat on a read", LineBits'(busy && (s_kind[0] >= 2) && !s_wdf),
+            LineBits'(1'b1));
+      if (busy) begin
+        check("soak write data", app_wdf_data, s_data[0]);
+        check("soak write mask", LineBits'(app_wdf_mask), LineBits'(s_mask[0]));
+      end
+      s_wdf = 1'b1;
+    end
+    if (!core_en) return;
+    if (ic_resp_ready) begin
+      check("soak instruction response", LineBits'(busy && (s_kind[0] == 0) && s_cmd),
+            LineBits'(1'b1));
+      if (busy) check("soak instruction data", ic_resp_rdata, mem[line_of(s_addr[0])]);
+    end
+    if (dc_resp_ready) begin
+      check("soak data response", LineBits'(busy && is_dc(s_kind[0]) && s_cmd), LineBits'(1'b1));
+      if (busy && (s_kind[0] == 1)) check("soak data", dc_resp_rdata, mem[line_of(s_addr[0])]);
+      if (busy && (s_kind[0] == 2))
+        check("soak write beat sent", LineBits'(s_wdf), LineBits'(1'b1));
+    end
+    if (ic_resp_ready || dc_resp_ready) soak_pop();
+    else if (boot_done) soak_pop();
+  endtask  // Automatic
+
+  task automatic test_soak();
+    int   done;
+    int   age;
+    logic taken;
+    for (int i = 0; i < AddrPool; i++) addr_pool[i] = Xlen'($urandom);
+    done  = 0;
+    age   = 0;
+    taken = 1'b0;
+    @(negedge clk);
+    soak_on = 1'b1;
+    while (done < SoakOps) begin
+      @(negedge clk);
+      if (taken) boot_we = 1'b0;
+      soak_en = $urandom_range(4) != 0;
+      if ((s_kind.size() == 0) && ($urandom_range(3) != 0)) begin
+        soak_issue();
+        done++;
+        age = 0;
+      end
+      #1;
+      taken = boot_we && core_en;
+      soak_check();
+      age++;
+      if (age > SoakGuard) $fatal(1, "soak stuck with %0d pending", s_kind.size());
+    end
+    while (s_kind.size() != 0) begin
+      @(negedge clk);
+      if (taken) boot_we = 1'b0;
+      soak_en = $urandom_range(4) != 0;
+      #1;
+      taken = boot_we && core_en;
+      soak_check();
+    end
+    repeat (2) @(negedge clk);
+    soak_on = 1'b0;
+    rd_lat  = RdLat;
+    set_controller(100, 100);
+  endtask  // Automatic
+
   task automatic check_drained();
     check("commands left outstanding at the controller when the stimulus ended", LineBits'(cq_wr),
           LineBits'(cq_rd));
@@ -532,10 +688,24 @@ module mem_arb_bench
     test_slow_core_stalled();
     test_fast_controller();
     test_beyond_bram();
+    test_soak();
     check_drained();
 
     finish();
   end
+
+  function automatic logic [LineBits-1:0] rand_line();
+    for (int w = 0; w < LineWords; w++) rand_line[w*Xlen+:Xlen] = Xlen'($urandom);
+  endfunction
+
+  function automatic logic is_dc(input int kind);
+    return (kind == 1) || (kind == 2);
+  endfunction
+
+  function automatic logic [Xlen-1:0] soak_addr();
+    if ($urandom_range(3) == 0) return Xlen'($urandom);
+    return addr_pool[$urandom_range(AddrPool-1)] ^ Xlen'($urandom_range(LineBytes - 1));
+  endfunction
 
   function automatic logic [LineBits-1:0] line_seq(input logic [Xlen-1:0] seed);
     for (int w = 0; w < LineWords; w++) line_seq[w*Xlen+:Xlen] = seed + Xlen'(w);
@@ -608,6 +778,7 @@ module mem_arb_bench
 
       rd_v <= rd_v >> 1;
       for (int k = 0; k < RdLat; k++) rd_d[k] <= rd_d[k+1];
+      rd_d[RdLat] <= rand_line();
 
       // Service head
       if (cq_rd < cq_wr_eff) begin
@@ -637,7 +808,7 @@ module mem_arb_bench
     else en_ctr <= (en_ctr + 1) % en_period;
   end
 
-  assign core_en = (en_ctr == 0);
+  assign core_en = soak_on ? soak_en : (en_ctr == 0);
 
   // Protocol checks
   always @(posedge clk) begin

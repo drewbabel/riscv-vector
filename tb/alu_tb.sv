@@ -10,6 +10,7 @@ module alu_tb
   localparam logic [XLEN-1:0] MinNeg = {1'b1, {(XLEN - 1) {1'b0}}};
   localparam logic [XLEN-1:0] MaxPos = ~MinNeg;
   localparam logic [XLEN-1:0] Pattern = XLEN'('h1234_5678);
+  localparam int OpCodes = 2 ** $bits(alu_op_e);
 
   int checks = 0;
   int errors = 0;
@@ -77,8 +78,20 @@ module alu_tb
   endtask  // Automatic
 
   task automatic random_sweep(input int n);
-    repeat (n)
-      check_case(XLEN'($urandom), XLEN'($urandom), alu_op_e'($urandom_range(int'(ALU_AND))));
+    repeat (n) check_case(XLEN'($urandom), XLEN'($urandom), alu_op_e'($urandom_range(OpCodes - 1)));
+  endtask  // Automatic
+
+  task automatic test_one_hot();
+    for (int i = 0; i < XLEN; i++) check_case(XLEN'(1) << i, XLEN'(1) << i, ALU_AND);
+  endtask  // Automatic
+
+  task automatic near_sweep(input int n);
+    logic [XLEN-1:0] x;
+    repeat (n) begin
+      x = XLEN'($urandom);
+      check_case(x, x ^ (XLEN'($urandom) >> $urandom_range(XLEN - 1)), alu_op_e'($urandom_range(
+                 OpCodes - 1)));
+    end
   endtask  // Automatic
 
   task automatic do_verdict();
@@ -104,7 +117,9 @@ module alu_tb
     do_reset();
 
     test_directed();
+    test_one_hot();
     random_sweep(3000);
+    near_sweep(1000);
 
     do_verdict();
   end

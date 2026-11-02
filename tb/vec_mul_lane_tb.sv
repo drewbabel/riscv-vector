@@ -270,8 +270,7 @@ module vec_mul_lane_tb
   // Neighbours differ
   task automatic test_mixed(input int n);
     stalling = 1'b1;
-    repeat (n)
-      mul(ops[$urandom_range($size(ops)-1)], 3'($urandom_range(SewTop)), rand_elem(), rand_elem());
+    repeat (n) mul(rand_op(), rand_sew(), rand_elem(), rand_elem());
     stalling = 1'b0;
   endtask  // Automatic
 
@@ -318,6 +317,20 @@ module vec_mul_lane_tb
     return ELEN'({32'($urandom), 32'($urandom)});
   endfunction
 
+  function automatic vec_op_e rand_op();
+    if ($urandom_range(3) == 0) return vec_op_e'($bits(vec_op_e)'($urandom));
+    return ops[$urandom_range($size(ops)-1)];
+  endfunction
+
+  function automatic logic [2:0] rand_sew();
+    return ($urandom_range(7) == 0) ? 3'($urandom) : 3'($urandom_range(SewTop));
+  endfunction
+
+  function automatic logic mul_op(input vec_op_e o);
+    foreach (ops[i]) if (o == ops[i]) return 1'b1;
+    return 1'b0;
+  endfunction
+
   function automatic logic widen_op(input vec_op_e o);
     return (o == VEC_WMUL) || (o == VEC_WMULU) || (o == VEC_WMULSU) || (o == VEC_WMACC) ||
         (o == VEC_WMACCU) || (o == VEC_WMACCSU) || (o == VEC_WMACCUS);
@@ -339,7 +352,7 @@ module vec_mul_lane_tb
     logic sb;
     logic signed [2*ELEN+1:0] full;
     w = 8 << vsew_in;
-    if (vsew_in > SewTop || (widen_op(op_in) && 2 * w > ELEN)) return '0;
+    if (!mul_op(op_in) || vsew_in > SewTop || (widen_op(op_in) && 2 * w > ELEN)) return '0;
     case (op_in)
       VEC_MUL, VEC_MULH, VEC_WMUL, VEC_WMACC: {sa, sb} = 2'b11;
       VEC_MULHSU, VEC_WMULSU, VEC_WMACCUS: {sa, sb} = 2'b10;
@@ -358,7 +371,7 @@ module vec_mul_lane_tb
     logic [ELEN-1:0] wide_mask;
     logic [ELEN-1:0] low;
     w = 8 << vsew_in;
-    if (vsew_in > SewTop || (widen_op(op_in) && 2 * w > ELEN)) return '0;
+    if (!mul_op(op_in) || vsew_in > SewTop || (widen_op(op_in) && 2 * w > ELEN)) return '0;
     mask = {ELEN{1'b1}} >> (ELEN - w);
     wide_mask = (2 * w >= ELEN) ? '1 : ({ELEN{1'b1}} >> (ELEN - 2 * w));
     low = product_in[ELEN-1:0];

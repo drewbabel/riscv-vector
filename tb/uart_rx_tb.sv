@@ -125,6 +125,9 @@ module uart_rx_bench #(
 
   logic clk = 0;
   logic rst_n;
+  logic core_en;
+  logic stall_on = 1'b0;
+  int stalls = 0;
   logic rx_serial;
   logic [DataBits-1:0] rx_data;
   logic rx_valid;
@@ -144,7 +147,7 @@ module uart_rx_bench #(
       .DATA_BITS  (DataBits)
   ) dut (
       .clk(clk),
-      .core_en(1'b1),
+      .core_en(core_en),
       .rst_n(rst_n),
       .rx_serial(rx_serial),
       .rx_data(rx_data),
@@ -197,9 +200,79 @@ module uart_rx_bench #(
   endtask  // Automatic
 
   task automatic check_flag_len(input int len);  // Reads live DUT signals, prevents stale args
-    repeat (len) @(posedge clk);
+    int n = 0;
+    while (n < len) begin
+      @(posedge clk);
+      if (core_en) n++;
+    end
     @(negedge clk);
     check($sformatf("flag held over %0d cycle(s)", len), DataBits'(rx_valid || rx_error), '0);
+  endtask  // Automatic
+
+  // Reset over result
+  task automatic reset_at_result();
+    int lat = 0;
+    stall_on = 1'b0;
+    tx_bit = ClksPerBit;
+    exp_data = DataBits'('h5A);
+    exp_corrupt = 1'b0;
+    do_reset();
+    idle(ClksPerBit);
+    fork
+      send_data(exp_data, 1'b0);
+      begin
+        @(negedge clk);
+        lat++;
+        while (!rx_valid && lat < 12 * tx_bit) begin
+          @(negedge clk);
+          lat++;
+        end
+        check("reset frame flagged", DataBits'(rx_valid), DataBits'(1));
+      end
+    join
+    do_reset();
+    idle(ClksPerBit);
+    fork
+      send_data(exp_data, 1'b0);
+      begin
+        repeat (lat - 1) @(negedge clk);
+        rst_n = 1'b0;
+        @(negedge clk);
+        check("flag during reset", DataBits'(rx_valid || rx_error), '0);
+      end
+    join
+    frames_sent--;
+    valid_frames--;
+    rst_n = 1'b1;
+    idle(ClksPerBit);
+  endtask  // Automatic
+
+  task automatic idle(input int n);
+    repeat (n) @(negedge clk);
+  endtask  // Automatic
+
+  // Outputs hold over stall
+  task automatic stall(input int n);
+    logic [1:0] flags = {rx_valid, rx_error};
+    logic [DataBits-1:0] data = rx_data;
+    stalls++;
+    repeat (n) begin
+      @(negedge clk);
+      check("flags held while core_en low", DataBits'({rx_valid, rx_error}), DataBits'(flags));
+      check("data held while core_en low", rx_data, data);
+    end
+    stalls--;
+  endtask  // Automatic
+
+  // Random core_en stalls
+  task automatic random_stalls();
+    forever begin
+      wait (stall_on);
+      repeat ($urandom_range(2 * ClksPerBit, 1)) #10;
+      #2;
+      @(negedge clk);
+      if (stall_on) stall(1);
+    end
   endtask  // Automatic
 
   task automatic finish();
@@ -234,9 +307,11 @@ module uart_rx_bench #(
 
   initial begin
     do_reset();
+    stall_on = 1'b1;
     run_suite(ClksPerBit);
     run_suite(ClksPerBitFast);
     run_suite(ClksPerBitSlow);
+    reset_at_result();
     finish();
   end
 
@@ -253,6 +328,17 @@ module uart_rx_bench #(
   always @(posedge rx_valid) begin
     data_events++;
     check("data", rx_data, exp_data);
+  end
+
+  assign core_en = (stalls == 0);
+
+  initial random_stalls();
+
+  always @(posedge rx_valid, posedge rx_error) begin
+    if (stall_on) begin
+      @(negedge clk);
+      stall(2);
+    end
   end
 
   always @(posedge clk) begin

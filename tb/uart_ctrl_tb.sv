@@ -11,7 +11,7 @@ module uart_ctrl_tb ();
   localparam logic [Xlen-1:0] RxDataAddr = UartBase + Xlen'(2 * WordBytes);
   localparam logic [Xlen-1:0] CtrlAddr = UartBase + Xlen'(3 * WordBytes);
   localparam logic [7:0] DataMask = 8'((1 << arch_pkg::UartDataBits) - 1);
-  localparam int MinChecks = 22;
+  localparam int MinChecks = 12022;
 
   int                checks = 0;
   int                errors = 0;
@@ -19,6 +19,7 @@ module uart_ctrl_tb ();
 
   logic              clk = 1'b0;
   logic              rst_n;
+  logic              core_en = 1'b1;
   logic              sel;
   logic              req;
   logic [Xlen/8-1:0] wstrb;
@@ -38,7 +39,7 @@ module uart_ctrl_tb ();
       .XLEN(Xlen)
   ) dut (
       .clk     (clk),
-      .core_en (1'b1),
+      .core_en (core_en),
       .rst_n   (rst_n),
       .sel     (sel),
       .req     (req),
@@ -218,6 +219,65 @@ module uart_ctrl_tb ();
     check_read("rx_byte_take_full", RxDataAddr, Xlen'(8'h44 & DataMask));
   endtask  // Automatic
 
+  task automatic soak(input int n);
+    logic [7:0] m_byte;
+    logic m_full, m_ovr, m_ie, take;
+    logic [1:0] off;
+    logic [Xlen-1:0] exp;
+    bus_read(RxDataAddr, exp);
+    bus_write(CtrlAddr, Xlen'(0));
+    m_byte = exp[7:0];
+    m_full = 1'b0;
+    m_ovr  = 1'b0;
+    m_ie   = 1'b0;
+    repeat (n) begin
+      @(negedge clk);
+      rst_n    = $urandom_range(63) != 0;
+      core_en  = $urandom_range(3) != 0;
+      sel      = $urandom_range(3) != 0;
+      req      = 1'($urandom);
+      wstrb    = ($urandom_range(2) == 0) ? '0 : (Xlen / 8)'($urandom);
+      off      = 2'($urandom);
+      addr     = (Xlen'($urandom) & ~Xlen'(3 * WordBytes)) | Xlen'(off * WordBytes);
+      wdata    = Xlen'($urandom);
+      rx_valid = $urandom_range(3) == 0;
+      rx_data  = 8'($urandom);
+      tx_ready = 1'($urandom);
+      #1;
+      case (off)
+        2'd1: exp = Xlen'({m_ovr, m_full, tx_ready});
+        2'd2: exp = Xlen'(m_byte);
+        2'd3: exp = Xlen'(m_ie);
+        default: exp = Xlen'(tx_ready);
+      endcase
+      check("soak rdata", rdata, exp);
+      check("soak tx_valid", Xlen'(tx_valid), Xlen'(core_en && sel && |wstrb && off == 2'd0));
+      check("soak tx_data", Xlen'(tx_data), Xlen'(wdata[7:0] & DataMask));
+      check("soak irq", Xlen'(irq), Xlen'(m_full && m_ie));
+      take = core_en && sel && req && !(|wstrb) && off == 2'd2;
+      if (!rst_n) begin
+        m_byte = '0;
+        m_full = 1'b0;
+        m_ovr  = 1'b0;
+        m_ie   = 1'b0;
+      end else if (core_en) begin
+        if (rx_valid && (!m_full || take)) m_byte = rx_data & DataMask;
+        if (rx_valid && m_full && !take) m_ovr = 1'b1;
+        else if (take) m_ovr = 1'b0;
+        if (rx_valid) m_full = 1'b1;
+        else if (take) m_full = 1'b0;
+        if (sel && |wstrb && off == 2'd3) m_ie = wdata[0];
+      end
+    end
+    @(negedge clk);
+    rst_n    = 1'b1;
+    core_en  = 1'b1;
+    sel      = 1'b0;
+    req      = 1'b0;
+    wstrb    = '0;
+    rx_valid = 1'b0;
+  endtask  // Automatic
+
   task automatic do_verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
@@ -239,6 +299,7 @@ module uart_ctrl_tb ();
     test_status_read();
     test_take_race();
     test_take_when_full();
+    soak(3000);
     do_verdict();
   end
 

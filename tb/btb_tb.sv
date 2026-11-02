@@ -4,7 +4,7 @@ module btb_tb;
 
   import bp_pkg::*;
 
-  localparam int MinChecks = 580;
+  localparam int MinChecks = 3000;
   localparam int Xlen = arch_pkg::XLEN;
   localparam int PcLsb = arch_pkg::InstrLsb;
   localparam int TagLen = Xlen - PcLsb - BtbIdxLen;
@@ -79,7 +79,10 @@ module btb_tb;
     update_target  = tgt;
     update_is_cond = c;
     @(negedge clk);
-    update_valid = 1'b0;
+    update_valid   = 1'b0;
+    update_pc      = Xlen'($urandom);
+    update_target  = Xlen'($urandom);
+    update_is_cond = 1'($urandom);
   endtask  // Automatic
 
   task automatic install_stalled(input logic [Xlen-1:0] pc, input logic [Xlen-1:0] tgt,
@@ -130,6 +133,74 @@ module btb_tb;
     probe(pc_of(2, 8));
   endtask  // Automatic
 
+  // Idle update holds entry
+  task automatic test_idle_update();
+    logic [Xlen-1:0] pc;
+    logic [Xlen-1:0] tgt;
+    logic c;
+    for (int t = 0; t < 32; t++) begin
+      pc  = rand_pc();
+      tgt = Xlen'($urandom);
+      c   = 1'($urandom);
+      install(pc, tgt, c);
+      update_pc      = pc;
+      update_target  = ~tgt;
+      update_is_cond = !c;
+      repeat (2) @(negedge clk);
+      probe(pc);
+    end
+  endtask  // Automatic
+
+  task automatic fill_all(input logic [TagLen-1:0] tag);
+    for (int i = 0; i < BtbDepth; i++) install(pc_of(int'(tag), i), Xlen'($urandom), 1'($urandom));
+  endtask  // Automatic
+
+  task automatic probe_all(input logic [TagLen-1:0] tag);
+    for (int i = 0; i < BtbDepth; i++) probe(pc_of(int'(tag), i));
+  endtask  // Automatic
+
+  // Reset clears every entry
+  task automatic test_reset_all();
+    logic [TagLen-1:0] tag;
+    tag = TagLen'($urandom);
+    fill_all(tag);
+    probe_all(tag);
+    @(negedge clk);
+    rst_n = 1'b0;
+    core_en = 1'($urandom);
+    update_valid = 1'b1;
+    update_pc = pc_of(int'(tag), $urandom_range(BtbDepth - 1));
+    @(negedge clk);
+    update_valid = 1'b0;
+    rst_n = 1'b1;
+    core_en = 1'b1;
+    probe_all(tag);
+  endtask  // Automatic
+
+  // Stall blocks every entry
+  task automatic test_stall_all();
+    logic [TagLen-1:0] tag;
+    tag = TagLen'($urandom);
+    fill_all(tag);
+    core_en = 1'b0;
+    fill_all(~tag);
+    core_en = 1'b1;
+    probe_all(tag);
+    probe_all(~tag);
+  endtask  // Automatic
+
+  // Full width tag aliases
+  task automatic random_tags(input int n);
+    logic [Xlen-1:0] pc;
+    repeat (n) begin
+      pc = {TagLen'($urandom), BtbIdxLen'($urandom), PcLsb'($urandom)};
+      install(pc, Xlen'($urandom), 1'($urandom));
+      probe(pc);
+      probe(pc ^ (Xlen'(1) << (BtbIdxLen + PcLsb + $urandom_range(TagLen - 1))));
+      probe({TagLen'($urandom), pc[BtbIdxLen+PcLsb-1:0]});
+    end
+  endtask  // Automatic
+
   task automatic random_sweep(input int n);
     logic [Xlen-1:0] pc;
     repeat (n) begin
@@ -158,7 +229,11 @@ module btb_tb;
     test_directed();
     test_reset_clears();
     test_core_stall();
+    test_idle_update();
     random_sweep(400);
+    test_reset_all();
+    test_stall_all();
+    random_tags(400);
 
     do_verdict();
   end

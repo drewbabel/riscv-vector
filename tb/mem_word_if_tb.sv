@@ -68,6 +68,7 @@ module mem_word_if_bench
   localparam int TimeoutCycles = 400_000;
   localparam int ReuseRounds = 8;
   localparam int RandomOps = 200;
+  localparam int BurstOps = 8256;
 
   int checks = 0;
   int errors = 0;
@@ -115,6 +116,13 @@ module mem_word_if_bench
   logic [31:0] d_misses;
 
   logic [CpuW-1:0] got;
+  logic i_held = 1'b0;
+  logic [Xlen-1:0] i_req_addr;
+  logic [Xlen-1:0] d_req_addr;
+  logic d_req_rw;
+  logic [CpuW-1:0] d_req_wdata;
+  logic [CpuBytes-1:0] d_req_wstrb;
+  logic d_held = 1'b0;
 
   // Line memory model
   logic [LineBits-1:0] mem[MemLines];
@@ -262,6 +270,7 @@ module mem_word_if_bench
     i_cpu_valid = 1'b0;
     i_done++;
     @(negedge clk);
+    check("instruction miss count", CpuW'(i_misses), CpuW'(i_done));
   endtask  // Automatic
 
   task automatic load(input logic [Xlen-1:0] addr, output logic [CpuW-1:0] data);
@@ -274,6 +283,7 @@ module mem_word_if_bench
     d_cpu_valid = 1'b0;
     d_done++;
     @(negedge clk);
+    check("load miss count", CpuW'(d_misses), CpuW'(d_done));
   endtask  // Automatic
 
   task automatic store(input logic [Xlen-1:0] addr, input logic [CpuBytes-1:0] strb,
@@ -288,6 +298,7 @@ module mem_word_if_bench
     d_cpu_wstrb = '0;
     d_done++;
     @(negedge clk);
+    check("store miss count", CpuW'(d_misses), CpuW'(d_done));
   endtask  // Automatic
 
   task automatic check_fetch(input string name, input logic [Xlen-1:0] addr,
@@ -378,6 +389,7 @@ module mem_word_if_bench
     logic [CpuBytes-1:0] strb;
     repeat (n) begin
       a    = Xlen'($urandom_range(MemLines * Chunks - 1) * CpuBytes);
+      a    = a | (Xlen'($urandom) & ~Xlen'(MemLines * LineBytes - 1));
       d    = CpuW'({32'($urandom), 32'($urandom), 32'($urandom), 32'($urandom)});
       strb = CpuBytes'($urandom);
       if (1'($urandom)) begin
@@ -389,6 +401,37 @@ module mem_word_if_bench
         check("random fetch returned the wrong word", got, chunk_at(a));
       end
     end
+  endtask  // Automatic
+
+  // Consecutive misses
+  task automatic burst_counts(input int n);
+    set_core(1, 0);
+    fork
+      begin
+        i_cpu_valid = 1'b1;
+        i_cpu_addr  = '0;
+        repeat (n) begin
+          wait_i();
+          check("instruction burst miss count", CpuW'(i_misses), CpuW'(i_done));
+          i_done++;
+        end
+        i_cpu_valid = 1'b0;
+      end
+      begin
+        d_cpu_valid = 1'b1;
+        d_cpu_rw    = 1'b0;
+        d_cpu_addr  = '0;
+        d_cpu_wstrb = '0;
+        repeat (n) begin
+          wait_d();
+          check("data burst miss count", CpuW'(d_misses), CpuW'(d_done));
+          d_done++;
+        end
+        d_cpu_valid = 1'b0;
+      end
+    join
+    idle(1);
+    set_core(1, MaxLat);
   endtask  // Automatic
 
   task automatic check_counters();
@@ -423,6 +466,7 @@ module mem_word_if_bench
     test_byte_strobes();
     test_core_enable_sweep();
     random_traffic(RandomOps);
+    burst_counts(BurstOps);
     check_counters();
 
     finish();
@@ -512,6 +556,35 @@ module mem_word_if_bench
   end
 
   assign core_en = (en_ctr == 0);
+
+  // Request at memory
+  always @(posedge clk) begin
+    if (rst_n && i_mem_valid)
+      check("fetch address at memory", CpuW'(i_mem_addr), CpuW'(i_req_addr));
+    if (rst_n && d_mem_valid) begin
+      check("data address at memory", CpuW'(d_mem_addr), CpuW'(d_req_addr));
+      check("data direction at memory", CpuW'(d_mem_rw), CpuW'(d_req_rw));
+      for (int b = 0; b < LineBytes; b++) begin
+        if (b / CpuBytes == word_of(d_req_addr) && d_req_wstrb[b%CpuBytes]) begin
+          check("strobe at memory", CpuW'(d_mem_wstrb[b]), CpuW'(1));
+          if (d_req_rw)
+            check("write byte at memory", CpuW'(d_mem_wdata[8*b+:8]),
+                  CpuW'(d_req_wdata[8*(b%CpuBytes)+:8]));
+        end else check("stray strobe at memory", CpuW'(d_mem_wstrb[b]), '0);
+      end
+    end
+    if (rst_n && i_held) check("fetch valid dropped before ready", CpuW'(i_mem_valid), CpuW'(1));
+    if (rst_n && d_held) check("data valid dropped before ready", CpuW'(d_mem_valid), CpuW'(1));
+    i_held <= rst_n && i_mem_valid && !i_mem_ready;
+    d_held <= rst_n && d_mem_valid && !d_mem_ready;
+    if (core_en && i_cpu_valid && !i_mem_valid) i_req_addr <= i_cpu_addr;
+    if (core_en && d_cpu_valid && !d_mem_valid) begin
+      d_req_addr  <= d_cpu_addr;
+      d_req_rw    <= d_cpu_rw;
+      d_req_wdata <= d_cpu_wdata;
+      d_req_wstrb <= d_cpu_wstrb;
+    end
+  end
 
   // Protocol checks
   always @(posedge clk) begin

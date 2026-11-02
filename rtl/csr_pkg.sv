@@ -15,6 +15,16 @@ package csr_pkg;
   localparam logic [11:0] MinstretAddr = 12'hB02;  // INSTructions RETired
   localparam logic [11:0] McyclehAddr = 12'hB80;  // CYCLE High
   localparam logic [11:0] MinstrethAddr = 12'hB82;  // INSTructions RETired High
+  localparam logic [11:0] MstatushAddr = 12'h310;  // STATUS High
+  localparam logic [11:0] MisaAddr = 12'h301;  // ISA
+  localparam logic [11:0] MvendoridAddr = 12'hF11;  // VENDOR ID
+  localparam logic [11:0] MarchidAddr = 12'hF12;  // ARCHitecture ID
+  localparam logic [11:0] MimpidAddr = 12'hF13;  // IMPlementation ID
+  localparam logic [11:0] MhartidAddr = 12'hF14;  // HART ID
+  localparam logic [11:0] CycleAddr = 12'hC00;  // User CYCLE
+  localparam logic [11:0] InstretAddr = 12'hC02;  // User INSTRET
+  localparam logic [11:0] CyclehAddr = 12'hC80;  // User CYCLE High
+  localparam logic [11:0] InstrethAddr = 12'hC82;  // User INSTRET High
 
   // Vector CSR addresses
   localparam logic [11:0] VstartAddr = 12'h008;  // element index
