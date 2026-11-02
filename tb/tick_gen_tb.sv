@@ -2,7 +2,7 @@
 
 module tick_gen_tb ();
 
-  localparam int MinChecks = 250;
+  localparam int MinChecks = 700;
 
   int checks;
   int errors;
@@ -61,11 +61,12 @@ module tick_gen_bench #(
   logic done = 1'b0;
 
   logic clk = 0;
-  logic rst_n;
+  logic rst_n = 1'b1;
+  logic core_en = 1'b1;
   logic clr = 0;
   logic tick;
 
-  int   phase;  // Reference divisor phase: rst_n or clr clears it, else count and wrap
+  int   phase = Divisor - 1;  // Reference divisor phase
 
   always #5 clk = ~clk;
 
@@ -73,7 +74,7 @@ module tick_gen_bench #(
       .DIVISOR(Divisor)
   ) dut (
       .clk(clk),
-      .core_en(1'b1),
+      .core_en(core_en),
       .rst_n(rst_n),
       .clr(clr),
       .tick(tick)
@@ -89,6 +90,7 @@ module tick_gen_bench #(
   endtask  // Automatic
 
   task automatic do_reset();
+    @(negedge clk);
     rst_n = 1'b0;
     clr   = 1'b0;
     repeat (2) @(posedge clk);
@@ -118,6 +120,45 @@ module tick_gen_bench #(
     idle(50);
   endtask  // Automatic
 
+  // Initial tick value
+  task automatic power_on();
+    #1 check("power_on", tick, 1'b1);
+    idle(3 * Divisor);
+  endtask  // Automatic
+
+  // Random core_en stalls
+  task automatic stall_random(input int n);
+    repeat (n) begin
+      core_en = $urandom_range(2) != 0;
+      clr = $urandom_range(7) == 0;
+      @(negedge clk);
+    end
+    core_en = 1'b1;
+    clr = 1'b0;
+  endtask  // Automatic
+
+  // Stall each phase
+  task automatic stall_each_phase();
+    for (int p = 0; p < Divisor; p++) begin
+      pulse_clr();
+      idle(p);
+      core_en = 1'b0;
+      idle(3);
+      core_en = 1'b1;
+      idle(2 * Divisor);
+    end
+  endtask  // Automatic
+
+  // Reset during stall
+  task automatic reset_stalled();
+    idle(1);
+    core_en = 1'b0;
+    do_reset();
+    idle(2);
+    core_en = 1'b1;
+    idle(2 * Divisor);
+  endtask  // Automatic
+
   task automatic finish();
     @(posedge clk);
     done = 1'b1;
@@ -126,16 +167,21 @@ module tick_gen_bench #(
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
+    power_on();
     do_reset();
     idle(100);
     resync_mid_phase();
     back_to_back_clr();
+    stall_each_phase();
+    stall_random(300);
+    reset_stalled();
     finish();
   end
 
   // Reference model
   always @(posedge clk) begin
     if (!rst_n) phase <= 0;
+    else if (!core_en) phase <= phase;
     else if (clr) phase <= 0;
     else phase <= (phase == Divisor - 1) ? 0 : phase + 1;
   end
