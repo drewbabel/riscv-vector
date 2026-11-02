@@ -124,7 +124,7 @@ module sc_control_decoder
           is_ebreak = (funct12 == Funct12Ebreak);
           is_mret   = (funct12 == Funct12Mret);
         end else if (funct3 == Funct3SysRsvd) begin
-          csr_access = 1'b1;
+          illegal = 1'b1;
         end else begin
           reg_write  = 1'b1;
           csr_access = 1'b1;
