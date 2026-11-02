@@ -101,13 +101,17 @@ module csr
     $error("csr implements RV32 only");
   end
 
+  localparam int Msie = 3;
+  localparam logic [XLEN-1:0] MieMask = (XLEN'(1) << Msie) | (XLEN'(1) << Mtie) |
+      (XLEN'(1) << Meie);
+  localparam logic [XLEN-1:0] MppM = XLEN'(3) << MstatusMppLo;
+
   logic [   XLEN-1:0] mstatus;
   logic [   XLEN-1:0] mtvec;
   logic [   XLEN-1:0] mepc;
   logic [   XLEN-1:0] mcause;
   logic [   XLEN-1:0] mtval;
   logic [   XLEN-1:0] mie;
-  logic [   XLEN-1:0] mip;
   logic [   XLEN-1:0] mscratch;
   logic [   XLEN-1:0] mcycle;
   logic [   XLEN-1:0] minstret;
@@ -131,6 +135,7 @@ module csr
   logic               exc_vs_off;
   logic               exc_fs_off;
   logic               illegal_any;
+  logic               csr_known;
 
   logic [   XLEN-1:0] csr_wsrc;
   logic               csr_write;
@@ -180,19 +185,27 @@ module csr
       (mstatus[MstatusVsLo+1:MstatusVsLo] == VsOff);
   assign exc_fs_off = (is_fp_instr || (csr_access && fp_csr_addr)) &&
       (mstatus[MstatusFsLo+1:MstatusFsLo] == FsOff);
-  assign illegal_any = exc_illegal || exc_ro_write || exc_vs_off || exc_fs_off;
+  assign illegal_any = exc_illegal || exc_ro_write || exc_vs_off || exc_fs_off ||
+      (csr_access && !csr_known);
 
   logic [XLEN-1:0] mip_read;
   always_comb begin
-    mip_read = mip;
+    mip_read = '0;
     mip_read[Mtip] = timer_irq;
     mip_read[Meip] = ext_irq;
   end
 
   // Read mux
   always_comb begin
+    csr_known = 1'b1;
     case (csr_addr)
       MstatusAddr: csr_rdata = mstatus_read;
+      MstatushAddr: csr_rdata = '0;
+      MisaAddr: csr_rdata = '0;
+      MvendoridAddr: csr_rdata = '0;
+      MarchidAddr: csr_rdata = '0;
+      MimpidAddr: csr_rdata = '0;
+      MhartidAddr: csr_rdata = '0;
       MieAddr: csr_rdata = mie;
       MtvecAddr: csr_rdata = mtvec;
       MscratchAddr: csr_rdata = mscratch;
@@ -200,10 +213,10 @@ module csr
       McauseAddr: csr_rdata = mcause;
       MtvalAddr: csr_rdata = mtval;
       MipAddr: csr_rdata = mip_read;
-      McycleAddr: csr_rdata = mcycle;
-      MinstretAddr: csr_rdata = minstret;
-      McyclehAddr: csr_rdata = mcycleh;
-      MinstrethAddr: csr_rdata = minstreth;
+      McycleAddr, CycleAddr: csr_rdata = mcycle;
+      MinstretAddr, InstretAddr: csr_rdata = minstret;
+      McyclehAddr, CyclehAddr: csr_rdata = mcycleh;
+      MinstrethAddr, InstrethAddr: csr_rdata = minstreth;
       VlAddr: csr_rdata = {{XLEN - VlW{1'b0}}, vl};
       VtypeAddr: csr_rdata = vtype_q;
       VlenbAddr: csr_rdata = XLEN'(VLEN / 8);
@@ -214,7 +227,10 @@ module csr
       FflagsAddr: csr_rdata = XLEN'(fflags);
       FrmAddr: csr_rdata = XLEN'(frm);
       FcsrAddr: csr_rdata = XLEN'({frm, fflags});
-      default: csr_rdata = '0;
+      default: begin
+        csr_rdata = '0;
+        csr_known = 1'b0;
+      end
     endcase
   end
 
@@ -237,13 +253,12 @@ module csr
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      mstatus    <= '0;
+      mstatus    <= MppM;
       mtvec      <= '0;
       mepc       <= '0;
       mcause     <= '0;
       mtval      <= '0;
       mie        <= '0;
-      mip        <= '0;
       mscratch   <= '0;
       minstret   <= '0;
       minstreth  <= '0;
@@ -262,6 +277,7 @@ module csr
       if (trap_taken) begin
         mstatus[MstatusMpie] <= mstatus[MstatusMie];
         mstatus[MstatusMie] <= 1'b0;
+        mstatus[MstatusMppLo+1:MstatusMppLo] <= 2'b11;
         mepc <= pc;
         if (ext_ready || timer_ready) begin
           mcause <= ext_ready ? {1'b1, (XLEN - 1)'(CauseMachineExternalIrq)} :
@@ -314,15 +330,13 @@ module csr
 
       if (csr_write_en) begin
         case (csr_addr)
-          MstatusAddr:   mstatus <= csr_wdata & MstatusMask;
-          MieAddr:       mie <= csr_wdata;
-          MtvecAddr:     mtvec <= csr_wdata;
+          MstatusAddr:   mstatus <= (csr_wdata & MstatusMask) | MppM;
+          MieAddr:       mie <= csr_wdata & MieMask;
+          MtvecAddr:     mtvec <= {csr_wdata[XLEN-1:MtvecModeW], MtvecModeW'(0)};
           MscratchAddr:  mscratch <= csr_wdata;
           MepcAddr:      mepc <= {csr_wdata[XLEN-1:InstrLsb], InstrLsb'(0)};  // mepc word aligned
           McauseAddr:    mcause <= csr_wdata;
           MtvalAddr:     mtval <= csr_wdata;
-          // Read only
-          MipAddr:       mip <= csr_wdata & ~(XLEN'(1) << Mtip) & ~(XLEN'(1) << Meip);
           MinstretAddr:  minstret <= csr_wdata;
           MinstrethAddr: minstreth <= csr_wdata;
           FrmAddr:       frm <= csr_wdata[RmW-1:0];
@@ -361,7 +375,7 @@ module csr
   assign dbg_mcause     = mcause;
   assign dbg_mtval      = mtval;
   assign dbg_mie        = mie;
-  assign dbg_mip        = mip;
+  assign dbg_mip        = mip_read;
   assign dbg_mcycle     = mcycle;
   assign dbg_minstret   = minstret;
   assign dbg_mcycleh    = mcycleh;

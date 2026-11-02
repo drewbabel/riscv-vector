@@ -156,9 +156,26 @@ module irq_formal
   assign exc_fs_off = (is_fp_instr || (csr_access && fp_addr)) &&
       (dbg_mstatus[MstatusFsLo+1:MstatusFsLo] == FsOff);
 
+  logic csr_known;
+  always_comb begin
+    case (csr_addr)
+      MstatusAddr, MstatushAddr, MisaAddr, MvendoridAddr, MarchidAddr, MimpidAddr, MhartidAddr,
+          MieAddr, MtvecAddr, MscratchAddr, MepcAddr, McauseAddr, MtvalAddr, MipAddr, McycleAddr,
+          CycleAddr, MinstretAddr, InstretAddr, McyclehAddr, CyclehAddr, MinstrethAddr,
+          InstrethAddr, VlAddr, VtypeAddr, VlenbAddr, VstartAddr, VxsatAddr, VxrmAddr, VcsrAddr,
+          FflagsAddr, FrmAddr, FcsrAddr:
+      csr_known = 1'b1;
+      default: csr_known = 1'b0;
+    endcase
+  end
+
+  logic exc_unknown_csr;
+  assign exc_unknown_csr = csr_access && !csr_known;
+
   logic exc_any;
   assign exc_any = exc_illegal | exc_ecall | exc_ebreak | exc_instr_misaligned |
-      exc_load_misaligned | exc_store_misaligned | exc_ro_write | exc_vs_off | exc_fs_off;
+      exc_load_misaligned | exc_store_misaligned | exc_ro_write | exc_vs_off | exc_fs_off |
+      exc_unknown_csr;
 
   logic timer_ready;
   logic ext_ready;
@@ -212,6 +229,7 @@ module irq_formal
       cover (trap_taken && exc_any && irq_ready);
       cover (mret_taken && !trap_taken && dbg_mstatus[MstatusMpie]);
       cover (!trap_taken && (timer_irq || ext_irq) && !exc_any);
+      cover (trap_taken && exc_unknown_csr && !irq_ready);
     end
 
 endmodule
