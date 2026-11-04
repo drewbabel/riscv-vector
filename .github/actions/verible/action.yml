@@ -1,0 +1,19 @@
+name: Verible
+description: Install the pinned Verible release and put it on the path
+
+inputs:
+  version:
+    description: Release tag of Verible
+    default: 'v0.0-4283-ga1b0580b'
+
+runs:
+  using: composite
+  steps:
+    - name: Install Verible
+      shell: bash
+      env:
+        TAG: ${{ inputs.version }}
+      run: |
+        ./fetch.sh url "https://github.com/chipsalliance/verible/releases/download/$TAG/verible-$TAG-linux-static-x86_64.tar.gz" "$RUNNER_TEMP/verible.tar.gz"
+        tar -xzf "$RUNNER_TEMP/verible.tar.gz" -C "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/verible-$TAG/bin" >> "$GITHUB_PATH"
