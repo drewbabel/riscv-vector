@@ -5,7 +5,7 @@ def shrink(items, fails):
         i = 0
         changed = False
         while i < len(items):
-            trial = items[:i] + items[i + chunk:]
+            trial = items[:i] + items[i + chunk :]
             if trial and fails(trial):
                 items = trial
                 changed = True
