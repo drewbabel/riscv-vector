@@ -1,0 +1,26 @@
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+prove: depth 4
+cover: mode cover
+cover: depth 8
+
+[engines]
+prove: abc pdr
+cover: smtbmc yices
+
+[script]
+read_verilog -formal bram_watch_formal.v
+read -formal bram_watch.sv
+chtype -map bram_sdp bram_watch c:*u_watch
+prep -top bram_watch_formal
+flatten
+connect -set \g_style[0].u_watch.w_idx f_idx
+connect -set \g_style[1].u_watch.w_idx f_idx
+
+[files]
+build/bram_watch_formal.v
+formal/bram_watch.sv
