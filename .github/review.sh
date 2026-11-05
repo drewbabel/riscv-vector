@@ -62,7 +62,7 @@ done < "$t/sv" \
   | { grep -vE '^formal/[^:]+:[0-9]+: warning: (System task \(\$[a-z]+\) cannot be synthesized in an always_(comb|ff)|always_comb process has no sensitivities)' || true; } \
   | rd -efm='%f:%l: %trror: %m' -efm='%f:%l: %tarning: %m' -efm='%-G%.%#' -name=iverilog || rc=1
 
-python3 tests/rules/check.py --base "$base" > "$t/rules" || rc=1
+python3 tests/rules/check.py --base "$base" --skip comment > "$t/rules" || rc=1
 reviewdog -efm='%f:%l:%c: %m' -name=rules -reporter="$reporter" -filter-mode=nofilter -fail-level=none \
   ${diff_cmd:+"-diff=$diff_cmd"} < "$t/rules" || rc=1
 

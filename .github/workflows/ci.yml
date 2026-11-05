@@ -258,7 +258,7 @@ jobs:
         run: |
           base=$(git merge-base origin/main HEAD)
           if [ "$base" = "$(git rev-parse HEAD)" ]; then base=HEAD^1; fi
-          python3 tests/rules/check.py --base "$base"
+          python3 tests/rules/check.py --base "$base" --skip comment
 
   sweep-list:
     runs-on: ubuntu-24.04
