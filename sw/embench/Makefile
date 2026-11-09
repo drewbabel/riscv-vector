@@ -29,7 +29,7 @@ HEXES := $(addsuffix .hex,$(BENCHES))
 all: $(HEXES)
 
 $(SRC):
-	git clone --depth 1 https://github.com/embench/embench-iot.git $(SRC)
+	../../fetch.sh git https://github.com/embench/embench-iot.git $(SRC)
 
 %.elf: $(PORTSRC) $(ASRC) link.ld | $(SRC)
 	$(CC) $(CFLAGS) -DBENCH_NAME='"$*"' $(LDFLAGS) -o $@ \

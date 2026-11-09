@@ -8,7 +8,7 @@ CORE=rv32i_pipe
 RVF="${RISCV_FORMAL_DIR:-$ROOT/build/riscv-formal}"
 
 if [ ! -d "$RVF" ]; then
-  git clone https://github.com/YosysHQ/riscv-formal.git "$RVF"
+  "$ROOT/fetch.sh" git https://github.com/YosysHQ/riscv-formal.git "$RVF"
 fi
 
 DST="$RVF/cores/$CORE"

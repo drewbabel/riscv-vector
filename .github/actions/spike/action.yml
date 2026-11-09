@@ -21,8 +21,7 @@ runs:
       env:
         SHA: ${{ inputs.sha }}
       run: |
-        git clone https://github.com/riscv-software-src/riscv-isa-sim.git "$RUNNER_TEMP/riscv-isa-sim"
-        git -C "$RUNNER_TEMP/riscv-isa-sim" checkout "$SHA"
+        ./fetch.sh git https://github.com/riscv-software-src/riscv-isa-sim.git "$RUNNER_TEMP/riscv-isa-sim" "$SHA"
         mkdir "$RUNNER_TEMP/riscv-isa-sim/build"
         cd "$RUNNER_TEMP/riscv-isa-sim/build"
         ../configure --prefix=/opt/spike

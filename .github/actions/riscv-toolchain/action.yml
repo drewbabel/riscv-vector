@@ -14,8 +14,8 @@ runs:
       shell: bash
       run: |
         sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
-        sudo apt-get update
-        sudo apt-get install -y gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf ${{ inputs.extra-packages }}
+        ./fetch.sh run sudo apt-get update
+        ./fetch.sh run sudo apt-get install -y gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf ${{ inputs.extra-packages }}
     - name: Alias toolchain to riscv64-elf-*
       shell: bash
       run: |

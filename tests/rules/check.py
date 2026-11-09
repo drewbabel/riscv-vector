@@ -1617,6 +1617,7 @@ def main():
         "--no-elab", action="store_true", help="skip the slang bench checks"
     )
     ap.add_argument("--only", nargs="*", help="limit to these rules")
+    ap.add_argument("--skip", nargs="*", help="leave out these rules")
     ap.add_argument("files", nargs="*")
     args = ap.parse_args()
     rep = Report()
@@ -1676,6 +1677,8 @@ def main():
         rep.items = [i for i in rep.items if i[0] in args.files]
     if args.only:
         rep.items = [i for i in rep.items if i[3] in args.only]
+    if args.skip:
+        rep.items = [i for i in rep.items if i[3] not in args.skip]
     n = rep.emit(sys.stdout)
     print(f"{n} rule violations", file=sys.stderr)
     return 1 if n else 0

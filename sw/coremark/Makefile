@@ -27,7 +27,7 @@ coremark_sim.elf: $(CORESRC) $(PORTSRC) $(ASRC) link.ld
 all: coremark.hex coremark_sim.hex
 
 $(SRC):
-	git clone --depth 1 https://github.com/eembc/coremark.git $(SRC)
+	../../fetch.sh git https://github.com/eembc/coremark.git $(SRC)
 
 $(CORESRC): | $(SRC)
 
