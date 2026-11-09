@@ -1,0 +1,70 @@
+[tasks]
+prove watch
+cover reach
+cover_deep reach watch
+
+[options]
+prove: mode prove
+prove: depth 4
+reach: mode cover
+reach: depth 150
+reach: skip 128
+
+[engines]
+prove: smtbmc z3
+prove: abc pdr
+reach: btor btormc
+
+[script]
+read -formal dcache_formal.v
+watch: read -formal bram_watch.sv
+watch: rename $abstract\bram_sdp $abstract\bram_sdp_rtl
+watch: rename $abstract\bram_watch $abstract\bram_sdp
+prep -top dcache_formal
+techmap t:$shiftx
+setundef -anyconst
+flatten
+cover: chformal -cover -remove w:h_deep %co*
+cover_deep: chformal -cover -remove w:h_deep %co* %n
+cover_deep: connect -set h_deep 1'1
+watch: connect -set \dut.g_way[0].u_tag.w_idx f_line[6:0]
+watch: connect -set \dut.g_way[0].u_data.w_idx f_line[6:0]
+watch: connect -set \dut.g_way[1].u_tag.w_idx f_line[6:0]
+watch: connect -set \dut.g_way[1].u_data.w_idx f_line[6:0]
+watch: connect -set \dut.g_way[2].u_tag.w_idx f_line[6:0]
+watch: connect -set \dut.g_way[2].u_data.w_idx f_line[6:0]
+watch: connect -set \dut.g_way[3].u_tag.w_idx f_line[6:0]
+watch: connect -set \dut.g_way[3].u_data.w_idx f_line[6:0]
+prove: connect -set h_en 1'1
+prove: connect -set h_state dut.state
+prove: connect -set h_init dut.init_ctr
+prove: connect -set h_req dut.req_addr
+prove: connect -set h_req_rw dut.req_rw
+prove: connect -set h_req_wdata dut.req_wdata
+prove: connect -set h_req_wstrb dut.req_wstrb
+prove: connect -set h_fill_q dut.fill_q
+prove: connect -set h_victim_q dut.victim_way_q
+prove: connect -set h_victim dut.victim_way
+prove: connect -set h_fill_tag dut.fill_tag_q
+prove: connect -set h_fill_line dut.fill_line_q
+prove: connect -set h_tag_rd[22:0] \dut.g_way[0].u_tag.rdata
+prove: connect -set h_line_rd[127:0] \dut.g_way[0].u_data.rdata
+prove: connect -set h_wtag[22:0] \dut.g_way[0].u_tag.w_data
+prove: connect -set h_wline[127:0] \dut.g_way[0].u_data.w_data
+prove: connect -set h_tag_rd[45:23] \dut.g_way[1].u_tag.rdata
+prove: connect -set h_line_rd[255:128] \dut.g_way[1].u_data.rdata
+prove: connect -set h_wtag[45:23] \dut.g_way[1].u_tag.w_data
+prove: connect -set h_wline[255:128] \dut.g_way[1].u_data.w_data
+prove: connect -set h_tag_rd[68:46] \dut.g_way[2].u_tag.rdata
+prove: connect -set h_line_rd[383:256] \dut.g_way[2].u_data.rdata
+prove: connect -set h_wtag[68:46] \dut.g_way[2].u_tag.w_data
+prove: connect -set h_wline[383:256] \dut.g_way[2].u_data.w_data
+prove: connect -set h_tag_rd[91:69] \dut.g_way[3].u_tag.rdata
+prove: connect -set h_line_rd[511:384] \dut.g_way[3].u_data.rdata
+prove: connect -set h_wtag[91:69] \dut.g_way[3].u_tag.w_data
+prove: connect -set h_wline[511:384] \dut.g_way[3].u_data.w_data
+reach: connect -set h_en 1'0
+
+[files]
+build/dcache_formal.v
+formal/bram_watch.sv
