@@ -11,7 +11,7 @@ module vec_mask_tb
   localparam int VlW = $clog2(DLEN + 1);
   localparam int Words = DLEN / 32;
   localparam int Widths = $clog2(ELEN / 8) + 1;
-  localparam int MinChecks = 2990 * MaxElems + 840;
+  localparam int MinChecks = 6194 * MaxElems + 4 * DLEN + 7294;
 
   int                      checks = 0;
   int                      errors = 0;
@@ -99,14 +99,15 @@ module vec_mask_tb
       n    = DLEN / bits;
       #1;
       want = '0;
-      for (int e = 0; e < n; e++) begin
-        if (s == VEC_SRC_VV) b = pick(vs1_data, bits, e, ref_signed(o));
+      for (int e = 0; e < MaxElems; e++) begin
+        if (s == VEC_SRC_VV) b = (e < n) ? pick(vs1_data, bits, e, ref_signed(o)) : '0;
         else if (s == VEC_SRC_VI)
           b = pick_scalar({{(ELEN - 5) {simm[4]}}, simm}, bits, ref_signed(o));
         else b = pick_scalar(ELEN'(xdata), bits, ref_signed(o));
-        want[e] = ref_cmp(o, pick(vs2_data, bits, e, ref_signed(o)), b);
+        want[e] = ref_cmp(o, (e < n) ? pick(vs2_data, bits, e, ref_signed(o)) : '0, b);
       end
-      for (int e = 0; e < n; e++) check(tag, DLEN'(result[e]), DLEN'(want[e]));
+      for (int e = 0; e < MaxElems; e++) check(tag, DLEN'(result[e]), DLEN'(want[e]));
+      check(tag, result >> MaxElems, '0);
     end
   endtask  // Automatic
 
@@ -121,6 +122,8 @@ module vec_mask_tb
         xdata    = XLEN'($urandom);
         simm     = 5'($urandom);
         if (r % 4 == 0) vs1_data = vs2_data;
+        if (r % 4 == 1) vs2_data = {Words{xdata}};
+        if (r % 4 == 2) vs2_data = {Words{{{(ELEN - 5) {simm[4]}}, simm}}};
         for (int i = 0; i < $size(list); i++) begin
           for (int sew = 0; sew < Widths; sew++) begin
             run_cmp(list[i], VEC_SRC_VV, 3'(sew), "cmp vv");
@@ -169,9 +172,9 @@ module vec_mask_tb
       n    = DLEN / bits;
       #1;
       want = '0;
-      for (int e = 0; e < n; e++) begin
-        a = longint'(pick(vs2_data, bits, e, 1'b0));
-        if (s == VEC_SRC_VV) b = longint'(pick(vs1_data, bits, e, 1'b0));
+      for (int e = 0; e < MaxElems; e++) begin
+        a = (e < n) ? longint'(pick(vs2_data, bits, e, 1'b0)) : 0;
+        if (s == VEC_SRC_VV) b = (e < n) ? longint'(pick(vs1_data, bits, e, 1'b0)) : 0;
         else if (s == VEC_SRC_VI)
           b = longint'(pick_scalar({{(ELEN - 5) {simm[4]}}, simm}, bits, 1'b0));
         else b = longint'(pick_scalar(ELEN'(xdata), bits, 1'b0));
@@ -179,7 +182,8 @@ module vec_mask_tb
         if (o == VEC_MADC) want[e] = (a + b + c) >= (longint'(1) << bits);
         else want[e] = a < (b + c);
       end
-      for (int e = 0; e < n; e++) check(tag, DLEN'(result[e]), DLEN'(want[e]));
+      for (int e = 0; e < MaxElems; e++) check(tag, DLEN'(result[e]), DLEN'(want[e]));
+      check(tag, result >> MaxElems, '0);
     end
   endtask  // Automatic
 
@@ -201,6 +205,52 @@ module vec_mask_tb
           run_carry(VEC_MADC, VEC_SRC_VI, 3'(sew), "madc vi");
           run_carry(VEC_MSBC, VEC_SRC_VV, 3'(sew), "msbc vv");
           run_carry(VEC_MSBC, VEC_SRC_VX, 3'(sew), "msbc vx");
+        end
+      end
+      vm        = 1'b0;
+      mask_bits = '1;
+      vs2_data  = rand_data();
+      vs1_data  = ~vs2_data;
+      for (int sew = 0; sew < Widths; sew++) run_carry(VEC_MADC, VEC_SRC_VV, 3'(sew), "madc chain");
+      vs1_data = vs2_data;
+      for (int sew = 0; sew < Widths; sew++) run_carry(VEC_MSBC, VEC_SRC_VV, 3'(sew), "msbc chain");
+      vm = 1'b1;
+    end
+  endtask  // Automatic
+
+  // Carry chain edges
+  task automatic check_carry_edges();
+    int bits;
+    longint a;
+    longint d;
+    longint lim;
+    begin
+      vm        = 1'b0;
+      mask_bits = '1;
+      simm      = '1;
+      for (int k = 0; k < ELEN; k++) begin
+        for (int j = 0; j < 2; j++) begin
+          vs2_data = rand_data();
+          xdata    = XLEN'(-(longint'(1) << k) - longint'(j));
+          for (int sew = 0; sew < Widths; sew++) begin
+            bits = 8 << sew;
+            lim  = longint'(1) << bits;
+            d    = (lim - (longint'(1) << k) - longint'(j)) % lim;
+            if (d < 0) d = d + lim;
+            for (int e = 0; e < DLEN / bits; e++) begin
+              a = longint'(pick(vs2_data, bits, e, 1'b0));
+              for (int t = 0; t < bits; t++) vs1_data[e*bits+t] = 1'(((d - a + lim) % lim) >> t);
+            end
+            run_carry(VEC_MADC, VEC_SRC_VV, 3'(sew), "madc edge vv");
+            run_carry(VEC_MADC, VEC_SRC_VX, 3'(sew), "madc edge vx");
+            run_carry(VEC_MADC, VEC_SRC_VI, 3'(sew), "madc edge vi");
+            for (int e = 0; e < DLEN / bits; e++) begin
+              a = longint'(pick(vs2_data, bits, e, 1'b0));
+              for (int t = 0; t < bits; t++) vs1_data[e*bits+t] = 1'(((a + d) % lim) >> t);
+            end
+            run_carry(VEC_MSBC, VEC_SRC_VV, 3'(sew), "msbc edge vv");
+            run_carry(VEC_MSBC, VEC_SRC_VX, 3'(sew), "msbc edge vx");
+          end
         end
       end
       vm = 1'b1;
@@ -271,11 +321,13 @@ module vec_mask_tb
         vm       = 1'($urandom);
         vl       = VlW'($urandom_range(DLEN));
         for (int sew = 0; sew < Widths; sew++) begin
-          bits      = 8 << sew;
-          n         = DLEN / bits;
-          elem_base = VlW'(n * $urandom_range(3));
-          for (int k = 0; k < 2; k++) begin
-            op   = (k == 0) ? VEC_IOTA : VEC_ID;
+          bits = 8 << sew;
+          n    = DLEN / bits;
+          for (int k = 0; k < 4; k++) begin
+            if (k == 0) elem_base = VlW'(n * $urandom_range(DLEN / n));
+            if (k == 2) elem_base = VlW'($urandom_range(DLEN));
+            if (k % 2 == 0) op = VEC_IOTA;
+            else op = VEC_ID;
             vsew = 3'(sew);
             #1;
             want = '0;
@@ -322,6 +374,34 @@ module vec_mask_tb
     end
   endtask  // Automatic
 
+  // First hit everywhere
+  task automatic check_each_first();
+    int f;
+    begin
+      vl = VlW'(DLEN);
+      for (int p = 0; p < DLEN; p++) begin
+        vs2_data    = rand_data() << p;
+        vs2_data[p] = 1'b1;
+        v0_bits     = rand_data();
+        v0_bits[p]  = 1'b1;
+        vm          = 1'(p % 2);
+        op          = VEC_FIRST;
+        #1;
+        f = ref_first();
+        check("first at", DLEN'(xresult), DLEN'((f < 0) ? {XLEN{1'b1}} : XLEN'(f)));
+        op = VEC_CPOP;
+        #1;
+        check("cpop at", DLEN'(xresult), DLEN'(XLEN'(ref_pop())));
+        op = VEC_MSOF;
+        #1;
+        check("sof at", result, (f < 0) ? '0 : (DLEN'(1) << f));
+        op = VEC_MSBF;
+        #1;
+        check("sbf at", result, (f < 0) ? '1 : ((DLEN'(1) << f) - DLEN'(1)));
+      end
+    end
+  endtask  // Automatic
+
   task automatic do_verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
@@ -339,10 +419,12 @@ module vec_mask_tb
     check_compares();
     check_compare_edges();
     check_carry();
+    check_carry_edges();
     check_logic();
     check_set();
     check_index();
     check_scalar();
+    check_each_first();
     do_verdict();
   end
 
@@ -415,6 +497,11 @@ module vec_mask_tb
   // Live and enabled
   function automatic logic ref_active(input int i);
     ref_active = (i < int'(vl)) && (vm || v0_bits[i]);
+  endfunction
+
+  function automatic int ref_pop();
+    ref_pop = 0;
+    for (int i = 0; i < DLEN; i++) if (ref_active(i) && vs2_data[i]) ref_pop = ref_pop + 1;
   endfunction
 
   // First enabled hit

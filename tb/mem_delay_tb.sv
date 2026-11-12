@@ -2,7 +2,7 @@
 
 module mem_delay_tb ();
 
-  localparam int MinChecks = 5;
+  localparam int MinChecks = 5 + 3000;
 
   int checks;
   int errors;
@@ -75,6 +75,11 @@ module mem_delay_bench #(
   localparam int Depth = DEPTH;
   localparam int Latency = LATENCY;
   localparam int MaxWait = 100;
+  localparam int SoakCycles = 3000;
+  localparam int Lines = Depth / LineWords;
+  localparam int LineIdxLen = $clog2(Lines);
+  localparam int RstOdds = 400;
+  localparam int BootOdds = 10;
 
   int checks = 0;
   int errors = 0;
@@ -96,6 +101,17 @@ module mem_delay_bench #(
   logic boot_we;
   logic [Xlen-1:0] boot_addr;
   logic [Xlen-1:0] boot_wdata;
+
+  // Cycle model
+  logic m_busy = 1'b0;
+  int m_cnt = 0;
+  logic m_ready = 1'b0;
+  logic m_done;
+  logic m_rw_q;
+  logic [Xlen-1:0] m_addr_q;
+  logic [LineBits-1:0] m_wdata_q;
+  logic [LineBits-1:0] m_rdata;
+  logic [LineBits-1:0] m_mem[Lines];
 
   always #5 clk = ~clk;
 
@@ -197,6 +213,41 @@ module mem_delay_bench #(
           LineBits'(Xlen'('hBBBB_0000) + Xlen'(Second)));
   endtask  // Automatic
 
+  task automatic model_init();
+    for (int i = 0; i < Lines; i++) m_mem[i] = '0;
+  endtask  // Automatic
+
+  task automatic test_soak();
+    logic pending;
+    pending = 1'b0;
+    for (int i = 0; i < SoakCycles; i++) begin
+      @(negedge clk);
+      rst_n      = $urandom_range(RstOdds - 1) != 0;
+      core_en    = $urandom_range(4) != 0;
+      boot_we    = $urandom_range(BootOdds - 1) == 0;
+      boot_addr  = 1'($urandom) ? req_addr : rand_addr();
+      boot_wdata = Xlen'($urandom);
+      if (!pending) begin
+        pending   = $urandom_range(2) != 0;
+        req_valid = pending;
+        req_rw    = 1'($urandom);
+        req_addr  = rand_addr();
+        req_wdata = rand_line();
+      end
+      #1;
+      check("soak ready", LineBits'(resp_ready), LineBits'(m_ready));
+      if (pending && resp_ready && core_en) begin
+        if (!req_rw) check("soak rdata", resp_rdata, m_rdata);
+        pending = 1'b0;
+      end
+    end
+    @(negedge clk);
+    rst_n     = 1'b1;
+    core_en   = 1'b1;
+    boot_we   = 1'b0;
+    req_valid = 1'b0;
+  endtask  // Automatic
+
   task automatic finish();
     @(negedge clk);
     done = 1'b1;
@@ -205,13 +256,58 @@ module mem_delay_bench #(
   initial void'($value$plusargs("max_errors=%d", max_errors));
 
   initial begin
+    model_init();
     do_reset();
 
     test_boot_line();
     test_line_write();
     test_word_select();
+    test_soak();
 
     finish();
+  end
+
+  function automatic logic [Xlen-1:0] rand_addr();
+    rand_addr = Xlen'($urandom);
+    if ($urandom_range(3) != 0) rand_addr[IdxLsb+:LineIdxLen] = LineIdxLen'($urandom_range(15));
+  endfunction
+
+  function automatic logic [LineBits-1:0] rand_line();
+    for (int w = 0; w < LineWords; w++) rand_line[w*Xlen+:Xlen] = Xlen'($urandom);
+  endfunction
+
+  function automatic int word_of(input logic [Xlen-1:0] addr);
+    return int'((addr >> WordLsb) % LineWords);
+  endfunction
+
+  always @(posedge clk) begin
+    m_done = m_busy && (m_cnt >= Latency - 1);
+    if (core_en && m_done) m_rdata = m_mem[m_addr_q[IdxLsb+:LineIdxLen]];
+    if (core_en && boot_we)
+      m_mem[boot_addr[IdxLsb+:LineIdxLen]][word_of(boot_addr)*Xlen+:Xlen] = boot_wdata;
+    else if (core_en && m_done && m_rw_q) m_mem[m_addr_q[IdxLsb+:LineIdxLen]] = m_wdata_q;
+    if (!rst_n) begin
+      m_busy  = 1'b0;
+      m_cnt   = 0;
+      m_ready = 1'b0;
+    end else if (core_en) begin
+      if (boot_we) begin
+        m_busy = 1'b0;
+      end else if (!m_busy) begin
+        if (req_valid && !m_ready) begin
+          m_busy    = 1'b1;
+          m_cnt     = 1;
+          m_rw_q    = req_rw;
+          m_addr_q  = req_addr;
+          m_wdata_q = req_wdata;
+        end
+      end else if (m_done) begin
+        m_busy = 1'b0;
+      end else begin
+        m_cnt++;
+      end
+      m_ready = !boot_we && m_done;
+    end
   end
 
   function automatic logic [LineBits-1:0] line_of(input logic [Xlen-1:0] seed);

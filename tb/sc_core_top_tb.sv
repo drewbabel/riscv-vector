@@ -12,6 +12,7 @@ module sc_core_top_tb;
   localparam logic [7:0] PeriphTag = arch_pkg::GpioTag;
   localparam logic [Xlen-1:0] StoreAddr = Xlen'('h400);
   localparam logic [Xlen-1:0] Round = Xlen'('hABCD);
+  localparam logic [Xlen-1:0] Spread = Xlen'('h5A3C_96E1);
   localparam int MinRetired = 13;
   localparam int MinChecks = 1700;
 
@@ -33,6 +34,14 @@ module sc_core_top_tb;
   logic [     Xlen-1:0] read_data;
   logic [     Xlen-1:0] pc;
   logic [     Xlen-1:0] mem_addr;
+  logic                 mem_write;
+  logic [     Xlen-1:0] alu_result;
+  logic [     Xlen-1:0] write_data;
+  logic                 icap_q = 1'b0;
+  logic                 dcap_q = 1'b0;
+  logic [     Xlen-1:0] instr_cap_q;
+  logic                 irq_cap_q;
+  logic [     Xlen-1:0] rdata_cap_q;
   logic [   Xlen/8-1:0] store_wstrb;
   logic [     Xlen-1:0] store_data;
   logic                 imem_req;
@@ -109,9 +118,9 @@ module sc_core_top_tb;
       .imem_req   (imem_req),
       .dmem_req   (dmem_req),
       .pc         (pc),
-      .mem_write  (),
-      .alu_result (),
-      .write_data (),
+      .mem_write  (mem_write),
+      .alu_result (alu_result),
+      .write_data (write_data),
       .store_wstrb(store_wstrb),
       .store_data (store_data),
       .mem_addr   (mem_addr)
@@ -226,6 +235,8 @@ module sc_core_top_tb;
     check("x3 word load", reg_of(AWIDTH'(3)), Round);
     check("x7 byte load", reg_of(AWIDTH'(7)), Xlen'(Round[7:0]));
     check("x8 halfword load", reg_of(AWIDTH'(8)), Xlen'($signed(Round[15:0])));
+    check("x13 second word load", reg_of(AWIDTH'(13)), Spread);
+    check("x14 upper halfword load", reg_of(AWIDTH'(14)), Xlen'(Spread[15:0]));
   endtask  // Automatic
 
   task automatic check_peripheral();
@@ -241,6 +252,25 @@ module sc_core_top_tb;
 
   task automatic check_store_memory();
     check("store reached memory", mem[line_of(StoreAddr)][word_of(StoreAddr)*Xlen+:Xlen], Round);
+  endtask  // Automatic
+
+  task automatic check_store_bytes();
+    int   lo;
+    int   n;
+    logic shape;
+    lo = 0;
+    n  = 0;
+    for (int b = Xlen / 8 - 1; b >= 0; b--)
+      if (store_wstrb[b]) begin
+        lo = b;
+        n++;
+      end
+    shape = n == 1 || (n == 2 && lo % 2 == 0) || n == 4;
+    if (n != 0)
+      check("store strobe shape", Xlen'(store_wstrb), shape ? Xlen'(((1 << n) - 1) << lo) : '1);
+    for (int k = 0; k < n; k++)
+      check("store byte from write data", Xlen'(store_data[8*(lo+k)+:8]),
+            Xlen'(write_data[8*k+:8]));
   endtask  // Automatic
 
   task automatic do_verdict();
@@ -353,7 +383,7 @@ module sc_core_top_tb;
 
   assign core_en = (en_ctr == 0);
 
-  always @(posedge clk) irq_stim <= ~irq_stim;
+  always @(posedge clk) irq_stim <= 1'($urandom);
 
   // Freeze checks
   assign bus_out = {mem_addr, store_data};
@@ -386,6 +416,26 @@ module sc_core_top_tb;
             Xlen'((irq_hold !== irq_hold_q) && !core_en_q), '0);
       check("byte strobe live outside the request cycle", Xlen'(|store_wstrb && !dmem_req), '0);
       check("fetch and data request overlapped", Xlen'(imem_req && dmem_req), '0);
+      if (icap_q) begin
+        check("instruction hold missed the fetched word", instr_hold, instr_cap_q);
+        check("interrupt hold missed the sampled line", Xlen'(irq_hold), Xlen'(irq_cap_q));
+      end
+      if (dcap_q) check("data hold missed the read word", rdata_hold, rdata_cap_q);
+      if (imem_req) check("fetch outside the image", Xlen'(pc >= Xlen'(MemLines * LineBytes)), '0);
+      if (dmem_req) begin
+        check("data access for a non memory instruction",
+              Xlen'(instr_hold[6:0] == 7'b0000011 || instr_hold[6:0] == 7'b0100011), Xlen'(1));
+        check("memory address is the alu result", mem_addr, alu_result);
+        check("store flag", Xlen'(mem_write), Xlen'(instr_hold[6:0] == 7'b0100011));
+        check_store_bytes();
+      end
+    end
+    icap_q      <= rst_n && core_en && imem_req && imem_ready;
+    dcap_q      <= rst_n && core_en && dmem_req && dmem_ready;
+    instr_cap_q <= instr;
+    irq_cap_q   <= irq_stim;
+    rdata_cap_q <= read_data;
+    if (rst_n) begin
     end
   end
 

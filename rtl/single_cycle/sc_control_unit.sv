@@ -24,7 +24,8 @@ module sc_control_unit
     output logic                            csr_access,
     output logic                            is_ecall,
     output logic                            is_ebreak,
-    output logic                            is_mret
+    output logic                            is_mret,
+    output logic                            illegal
 );
 
   logic [AluOpW-1:0] alu_op;
@@ -48,7 +49,8 @@ module sc_control_unit
       .csr_access   (csr_access),
       .is_ecall     (is_ecall),
       .is_ebreak    (is_ebreak),
-      .is_mret      (is_mret)
+      .is_mret      (is_mret),
+      .illegal      (illegal)
   );
 
   alu_decoder u_alu_decoder (

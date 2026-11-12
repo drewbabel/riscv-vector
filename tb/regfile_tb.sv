@@ -5,7 +5,7 @@ module regfile_tb ();
   localparam int AWIDTH = arch_pkg::RegAddrW;
   localparam int XLEN = arch_pkg::XLEN;
   localparam int Depth = 2 ** AWIDTH;
-  localparam int MinChecks = 2000;
+  localparam int MinChecks = 8000;
 
   int checks = 0;
   int errors = 0;
@@ -13,6 +13,7 @@ module regfile_tb ();
 
   logic clk = 1'b0;
   logic rst_n = 1'b1;
+  logic core_en = 1'b1;
   logic we;
   logic [AWIDTH-1:0] waddr;
   logic [XLEN-1:0] wdata;
@@ -30,7 +31,7 @@ module regfile_tb ();
       .XLEN  (XLEN)
   ) dut (
       .clk(clk),
-      .core_en(1'b1),
+      .core_en(core_en),
       .rst_n(rst_n),
       .we(we),
       .waddr(waddr),
@@ -95,6 +96,41 @@ module regfile_tb ();
     end
   endtask  // Automatic
 
+  function automatic logic [AWIDTH-1:0] near(input logic [AWIDTH-1:0] addr);
+    case ($urandom_range(
+        2
+    ))
+      0: return addr;
+      1: return addr ^ AWIDTH'(1 << $urandom_range(AWIDTH - 1));
+      default: return AWIDTH'($urandom);
+    endcase
+  endfunction
+
+  function automatic logic [XLEN-1:0] expect_read(input logic [AWIDTH-1:0] addr);
+    if (we && waddr == addr && waddr != 0) return wdata;
+    return (addr == 0) ? '0 : shadow[addr];
+  endfunction
+
+  task automatic soak(input int n);
+    repeat (n) begin
+      @(negedge clk);
+      rst_n   = $urandom_range(63) != 0;
+      core_en = $urandom_range(3) != 0;
+      we      = 1'($urandom);
+      waddr   = AWIDTH'($urandom);
+      wdata   = XLEN'($urandom);
+      raddr1  = near(waddr);
+      raddr2  = near(waddr);
+      #1;
+      check("soak rdata1", rdata1, expect_read(raddr1));
+      check("soak rdata2", rdata2, expect_read(raddr2));
+    end
+    @(negedge clk);
+    rst_n   = 1'b1;
+    core_en = 1'b1;
+    we      = 1'b0;
+  endtask  // Automatic
+
   task automatic do_verdict();
     @(posedge clk);
     if (checks < MinChecks)
@@ -125,6 +161,7 @@ module regfile_tb ();
     check_reads(AWIDTH'(5), AWIDTH'(9));
 
     random_sweep(1000);
+    soak(3000);
     do_verdict();
   end
 
@@ -132,7 +169,7 @@ module regfile_tb ();
   always @(posedge clk) begin
     if (!rst_n) begin
       for (int i = 0; i < Depth; i++) shadow[i] <= '0;
-    end else if (we && waddr != 0) begin
+    end else if (core_en && we && waddr != 0) begin
       shadow[waddr] <= wdata;
     end
   end

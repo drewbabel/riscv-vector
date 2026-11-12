@@ -4,7 +4,9 @@ module dcache_tb;
 
   import cache_pkg::*;
 
-  localparam int MinChecks = 43 + 6 * DcWays + LineWords;
+  localparam int SoakOps = 2000;
+  localparam int CountOps = (1 << 14) + (1 << 10);
+  localparam int MinChecks = 43 + 6 * DcWays + LineWords + 2 * (SoakOps + CountOps);
   localparam int PoisonWord = (LineWords > 1) ? 1 : 0;
   localparam int Xlen = arch_pkg::XLEN;
   localparam int Depth = 8192;
@@ -19,6 +21,10 @@ module dcache_tb;
   localparam logic [Xlen-1:0] PatternSeed = Xlen'('h6000_0000);
   localparam logic [LineBytes-1:0] EndStrb = LineBytes'(1) | (LineBytes'(1) << (LineBytes - 1));
   localparam logic [LineBytes-1:0] GapStrb = ~LineBytes'(1);
+  localparam int PlruW = DcWays - 1;
+  localparam int TagPool = 6;
+  localparam int SoakGuard = 1000;
+  localparam int RstOdds = 3000;
 
   int checks = 0;
   int errors = 0;
@@ -48,6 +54,11 @@ module dcache_tb;
   logic [LineBits-1:0] mem_wdata;
   logic [LineBits-1:0] mem_rdata;
   logic mem_ready;
+  logic [LineBits-1:0] dly_rdata;
+  logic dly_ready;
+  logic soak_on = 1'b0;
+  logic soak_ready = 1'b0;
+  logic [LineBits-1:0] soak_rdata = '0;
 
   logic [Xlen-1:0] boot_addr;
   logic [Xlen-1:0] boot_wdata;
@@ -55,6 +66,29 @@ module dcache_tb;
 
   logic [31:0] hit_count;
   logic [31:0] miss_count;
+
+  // Soak model
+  logic [DcTagLen-1:0] pool[TagPool];
+  logic [LineBits-1:0] img[TagPool][DcSets];
+  logic m_valid[DcSets][DcWays];
+  logic m_dirty[DcSets][DcWays];
+  logic [DcTagLen-1:0] m_tag[DcSets][DcWays];
+  logic [LineBits-1:0] m_line[DcSets][DcWays];
+  logic [PlruW-1:0] m_plru[DcSets];
+  logic [31:0] m_hits = '0;
+  logic [31:0] m_misses = '0;
+  logic busy = 1'b0;
+  logic p_hit;
+  int p_set;
+  int p_way;
+  logic [DcTagLen-1:0] p_tag;
+  logic [LineBits-1:0] p_rdata;
+  logic [LineBits-1:0] p_line;
+  logic q_rw[$];
+  logic [Xlen-1:0] q_addr[$];
+  logic [LineBits-1:0] q_wdata[$];
+  int soak_wait = 0;
+  int rst_left = 0;
 
   always #5 clk = ~clk;
 
@@ -89,16 +123,19 @@ module dcache_tb;
       .clk(clk),
       .core_en(core_en),
       .rst_n(rst_n),
-      .req_valid(mem_valid),
+      .req_valid(mem_valid && !soak_on),
       .req_rw(mem_rw),
       .req_addr(mem_addr),
       .req_wdata(mem_wdata),
-      .resp_rdata(mem_rdata),
-      .resp_ready(mem_ready),
+      .resp_rdata(dly_rdata),
+      .resp_ready(dly_ready),
       .boot_we(boot_we),
       .boot_addr(boot_addr),
       .boot_wdata(boot_wdata)
   );
+
+  assign mem_ready = soak_on ? soak_ready : dly_ready;
+  assign mem_rdata = soak_on ? soak_rdata : dly_rdata;
 
   // Addressed word
   assign rword = cpu_rdata[word_of(cpu_addr)*Xlen+:Xlen];
@@ -314,6 +351,179 @@ module dcache_tb;
     expect_traffic("install kept", 0, 0, 0);
   endtask  // Automatic
 
+  task automatic soak_init();
+    for (int t = 0; t < TagPool; t++) begin
+      pool[t] = DcTagLen'($urandom);
+      for (int u = 0; u < t; u++) if (pool[u] == pool[t]) t--;
+    end
+    for (int t = 0; t < TagPool; t++) for (int s = 0; s < DcSets; s++) img[t][s] = rand_line();
+    do_reset();
+    model_reset();
+    soak_on = 1'b1;
+  endtask  // Automatic
+
+  task automatic model_reset();
+    for (int s = 0; s < DcSets; s++) begin
+      m_plru[s] = '0;
+      for (int w = 0; w < DcWays; w++) begin
+        m_valid[s][w] = 1'b0;
+        m_dirty[s][w] = 1'b0;
+      end
+    end
+    m_hits   = 0;
+    m_misses = 0;
+    busy     = 1'b0;
+    q_rw.delete();
+    q_addr.delete();
+    q_wdata.delete();
+  endtask  // Automatic
+
+  task automatic soak_issue(input logic sweep, input int n);
+    int t;
+    int victim;
+    logic [LineBits-1:0] base;
+    p_set = sweep ? n % DcSets : int'($urandom_range(DcSets - 1));
+    t = sweep ? (n / DcSets) % TagPool : int'($urandom_range(TagPool - 1));
+    p_tag = pool[t];
+    cpu_valid = 1'b1;
+    cpu_rw = sweep ? 1'b0 : 1'($urandom);
+    cpu_addr = line_addr(p_tag, p_set) | Xlen'($urandom_range(LineBytes - 1));
+    cpu_wdata = rand_line();
+    case ($urandom_range(
+        3
+    ))
+      0: cpu_wstrb = '1;
+      1: cpu_wstrb = LineBytes'({WordBytes{1'b1}}) << (WordBytes * $urandom_range(LineWords - 1));
+      default: cpu_wstrb = LineBytes'($urandom);
+    endcase
+    p_hit = 1'b0;
+    for (int w = 0; w < DcWays; w++) begin
+      if (m_valid[p_set][w] && (m_tag[p_set][w] == p_tag)) begin
+        p_hit = 1'b1;
+        p_way = w;
+      end
+    end
+    if (p_hit) begin
+      base = m_line[p_set][p_way];
+    end else begin
+      victim = plru_victim(m_plru[p_set]);
+      for (int w = DcWays - 1; w >= 0; w--) if (!m_valid[p_set][w]) victim = w;
+      p_way = victim;
+      if (m_valid[p_set][victim] && m_dirty[p_set][victim]) begin
+        q_rw.push_back(1'b1);
+        q_addr.push_back(line_addr(m_tag[p_set][victim], p_set));
+        q_wdata.push_back(m_line[p_set][victim]);
+      end
+      if (cpu_rw && (&cpu_wstrb)) begin
+        base = '0;
+      end else begin
+        q_rw.push_back(1'b0);
+        q_addr.push_back(line_addr(p_tag, p_set));
+        q_wdata.push_back('0);
+        base = img[t][p_set];
+      end
+    end
+    p_rdata = base;
+    p_line  = cpu_rw ? merge(base, cpu_wstrb, cpu_wdata) : base;
+    busy    = 1'b1;
+  endtask  // Automatic
+
+  task automatic soak_commit();
+    if (!cpu_rw) check("soak rdata", cpu_rdata, p_rdata);
+    check("soak mem drained", LineBits'(q_rw.size()), '0);
+    m_valid[p_set][p_way] = 1'b1;
+    m_dirty[p_set][p_way] = cpu_rw || (p_hit && m_dirty[p_set][p_way]);
+    m_tag[p_set][p_way]   = p_tag;
+    m_line[p_set][p_way]  = p_line;
+    m_plru[p_set]         = plru_touch(m_plru[p_set], p_way);
+    if (p_hit) m_hits++;
+    else m_misses++;
+    busy = 1'b0;
+  endtask  // Automatic
+
+  task automatic soak_mem();
+    int t;
+    if (q_rw.size() == 0) check("soak spurious mem", LineBits'(mem_valid), '0);
+    if (!mem_valid || (q_rw.size() == 0)) return;
+    check("soak mem rw", LineBits'(mem_rw), LineBits'(q_rw[0]));
+    check("soak mem addr", LineBits'(mem_addr), LineBits'(q_addr[0]));
+    if (q_rw[0]) check("soak mem wdata", mem_wdata, q_wdata[0]);
+    if (!core_en) return;
+    if (soak_ready) begin
+      t = pool_slot(mem_addr);
+      if (mem_rw && (t >= 0)) img[t][mem_addr[IdxLsb+:DcIdxLen]] = mem_wdata;
+      void'(q_rw.pop_front());
+      void'(q_addr.pop_front());
+      void'(q_wdata.pop_front());
+      soak_wait = int'($urandom_range(3));
+    end else begin
+      soak_wait--;
+    end
+  endtask  // Automatic
+
+  task automatic soak(input int n, input logic sweep);
+    int done;
+    int age;
+    int t;
+    done = 0;
+    age  = 0;
+    while (done < n) begin
+      @(negedge clk);
+      if (!busy) begin
+        check("soak hits", LineBits'(hit_count), LineBits'(m_hits));
+        check("soak misses", LineBits'(miss_count), LineBits'(m_misses));
+      end
+      if ((rst_left == 0) && !sweep && ($urandom_range(RstOdds - 1) == 0))
+        rst_left = 1 + int'($urandom_range(2));
+      core_en = $urandom_range(4) != 0;
+      if (rst_left > 0) begin
+        rst_left--;
+        rst_n = 1'b0;
+        model_reset();
+        soak_wait = 0;
+        age = 0;
+      end else begin
+        rst_n = 1'b1;
+      end
+      if (!busy && rst_n && ($urandom_range(3) != 0)) begin
+        soak_issue(sweep, done);
+      end else if (!busy) begin
+        cpu_valid = 1'b0;
+        cpu_addr  = Xlen'($urandom);
+      end
+      soak_ready = mem_valid && (soak_wait == 0);
+      t = pool_slot(mem_addr);
+      soak_rdata = (soak_ready && (t >= 0)) ? img[t][mem_addr[IdxLsb+:DcIdxLen]] : rand_line();
+      #1;
+      if (rst_n) begin
+        soak_mem();
+        if (core_en && cpu_valid && cpu_ready) begin
+          soak_commit();
+          done++;
+          age = 0;
+        end else if (busy) begin
+          age++;
+          if (age > SoakGuard) $fatal(1, "soak stuck at %h", cpu_addr);
+        end
+      end
+    end
+  endtask  // Automatic
+
+  task automatic test_soak();
+    soak_init();
+    soak(SoakOps, 1'b0);
+    soak(DcSets, 1'b1);
+    rst_left = 2;
+    soak(DcSets, 1'b1);
+    soak(CountOps, 1'b1);
+    soak(SoakOps / 10, 1'b0);
+    @(negedge clk);
+    cpu_valid = 1'b0;
+    core_en   = 1'b1;
+    rst_n     = 1'b1;
+    soak_on   = 1'b0;
+  endtask  // Automatic
+
   task automatic do_verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
@@ -341,6 +551,7 @@ module dcache_tb;
     test_dirty_install();
     test_partial_miss();
     test_install_recent();
+    test_soak();
 
     do_verdict();
   end
@@ -370,6 +581,41 @@ module dcache_tb;
                                                 input logic [LineBits-1:0] data);
     merge = line;
     for (int b = 0; b < LineBytes; b++) if (strb[b]) merge[b*8+:8] = data[b*8+:8];
+  endfunction
+
+  function automatic logic [Xlen-1:0] line_addr(input logic [DcTagLen-1:0] tag, input int set);
+    return {tag, DcIdxLen'(set), IdxLsb'(0)};
+  endfunction
+
+  function automatic int pool_slot(input logic [Xlen-1:0] addr);
+    pool_slot = -1;
+    for (int t = 0; t < TagPool; t++) if (pool[t] == addr[Xlen-1-:DcTagLen]) pool_slot = t;
+  endfunction
+
+  function automatic logic [LineBits-1:0] rand_line();
+    for (int w = 0; w < LineWords; w++) rand_line[w*Xlen+:Xlen] = Xlen'($urandom);
+  endfunction
+
+  function automatic int plru_victim(input logic [PlruW-1:0] tree);
+    int node;
+    node = 0;
+    plru_victim = 0;
+    for (int lvl = DcWaySel - 1; lvl >= 0; lvl--) begin
+      plru_victim |= int'(tree[node]) << lvl;
+      node = 2 * node + 1 + int'(tree[node]);
+    end
+  endfunction
+
+  function automatic logic [PlruW-1:0] plru_touch(input logic [PlruW-1:0] tree, input int way);
+    int node;
+    int b;
+    node = 0;
+    plru_touch = tree;
+    for (int lvl = DcWaySel - 1; lvl >= 0; lvl--) begin
+      b = (way >> lvl) & 1;
+      plru_touch[node] = (b == 0);
+      node = 2 * node + 1 + b;
+    end
   endfunction
 
   // Count memory traffic

@@ -2,7 +2,7 @@
 
 module gpio_tb ();
 
-  localparam int MinChecks = 9;
+  localparam int MinChecks = 4000;
 
   int checks;
   int errors;
@@ -75,6 +75,8 @@ module gpio_bench #(
   logic [Xlen-1:0] rdata;
   logic [Width-1:0] sw;
   logic [Width-1:0] led;
+  logic core_en = 1'b1;
+  logic [Width-1:0] m_led;
 
   always #5 clk = ~clk;
 
@@ -83,7 +85,7 @@ module gpio_bench #(
       .WIDTH(Width)
   ) dut (
       .clk    (clk),
-      .core_en(1'b1),
+      .core_en(core_en),
       .rst_n  (rst_n),
       .sel    (sel),
       .wstrb  (wstrb),
@@ -178,6 +180,29 @@ module gpio_bench #(
     check_led("led_cleared_by_reset", '0);
   endtask  // Automatic
 
+  task automatic soak(input int n);
+    do_reset();
+    m_led = '0;
+    repeat (n) begin
+      @(negedge clk);
+      core_en = $urandom_range(3) != 0;
+      sel     = 1'($urandom);
+      addr    = (1'($urandom) ? SwAddr : LedAddr) | (Xlen'($urandom) & ~Xlen'(Xlen / 8));
+      wstrb   = ($urandom_range(2) == 0) ? '0 : StrbW'($urandom);
+      wdata   = Xlen'($urandom);
+      sw      = Width'($urandom);
+      #1;
+      check("soak rdata", rdata, addr[$clog2(Xlen/8)] ? Xlen'(sw) : Xlen'(m_led));
+      check("soak led", Xlen'(led), Xlen'(m_led));
+      @(posedge clk);
+      if (core_en && sel && !addr[$clog2(Xlen/8)] && wstrb != '0) m_led = wdata[Width-1:0];
+    end
+    @(negedge clk);
+    core_en = 1'b1;
+    sel     = 1'b0;
+    wstrb   = '0;
+  endtask  // Automatic
+
   task automatic finish();
     @(negedge clk);
     done = 1'b1;
@@ -192,6 +217,7 @@ module gpio_bench #(
     test_switches();
     test_write_guards();
     test_reset_clears();
+    soak(2000);
 
     finish();
   end

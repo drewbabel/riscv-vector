@@ -104,6 +104,7 @@ module vec_fp_div_lane_tb
       taken = core_en;
       @(negedge clk);
     end
+    check("busy after take", FLEN'(busy), FLEN'(1'b1));
     start = 1'b0;
     op = vec_fop_e'($urandom_range(2) + int'(VEC_FDIV));
     rm = RmW'($urandom);
@@ -229,6 +230,20 @@ module vec_fp_div_lane_tb
     run_op("after reset", VEC_FDIV, RmRne, One, Three, Third, FlagNx);
   endtask  // Automatic
 
+  // Idle without start
+  task automatic idle_hold();
+    run_op("before idle", VEC_FDIV, RmRne, One, Three, Third, FlagNx);
+    repeat (8) begin
+      @(negedge clk);
+      expect_idle("idle without start");
+    end
+    do_reset();
+    repeat (8) begin
+      @(negedge clk);
+      expect_idle("idle after reset");
+    end
+  endtask  // Automatic
+
   task automatic stalled_files();
     $dumpoff;
     stall_pct = StallPct;
@@ -258,6 +273,7 @@ module vec_fp_div_lane_tb
     busy_start();
     done_start();
     reset_mid();
+    idle_hold();
     stalled_files();
 
     do_verdict();

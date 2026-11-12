@@ -10,6 +10,11 @@ _start:
     sb   x1, 0(x6)          # Byte store
     lbu  x7, 0(x6)          # Byte load
     lh   x8, 0(x2)          # Sign-extended load
+    li   x12, 0x5A3C96E1    # Spread bit value
+    sw   x12, 8(x2)         # Second word store
+    lw   x13, 8(x2)         # Second word load
+    sh   x12, 14(x2)        # Upper halfword store
+    lhu  x14, 14(x2)        # Upper halfword load
     li   x4, 0x03000000     # Same cycle ready
     sw   x3, 0(x4)          # Single strobe
     lw   x11, 0(x4)         # Read peripheral

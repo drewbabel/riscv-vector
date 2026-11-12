@@ -8,7 +8,8 @@ module vec_config_tb ();
   localparam int Elen = arch_pkg::ELEN;
   localparam int VlW = $clog2(Vlen + 1);
   localparam int AWIDTH = arch_pkg::RegAddrW;
-  localparam int MinChecks = 45000;
+  localparam int SoakOps = 20000;
+  localparam int MinChecks = 45000 + 3 * SoakOps;
 
   localparam logic [Xlen-1:0] Poison = {1'b1, {Xlen - 1{1'b0}}};
   localparam logic [Xlen-1:0] Reserved = {2'b01, {Xlen - 2{1'b0}}};
@@ -208,6 +209,36 @@ module vec_config_tb ();
     do_vsetivli(10'(E32m1), AWIDTH'(0), AWIDTH'(0), "vsetivli zero fields");
   endtask  // Automatic
 
+  function automatic logic [Xlen-1:0] rand_word();
+    case ($urandom_range(
+        3
+    ))
+      0: return Xlen'(1) << $urandom_range(Xlen - 1);
+      1: return Xlen'($urandom_range(2 * Vlen));
+      default: return Xlen'($urandom);
+    endcase
+  endfunction
+
+  task automatic soak(input int n);
+    repeat (n) begin
+      rs1_data = rand_word();
+      rs2_data = (1'($urandom)) ? Xlen'($urandom_range(255)) : rand_word();
+      vl_q     = VlW'($urandom);
+      vtype_q  = (1'($urandom)) ? Xlen'($urandom_range(255)) : rand_word();
+      if (vtype_bad(vtype_q)) vtype_q = Poison;
+      case ($urandom_range(
+          3
+      ))
+        0: instr = {1'b0, 11'($urandom), 5'($urandom), Funct3Opcfg, 5'($urandom), OpcodeOpV};
+        1: instr = {TopVsetivli, 10'($urandom), 5'($urandom), Funct3Opcfg, 5'($urandom), OpcodeOpV};
+        2: instr = {Funct7Vsetvl, 5'($urandom), 5'($urandom), Funct3Opcfg, 5'($urandom), OpcodeOpV};
+        default: instr = Xlen'($urandom);
+      endcase
+      if ($urandom_range(3) == 0) instr[19:7] = {5'b0, instr[14:12], 5'b0};
+      check_config("soak");
+    end
+  endtask  // Automatic
+
   task automatic do_verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
@@ -254,6 +285,7 @@ module vec_config_tb ();
 
     set_state(2, Xlen'(E8m1));
     test_named_vlmax();
+    soak(SoakOps);
 
     do_verdict();
   end
@@ -286,6 +318,12 @@ module vec_config_tb ();
 
   function automatic logic ratio_bad(input logic [Xlen-1:0] vtype);
     return (sew_of(vtype[5:3]) * lmul_den(vtype[2:0])) / lmul_num(vtype[2:0]) > Elen;
+  endfunction
+
+  // Illegal vtype value
+  function automatic logic vtype_bad(input logic [Xlen-1:0] vt);
+    return (vt[5:3] > VsewMax) || (vt[2:0] == LmulReserved) || ratio_bad(vt) ||
+        (vt[Xlen-2:8] != '0) || vt[Xlen-1];
   endfunction
 
   function automatic answer_t model(input logic [Xlen-1:0] i, input logic [Xlen-1:0] r1,
@@ -324,8 +362,7 @@ module vec_config_tb ();
 
     a.is_vset = 1'b1;
 
-    bad = (vt[5:3] > VsewMax) || (vt[2:0] == LmulReserved) || ratio_bad(vt) ||
-        (vt[Xlen-2:8] != '0) || vt[Xlen-1];
+    bad = vtype_bad(vt);
     if (keep) bad = bad || vtq[Xlen-1] || (vlmax_of(vt) != vlmax_of(vtq));
 
     if (bad) begin

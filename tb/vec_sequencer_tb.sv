@@ -13,7 +13,8 @@ module vec_sequencer_tb ();
   localparam int OffW = $clog2(VLEN);
   localparam int CntW = $clog2(MaxElems + 1);
   localparam int IdleTimeout = 2 * VLEN;
-  localparam int MinChecks = 16600 + 141 * VLEN + (206 * VLEN) / MulLanes;
+  localparam int SoakCycles = 8000;
+  localparam int MinChecks = 16600 + 141 * VLEN + (206 * VLEN) / MulLanes + 3 * SoakCycles;
 
   int checks = 0;
   int errors = 0;
@@ -33,6 +34,7 @@ module vec_sequencer_tb ();
   logic [2:0] vlmul;
   logic vm;
   logic [MaxElems-1:0] mask_bits;
+  logic [VLEN-1:0] v0_bits;
   vec_rel_e d_rel;
   vec_rel_e s1_rel;
   vec_rel_e s2_rel;
@@ -80,7 +82,7 @@ module vec_sequencer_tb ();
       .vlmul       (vlmul),
       .vm          (vm),
       .mask_bits   (mask_bits),
-      .v0_bits     ({VLEN{1'b1}}),
+      .v0_bits     (v0_bits),
       .d_rel       (d_rel),
       .s1_rel      (s1_rel),
       .s2_rel      (s2_rel),
@@ -130,6 +132,7 @@ module vec_sequencer_tb ();
     vlmul        = 3'd0;
     vm           = 1'b1;
     mask_bits    = '1;
+    v0_bits      = '1;
     d_rel        = VEC_REL_SAME;
     s1_rel       = VEC_REL_SAME;
     s2_rel       = VEC_REL_SAME;
@@ -440,6 +443,176 @@ module vec_sequencer_tb ();
     end
   endtask  // Automatic
 
+  // Legal shape draw
+  task automatic pick_shape(output logic [2:0] sew, output logic [2:0] lmul);
+    int k;
+    logic [2:0] lms[7];
+    lms = '{3'd6, 3'd7, 3'd0, 3'd1, 3'd2, 3'd3, 3'd6};
+    set_plain();
+    mask_dest  = 1'b0;
+    mask_whole = 1'b0;
+    mask_src   = 1'b0;
+    do begin
+      sew  = 3'($urandom_range(Widths - 1));
+      lmul = lms[$urandom_range(5)];
+    end while (ref_total(
+        sew, lmul
+    ) < VLEN / ELEN);
+    k = $urandom_range(12);
+    case (k)
+      1, 2, 3: begin
+        if ((sew == 3'd2) || (lmul == 3'd3)) return;
+        if (k != 3) d_rel = VEC_REL_WIDE;
+        if (k != 1) s2_rel = VEC_REL_WIDE;
+        mul_rate = (k != 2) && 1'($urandom);
+      end
+      4:       if (sew != 3'd0) s2_rel = VEC_REL_HALF;
+      5:       if (sew == 3'd2) s2_rel = VEC_REL_QUARTER;
+      6: begin
+        mul_rate = 1'b1;
+        if ((sew != 3'd2) && (lmul != 3'd3) && 1'($urandom)) d_rel = VEC_REL_WIDE;
+      end
+      7: begin
+        single_write = 1'b1;
+        if ((sew != 3'd2) && 1'($urandom)) d_rel = VEC_REL_WIDE;
+        else if (sew == 3'd2) serial = 1'($urandom);
+      end
+      8:       single_write = 1'b1;
+      9: begin
+        mask_dest = 1'b1;
+        mul_rate  = (sew == 3'd2) && 1'($urandom);
+      end
+      10: begin
+        if (1'($urandom)) {sew, lmul} = {3'd0, 3'd3};
+        mask_dest  = 1'b1;
+        mask_whole = 1'b1;
+        mask_src   = 1'b1;
+      end
+      11: begin
+        if (1'($urandom)) {sew, lmul} = {3'd0, 3'd3};
+        single_write = 1'b1;
+        mask_whole   = 1'b1;
+        mask_src     = 1'b1;
+      end
+      12:      mask_src = 1'b1;
+      default: ;
+    endcase
+  endtask  // Automatic
+
+  // Random walks against model
+  task automatic test_soak(input int cycles);
+    int m_elem, sb, dw, w1, w2, widest, n, total, p1, p2, pd, pdn, len;
+    logic m_busy, m_done, m_last;
+    logic [2:0] sew, lmul;
+    logic [VLEN-1:0] strb;
+    logic [MaxElems-1:0] act;
+    m_elem = 0;
+    m_busy = 1'b0;
+    m_done = 1'b0;
+    for (int c = 0; c < cycles; c++) begin
+      if ((c == 0) || (!m_busy && ($urandom_range(3) == 0))) begin
+        pick_shape(sew, lmul);
+        vs1      = AWIDTH'($urandom);
+        vs2      = AWIDTH'($urandom);
+        vd       = AWIDTH'($urandom);
+        reads_vd = 1'($urandom);
+        vsew     = sew;
+        vlmul    = lmul;
+        vm       = 1'($urandom);
+        v0_bits  = {4{32'($urandom)}};
+        case ($urandom_range(
+            3
+        ))
+          0: len = ref_total(sew, lmul);
+          1: len = int'(1'($urandom));
+          default: len = $urandom_range(ref_total(sew, lmul));
+        endcase
+        vl = VlW'(len);
+      end
+      mask_bits = MaxElems'({4{32'($urandom)}});
+      core_en   = $urandom_range(3) != 0;
+      start     = $urandom_range(2) == 0;
+      #1;
+      sb = 8 << vsew;
+      dw = ref_width(d_rel, vsew);
+      w1 = ref_width(s1_rel, vsew);
+      w2 = ref_width(s2_rel, vsew);
+      if (mask_whole) widest = sb;
+      else if (single_write) widest = w2;
+      else if (mask_dest) widest = (w1 > w2) ? w1 : w2;
+      else if (mask_src) widest = dw;
+      else begin
+        widest = dw;
+        if (w1 > widest) widest = w1;
+        if (w2 > widest) widest = w2;
+      end
+      n = VLEN / widest;
+      if (mul_rate && (n > MulLanes)) n = MulLanes;
+      if (serial) n = 1;
+      if (mask_whole) n = 1;
+      total  = mask_whole ? 1 : ref_total(vsew, vlmul);
+      m_last = (m_elem + n) >= total;
+      p1     = (single_write || mask_src) ? 0 : m_elem * w1;
+      p2     = mask_src ? 0 : m_elem * w2;
+      if (mask_dest) dw = 1;
+      pd  = single_write ? 0 : m_elem * dw;
+      pdn = single_write ? 0 : (m_elem + n) * dw;
+      for (int e = 0; e < MaxElems; e++)
+      act[e] = (e < n) && ((m_elem + e) < int'(vl)) && (vm || mask_bits[e]);
+      strb = '0;
+      if (single_write) begin
+        if (m_last) for (int b = 0; b < dw; b++) strb[b] = 1'b1;
+      end else if (mask_whole) begin
+        if (m_last) for (int b = 0; b < int'(vl); b++) strb[b] = vm || v0_bits[b];
+      end else begin
+        for (int e = 0; e < n; e++)
+        if (act[e])
+          for (int b = 0; b < dw; b++)
+          if ((pd % VLEN) + e * dw + b < VLEN) strb[(pd%VLEN)+e*dw+b] = 1'b1;
+      end
+      check("soak busy", VLEN'(busy), VLEN'(m_busy));
+      check("soak done", VLEN'(done), VLEN'(m_done));
+      check("soak wen", VLEN'(wen), VLEN'(m_busy && (strb != '0)));
+      if (m_busy) begin
+        check("soak raddr1", VLEN'(raddr1), VLEN'(AWIDTH'(vs1 + p1 / VLEN)));
+        check("soak raddr2", VLEN'(raddr2), VLEN'(AWIDTH'(vs2 + p2 / VLEN)));
+        check("soak raddr3", VLEN'(raddr3), VLEN'(reads_vd ? AWIDTH'(vd + pd / VLEN) : '0));
+        check("soak waddr", VLEN'(waddr), VLEN'(AWIDTH'(vd + pd / VLEN)));
+        check("soak s1_off", VLEN'(s1_off), VLEN'(p1 % VLEN));
+        check("soak s2_off", VLEN'(s2_off), VLEN'(p2 % VLEN));
+        check("soak d_off", VLEN'(d_off), VLEN'(pd % VLEN));
+        check("soak elem_base", VLEN'(elem_base), VLEN'(m_elem));
+        check("soak elem_count", VLEN'(elem_count), VLEN'(n));
+        check("soak elem_active", VLEN'(elem_active), VLEN'(act));
+        check("soak last", VLEN'(last), VLEN'(m_last));
+        check("soak reg_done", VLEN'(reg_done), VLEN'(m_last || (pdn / VLEN != pd / VLEN)));
+        check("soak wstrb", wstrb, strb);
+      end
+      if (core_en) begin
+        m_done = 1'b0;
+        if (!m_busy) begin
+          if (start) begin
+            m_elem = 0;
+            if (vl == '0) m_done = 1'b1;
+            else m_busy = 1'b1;
+          end
+        end else if (m_last) begin
+          m_busy = 1'b0;
+          m_done = 1'b1;
+        end else m_elem = m_elem + n;
+      end
+      @(negedge clk);
+    end
+    core_en = 1'b1;
+    start   = 1'b0;
+    wait_idle();
+    set_plain();
+    mask_dest  = 1'b0;
+    mask_whole = 1'b0;
+    mask_src   = 1'b0;
+    v0_bits    = '1;
+  endtask  // Automatic
+
   task automatic do_verdict();
     if (checks < MinChecks)
       $fatal(1, "TB UNDER-RAN: %0d checks, expected at least %0d", checks, MinChecks);
@@ -473,6 +646,7 @@ module vec_sequencer_tb ();
     sweep();
 
     test_group_shapes();
+    test_soak(SoakCycles);
 
     do_verdict();
   end

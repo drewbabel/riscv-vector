@@ -690,8 +690,9 @@ module vec_unit_tb
         form = int'(1'($urandom));
         sew  = 3'($urandom_range(2));
         lmul = 3'($urandom_range(2));
-        len  = VlW'($urandom_range(vlmax_of(sew, lmul)));
-        vmb  = 1'($urandom);
+        if (sew < 3'd2 && 1'($urandom)) lmul = 3'(-$urandom_range(1, 2 - int'(sew)));
+        len = VlW'($urandom_range(vlmax_of(sew, lmul)));
+        vmb = 1'($urandom);
         if (o == VEC_MERGE) vmb = 1'b0;
         run_one(o, form, AWIDTH'(4), AWIDTH'(8), AWIDTH'(16), vmb, XLEN'($urandom),
                 AWIDTH'($urandom), sew, lmul, len);
@@ -1555,6 +1556,10 @@ module vec_unit_tb
     run_reduce(VEC_WREDSUMU, AWIDTH'(1), AWIDTH'(4), AWIDTH'(16), 1'b1, 3'd1, 3'd0, VlW'(8));
     run_reduce(VEC_WREDSUM, AWIDTH'(1), AWIDTH'(4), AWIDTH'(16), 1'b1, 3'd1, 3'd0, VlW'(8));
     run_reduce(VEC_WREDSUM, AWIDTH'(1), AWIDTH'(4), AWIDTH'(16), 1'b1, 3'd0, 3'd1, VlW'(32));
+    run_reduce(VEC_REDSUM, AWIDTH'(1), AWIDTH'(8), AWIDTH'(16), 1'b1, 3'd0, 3'd2, VlW'(64));
+    run_reduce(VEC_REDXOR, AWIDTH'(1), AWIDTH'(8), AWIDTH'(17), 1'b1, 3'd0, 3'd3, VlW'(VLEN));
+    run_reduce(VEC_REDMAX, AWIDTH'(1), AWIDTH'(8), AWIDTH'(18), 1'b1, 3'd1, 3'd3, VlW'(64));
+    run_reduce(VEC_WREDSUMU, AWIDTH'(1), AWIDTH'(8), AWIDTH'(19), 1'b0, 3'd0, 3'd3, VlW'(VLEN));
   endtask  // Automatic
 
   task automatic check_scalar_moves();
@@ -2082,6 +2087,15 @@ module vec_unit_tb
       seed_reg(AWIDTH'(7), '0);
       run_msum(1'b1, AWIDTH'(7), 1'b1, VlW'(VLEN));
       run_msum(1'b0, AWIDTH'(7), 1'b1, VlW'(VLEN));
+      seed_reg(AWIDTH'(0), '1);
+      seed_reg(AWIDTH'(7), '1);
+      run_msum(1'b1, AWIDTH'(7), 1'b0, VlW'(VLEN));
+      for (int k = 0; k < 4; k++) begin
+        seed_reg(AWIDTH'(0), {32'($urandom), 32'($urandom), 32'($urandom), 32'($urandom)});
+        seed_reg(AWIDTH'(7), {32'($urandom), 32'($urandom), 32'($urandom), 32'($urandom)});
+        run_msum(1'b1, AWIDTH'(7), 1'b0, VlW'(VLEN));
+        run_msum(1'b0, AWIDTH'(7), 1'b0, VlW'(VLEN));
+      end
     end
   endtask  // Automatic
 
@@ -4702,23 +4716,25 @@ module vec_unit_tb
     seed_fred();
     vsew = 3'd2;
     frm  = fp_pkg::RmRne;
-    for (int k = 0; k < 4; k++) begin
+    for (int k = 0; k < 5; k++) begin
       case (k)
-        0: word = enc(funct6_of(VEC_ADD), 1'b1, AWIDTH'(8), AWIDTH'(16), 3'b000, AWIDTH'(24));
+        0, 4: word = enc(funct6_of(VEC_ADD), 1'b1, AWIDTH'(8), AWIDTH'(16), 3'b000, AWIDTH'(24));
         1: word = fred_encode(VEC_FMIN, AWIDTH'(1), AWIDTH'(8), AWIDTH'(2), 1'b1);
         2: word = fred_encode(VEC_FREDOSUM, AWIDTH'(1), AWIDTH'(8), AWIDTH'(3), 1'b1);
         default: word = fred_encode(VEC_FREDUSUM, AWIDTH'(1), AWIDTH'(8), AWIDTH'(4), 1'b1);
       endcase
+      vsew  = (k == 4) ? 3'd0 : 3'd2;
       vlmul = 3'd0;
-      vl    = VlW'(FpElems);
+      vl    = VlW'(VLEN / (8 << vsew));
       idle_cycles(word, one);
       vlmul = 3'd3;
-      vl    = VlW'(GroupRegs * FpElems);
+      vl    = VlW'(GroupRegs * VLEN / (8 << vsew));
       idle_cycles(word, full);
-      check(
-          $sformatf("cadence of form %0d", k), XLEN'(full - one),
-          (k < 2) ? XLEN'(GroupRegs - 1) : XLEN'(fp_pkg::FpAddLatency * FpElems * (GroupRegs - 1)));
+      check($sformatf("cadence of form %0d", k), XLEN'(full - one),
+            ((k < 2) || (k == 4)) ? XLEN'(GroupRegs - 1) :
+            XLEN'(fp_pkg::FpAddLatency * FpElems * (GroupRegs - 1)));
     end
+    vsew = 3'd2;
     seed_fred();
     vlmul = 3'd0;
     vl    = VlW'(FpElems);
